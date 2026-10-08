@@ -453,10 +453,11 @@ test('repeated compact resizes preserve the route preference from the wide layou
 
 
 test('new-passage preview and save prevent switching to the list until their responses settle', async () => {
-  let resolvePreview, resolveSave
+  let resolvePreview, resolveSave, markSaveStarted
+  const saveStarted = new Promise((resolve) => { markSaveStarted = resolve })
   const p = await panel({
     previewImport: () => new Promise((resolve) => { resolvePreview = resolve }),
-    createPassage: () => new Promise((resolve) => { resolveSave = resolve }),
+    createPassage: () => new Promise((resolve) => { resolveSave = resolve; markSaveStarted() }),
   })
   button(p.render(), '段落管理').props.onClick()
   button(p.render(), '新建段落').props.onClick()
@@ -471,7 +472,7 @@ test('new-passage preview and save prevent switching to the list until their res
   assert.equal(button(p.render(), '段落列表').props.disabled, false)
   assert.ok(button(p.render(), '确认保存'))
   const saving = all(p.render(), (node) => node.type === 'form')[0].props.onSubmit(submit)
-  await new Promise((resolve) => setImmediate(resolve))
+  await saveStarted
   const saveLocked = button(p.render(), '段落列表').props.disabled
   assert.ok(button(p.render(), '正在安全保存…'))
   resolveSave(ok({ kind: 'conflict', reason: 'limit-reached' }))
@@ -479,4 +480,54 @@ test('new-passage preview and save prevent switching to the list until their res
   assert.equal(saveLocked, true)
   assert.equal(button(p.render(), '段落列表').props.disabled, false)
   assert.match(text(all(p.render(), (node) => node.props?.role === 'dialog')[0]), /250/u)
+})
+
+
+test('continuation skips chapter numbers occupied after a title collision advances its suffix', async () => {
+  const p = await panel({
+    listPassages: async () => ok({ items: [{ title: '第 3 章 · 段落 02' }], hasMore: false }),
+    previewImport: async () => ok({ paragraphs: 1, sentences: 1 }),
+  })
+  button(p.render(), '归类与排序').props.onClick()
+  enter(p.render(), '书名', 'Book A')
+  enter(p.render(), '章节', 'Chapter A')
+  enter(p.render(), '段落序号', '1')
+  button(p.render(), '保存位置').props.onClick()
+  const [index, shelf] = [...p.values].find(([, value]) => value?.books && value?.placements)
+  p.values.set(index, { ...shelf, placements: { ...shelf.placements,
+    occupied: { book: 'Book A', chapter: 'Chapter A', number: 3 },
+  } })
+  let tree = await openNext(p)
+  assert.equal(field(tree, '段落序号').props.value, 4)
+  assert.equal(field(tree, '标题').props.value, '第 3 章 · 段落 04')
+  all(tree, (node) => node.type === 'textarea')[0].props.onChange({ target: { value: 'Nous continuons.' } })
+  await all(p.render(), (node) => node.type === 'form')[0].props.onSubmit(submit)
+  assert.ok(button(p.render(), '保存，继续当前段'))
+})
+
+
+test('retrying a failed continuation save keeps the same operation and current reading', async () => {
+  const requests = []
+  const p = await panel({
+    listPassages: async () => ok({ items: [], hasMore: false }),
+    previewImport: async () => ok({ paragraphs: 1, sentences: 1 }),
+    createPassage: async (request) => {
+      requests.push(request)
+      if (requests.length === 1) throw new Error('connection lost')
+      return ok({ kind: 'already-saved', passage: { id: request.id, title: request.title, sourceText: request.sourceText } })
+    },
+  })
+  await openNext(p)
+  all(p.render(), (node) => node.type === 'textarea')[0].props.onChange({ target: { value: 'Nous continuons.' } })
+  const form = () => all(p.render(), (node) => node.type === 'form')[0]
+  await form().props.onSubmit(submit)
+  await form().props.onSubmit(submit)
+  assert.match(text(all(p.render(), (node) => node.props?.role === 'dialog')[0]), /connection lost/u)
+  assert.equal(all(p.render(), (node) => node.type === 'textarea')[0].props.value, 'Nous continuons.')
+  await form().props.onSubmit(submit)
+  assert.equal(requests.length, 2)
+  assert.deepEqual(requests[1], requests[0])
+  assert.equal(p.values.get(10).id, 'parent')
+  assert.ok(button(p.render(), '开始下一段'))
+  assert.equal(all(p.render(), (node) => node.props?.role === 'dialog').length, 0)
 })

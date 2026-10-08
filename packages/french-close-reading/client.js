@@ -1847,18 +1847,19 @@ window.__ModuleLoader__.load({
       } catch { return {} }
     }
 
-    function nextPassageTitle(currentTitle, savedTitles = [], nextNumber = null) {
+    function nextPassageTitle(currentTitle, savedTitles = [], nextNumber = null, reservedNumbers = []) {
       const current = currentTitle.trim() || '未命名段落'
       const match = /^(.*?)\s*(?:·\s*)?段落\s*(\d+)$/u.exec(current)
       const base = (match ? match[1] : current).trim()
       const width = Math.max(2, match ? match[2].length : 2)
       let number = nextNumber ?? (match ? Number(match[2]) + 1 : 2)
       const used = new Set(savedTitles)
+      const reserved = new Set(reservedNumbers)
       const candidate = () => {
         const suffix = ` · 段落 ${String(number).padStart(width, '0')}`
         return `${base.slice(0, 120 - suffix.length)}${suffix}`
       }
-      while (used.has(candidate())) number += 1
+      while (used.has(candidate()) || reserved.has(number)) number += 1
       return candidate()
     }
 
@@ -3356,7 +3357,10 @@ window.__ModuleLoader__.load({
             }
             if (!currentRead(parentId, request)) return
             const location = shelf.placements[parentId]
-            const nextTitle = nextPassageTitle(activePassage.title, titles, location ? nextChapterNumber(location.book, location.chapter, location.number) : null)
+            const reservedNumbers = location ? Object.values(shelf.placements)
+              .filter((loc) => loc.book === location.book && loc.chapter === location.chapter)
+              .map((loc) => loc.number) : []
+            const nextTitle = nextPassageTitle(activePassage.title, titles, location ? nextChapterNumber(location.book, location.chapter, location.number) : null, reservedNumbers)
             const number = Number(/段落\s*(\d+)$/u.exec(nextTitle)?.[1] ?? 1)
             setDraftLocation(location ? { ...location, number } : { book: '', chapter: '', number })
             setTitle(nextTitle)
