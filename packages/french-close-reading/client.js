@@ -1793,7 +1793,10 @@ window.__ModuleLoader__.load({
       .fr-root.bookLayout[data-directory='open'] .shelfWelcome{margin-left:270px}.fr-root .shelfWelcome .frontDoorInner{padding-top:90px;max-width:760px}.fr-root .shelfWelcomeActions{display:flex;gap:12px;flex-wrap:wrap;margin:30px 0}
       .fr-root.bookLayout .workspace[data-view='focus']>.detailPane{position:relative;left:auto!important;right:auto!important;width:min(900px,calc(100% - 48px));margin:0 auto;height:100%;min-height:0;border-right:0;background:var(--paper)}
       .fr-root.bookLayout[data-directory='open'] .workspace{margin-left:270px;width:calc(100% - 270px)}
-      .fr-root.bookLayout .workspace .navigation{left:0;right:auto;width:min(700px,calc(100% - 20px));z-index:7;box-shadow:8px 0 25px var(--fr-c71)}
+      .fr-root.bookLayout .workspace .navigation{top:0;bottom:0;left:0;right:auto;transform:none;width:min(700px,100%);z-index:10;border-radius:0;box-shadow:8px 0 25px var(--fr-c71)}
+      .fr-root.bookLayout .navigation .sheetHandle{display:none}
+      .fr-root.bookLayout .navigation .navHead{height:auto;min-height:56px;flex-wrap:wrap;gap:8px;padding:10px 14px}
+      .fr-root.bookLayout .navigation .controls{flex-wrap:wrap;gap:4px;max-width:100%;flex-shrink:1}
       .fr-root.bookLayout .continuationBar{min-height:82px;padding:18px 28px;gap:10px}.fr-root .passageHeading{min-width:0;flex:1}.fr-root .bookBreadcrumb{font-size:11px;color:var(--muted);margin-bottom:8px;overflow-wrap:anywhere}.fr-root.bookLayout .currentPassageTitle{font-size:17px;color:var(--ink);display:block;white-space:normal;line-height:1.5}
       .fr-root.bookLayout .crumb{padding:9px 28px;font-size:11px;border-bottom:1px solid var(--line)}
       .fr-root .readingSource{padding-bottom:14px;border-bottom:1px solid var(--line)}.fr-root .sourceSectionHead{display:flex;align-items:baseline;gap:12px;justify-content:space-between;color:var(--muted);font-size:11px;flex-wrap:wrap}.fr-root .sourceSectionHead strong{font-size:12px;color:var(--ink)}
