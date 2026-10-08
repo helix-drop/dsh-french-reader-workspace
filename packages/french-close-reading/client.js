@@ -1797,6 +1797,9 @@ window.__ModuleLoader__.load({
       .fr-root.bookLayout .navigation .sheetHandle{display:none}
       .fr-root.bookLayout .navigation .navHead{height:auto;min-height:56px;flex-wrap:wrap;gap:8px;padding:10px 14px}
       .fr-root.bookLayout .navigation .controls{flex-wrap:wrap;gap:4px;max-width:100%;flex-shrink:1}
+      .fr-root.bookLayout .modalBackdrop{position:absolute;inset:0;min-height:0}
+      .fr-root.bookLayout .modal{width:min(560px,100%);max-height:100%;min-height:0;overflow:auto}
+      .fr-root.bookLayout .modal.switcher{width:min(840px,100%)}
       .fr-root.bookLayout .continuationBar{min-height:82px;padding:18px 28px;gap:10px}.fr-root .passageHeading{min-width:0;flex:1}.fr-root .bookBreadcrumb{font-size:11px;color:var(--muted);margin-bottom:8px;overflow-wrap:anywhere}.fr-root.bookLayout .currentPassageTitle{font-size:17px;color:var(--ink);display:block;white-space:normal;line-height:1.5}
       .fr-root.bookLayout .crumb{padding:9px 28px;font-size:11px;border-bottom:1px solid var(--line)}
       .fr-root .readingSource{padding-bottom:14px;border-bottom:1px solid var(--line)}.fr-root .sourceSectionHead{display:flex;align-items:baseline;gap:12px;justify-content:space-between;color:var(--muted);font-size:11px;flex-wrap:wrap}.fr-root .sourceSectionHead strong{font-size:12px;color:var(--ink)}
@@ -3190,7 +3193,14 @@ window.__ModuleLoader__.load({
       }
       function locationDialogView() {
         return h('div', { className: 'modalBackdrop' }, h('div', { className: 'modal switcher', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'location-title',
-          onKeyDown: (event) => { if (event.key === 'Escape' && !event.isComposing) setLocationDialog(null) } },
+          onKeyDown: (event) => {
+            if (event.key === 'Escape' && !event.isComposing) { event.preventDefault(); event.stopPropagation(); setLocationDialog(null); setError('') }
+            if (event.key !== 'Tab') return
+            const fields = Array.from(event.currentTarget.querySelectorAll('input:not(:disabled), button:not(:disabled)'))
+            const first = fields[0], last = fields[fields.length - 1]
+            if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus() }
+            if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus() }
+          } },
           h('h2', { id: 'location-title' }, locationDialog.passageId ? t('organizePassage') : locationDialog.kind === 'chapter' ? t('newChapter') : t('newBook')),
           locationFields(locationDialog, setLocationDialog, !!locationDialog.passageId),
           error ? h('p', { className: 'error', role: 'alert' }, error) : null,
@@ -3201,6 +3211,13 @@ window.__ModuleLoader__.load({
             } }, t('unfilePassage')) : null,
             h('button', { type: 'button', className: 'primary', onClick: saveShelfLocation }, t('saveLocation')))))
       }
+      useEffect(() => {
+        if (!locationDialog || typeof document === 'undefined') return
+        const opener = document.activeElement
+        const dialog = rootRef.current?.querySelector('[aria-labelledby="location-title"]')
+        dialog?.querySelector('input')?.focus({ preventScroll: true })
+        return () => { if (opener?.isConnected) opener.focus?.({ preventScroll: true }) }
+      }, [locationDialog !== null])
       function bookDirectory() {
         const rows = (book, chapter) => items.filter((item) => {
           const loc = shelf.placements[item.id]
@@ -3292,12 +3309,35 @@ window.__ModuleLoader__.load({
         const wasOpen = navOpen
         const next = typeof force === 'boolean' ? force : !navOpen
         setNavOpen(next)
+        if (next && directorySize.current) setDirectoryOpen(false)
+        if (!next) navToggleRef.current?.focus?.({ preventScroll: true })
         if (!compact) wideNavPreference.current = next
         if (next && !wasOpen && compact) {
           const stage = navStage.current
           if (stage !== null && stage !== undefined) stage.focus({ preventScroll: true })
         }
       }
+
+      function toggleDirectory() {
+        if (!directoryOpen && directorySize.current) toggleNavigation(false)
+        setDirectoryOpen((open) => !open)
+      }
+
+      function onNavigationKeyDown(event) {
+        if (event.isComposing) return
+        if (event.key === 'Escape') {
+          event.preventDefault(); event.stopPropagation(); toggleNavigation(false); return
+        }
+        if (event.target !== event.currentTarget) return
+        if (event.key === '+' || event.key === '=') { event.preventDefault(); zoomNavBy(1.25); return }
+        if (event.key === '-' || event.key === '_') { event.preventDefault(); zoomNavBy(0.8); return }
+        const delta = { ArrowLeft: [40, 0], ArrowRight: [-40, 0], ArrowUp: [0, 40], ArrowDown: [0, -40] }[event.key]
+        if (delta) { event.preventDefault(); setNav((current) => clampNavCamera({ ...current, x: current.x + delta[0], y: current.y + delta[1] })) }
+      }
+
+      useEffect(() => {
+        if (compact && navOpen && !switcherOpen && !locationDialog) navStage.current?.focus?.({ preventScroll: true })
+      }, [compact, navOpen, switcherOpen, locationDialog])
 
       /**
        * `adaptLayout()`: when the **panel** becomes compact the drawer closes; if the
@@ -3350,6 +3390,7 @@ window.__ModuleLoader__.load({
        * reading surface they had scrolled — and coming back restores all three.
        */
       function openKnowledge() {
+        toggleNavigation(false)
         const scroller = shortReading ? readingPaneRef.current : detailScrollRef.current
         returnPoint.current = {
           anchorId,
@@ -4531,11 +4572,11 @@ window.__ModuleLoader__.load({
           ),
           h('div', { className: 'sentenceAudioMini' },
             h('button', {
-              type: 'button', 'aria-label': format(t, 'audioSentence', { index: rowIndex + 1 }),
+              type: 'button', disabled: true, 'aria-label': format(t, 'audioSentence', { index: rowIndex + 1 }),
               onClick: () => requestSentenceAudio(sentence.id, 'generate'),
             }, t('audioGenerate')),
             h('button', {
-              type: 'button', 'aria-label': format(t, 'audioRegenerateSentence', { index: rowIndex + 1 }),
+              type: 'button', disabled: true, 'aria-label': format(t, 'audioRegenerateSentence', { index: rowIndex + 1 }),
               onClick: () => requestSentenceAudio(sentence.id, 'regenerate'),
             }, t('audioRegenerateShort')),
             h('span', null, t('audioReserved')),
@@ -5284,7 +5325,7 @@ window.__ModuleLoader__.load({
                 h('div', { className: 'logo' }, 'f.'),
                 h('span', { className: 'title' }, t('panel')),
               ),
-              h('button', { type: 'button', 'aria-expanded': directoryOpen, 'aria-controls': 'book-directory', onClick: () => setDirectoryOpen((open) => !open) }, t('shelfToggle')),
+              h('button', { type: 'button', 'aria-expanded': directoryOpen, 'aria-controls': 'book-directory', onClick: toggleDirectory }, t('shelfToggle')),
               h('button', { type: 'button', onClick: () => { setActivePassage(null); setKnowledgeOpen(false); setDirectoryOpen(true) } }, t('shelfHome')),
               h('button', {
                 className: 'navToggle', type: 'button', ref: navToggleRef,
@@ -5327,6 +5368,14 @@ window.__ModuleLoader__.load({
               // In the compact drawer the canvas is a modal surface over an inert pane.
               role: compact && navOpen ? 'dialog' : null,
               'aria-modal': compact && navOpen ? 'true' : null,
+              onKeyDown: (event) => {
+                if (event.key === 'Escape') onNavigationKeyDown(event)
+                if (event.key !== 'Tab' || !compact) return
+                const controls = Array.from(event.currentTarget.querySelectorAll('button:not(:disabled), [tabindex="0"]'))
+                const first = controls[0], last = controls[controls.length - 1]
+                if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus() }
+                if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus() }
+              },
             },
               h('div', { className: 'sheetHandle', 'aria-hidden': 'true' }),
               h('div', { className: 'navHead' },
@@ -5354,6 +5403,7 @@ window.__ModuleLoader__.load({
                 onPointerMove: onNavPointerMove,
                 onPointerUp: onNavPointerUp,
                 onPointerCancel: onNavPointerUp,
+                onKeyDown: onNavigationKeyDown,
               },
                 segmentation === null
                   ? h('div', { className: 'empty' }, t('segmentationLoading'))
@@ -5495,7 +5545,7 @@ window.__ModuleLoader__.load({
         return h('div', { className: 'fr-root bookLayout', ref: rootRef, 'data-directory': directoryOpen ? 'open' : 'closed' },
           h('header', { className: 'top compactTop' },
             h('div', { className: 'topLeft' }, h('div', { className: 'brand' }, h('div', { className: 'logo' }, 'f.'), h('span', { className: 'title' }, t('panel'))),
-              h('button', { type: 'button', onClick: () => setDirectoryOpen((open) => !open), 'aria-expanded': directoryOpen, 'aria-controls': 'book-directory' }, t('shelfToggle'))),
+              h('button', { type: 'button', onClick: toggleDirectory, 'aria-expanded': directoryOpen, 'aria-controls': 'book-directory' }, t('shelfToggle'))),
             h('div', { className: 'topActions' }, h('button', { type: 'button', onClick: () => beginChapterPassage() }, t('newPassage')), closeButton())),
           bookDirectory(),
           h('main', { className: 'frontDoor shelfWelcome' },

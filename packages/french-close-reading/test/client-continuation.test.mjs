@@ -58,6 +58,39 @@ function button(tree, label) { return all(tree, (node) => node.type === 'button'
 const ok = (value) => ({ ok: true, value })
 const submit = { preventDefault() {} }
 
+test('route keyboard zoom, pan, and Escape execute the component handlers', async () => {
+  const p = await panel()
+  const stage = () => all(p.render(), (node) => node.props?.className === 'navStage')[0]
+  const target = {}
+  let prevented = 0
+  const press = (key, extras = {}) => stage().props.onKeyDown({ key, target, currentTarget: target,
+    preventDefault() { prevented += 1 }, stopPropagation() {}, ...extras })
+  const camera = () => [...p.values.values()].find((value) => value && typeof value === 'object' && typeof value.scale === 'number')
+  p.render()
+  const original = { ...camera() }
+  press('+')
+  assert.equal(camera().scale, original.scale * 1.25)
+  press('-')
+  assert.equal(camera().scale, original.scale)
+  const x = camera().x
+  press('ArrowRight')
+  assert.equal(camera().x, x - 40)
+  press('Escape', { isComposing: true })
+  assert.ok(button(p.render(), '收起路线'))
+  press('Escape')
+  assert.ok(button(p.render(), '打开路线'))
+  assert.equal(prevented, 4)
+})
+
+test('knowledge navigation closes the route overlay before showing the library', async () => {
+  const p = await panel()
+  assert.ok(button(p.render(), '收起路线'))
+  button(p.render(), '知识库').props.onClick()
+  const tree = p.render()
+  assert.ok(button(tree, '打开路线'))
+  assert.ok(all(tree, (node) => node.type === 'section' && node.props['aria-label'] === '知识库')[0])
+})
+
 async function openNext(panel) {
   button(panel.render(), '录入下一段').props.onClick()
   // Let the asynchronous list call and state updates finish.
