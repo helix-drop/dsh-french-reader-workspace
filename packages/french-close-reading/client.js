@@ -2795,17 +2795,22 @@ window.__ModuleLoader__.load({
       }, [listPassages, t])
 
       const openPassage = useCallback(async (id) => {
+        const request = ++passageRequest.current
         setSelectedId(id)
         setLoadingPassage(true)
         setError('')
         try {
           const value = unwrap(await getPassage({ id }), t)
+          if (request !== passageRequest.current) return
+          displayedPassage.current = value.passage?.id ?? null
           setActivePassage(value.passage ?? null)
         } catch (cause) {
+          if (request !== passageRequest.current) return
+          displayedPassage.current = null
           setActivePassage(null)
           setError(String(cause?.message ?? cause))
         } finally {
-          setLoadingPassage(false)
+          if (request === passageRequest.current) setLoadingPassage(false)
         }
       }, [getPassage, t])
 
@@ -2988,7 +2993,9 @@ window.__ModuleLoader__.load({
           setStatus(t('archiveDone'))
           setNextPassages((current) => Object.fromEntries(Object.entries(current).filter(([parent, next]) => parent !== item.id && next.id !== item.id)))
           await refreshList(0)
-          if (activePassage !== null && activePassage.id === item.id) {
+          if (displayedPassage.current === item.id) {
+            passageRequest.current += 1
+            displayedPassage.current = null
             setActivePassage(null)
             setSelectedId('')
           }
@@ -3134,6 +3141,21 @@ window.__ModuleLoader__.load({
       const [draftLocation, setDraftLocation] = useState({ book: '', chapter: '', number: 1 })
       const [shelfError, setShelfError] = useState('')
       const directorySize = useRef(null)
+      // Discard reads from an earlier selection, including A -> B -> A.
+      const passageRequest = useRef(0)
+      const displayedPassage = useRef(activePassage?.id ?? null)
+      function currentRead(passageId, request) {
+        return passageRequest.current === request && displayedPassage.current === passageId
+      }
+      function showBookshelf() {
+        passageRequest.current += 1
+        displayedPassage.current = null
+        setLoadingPassage(false)
+        setActivePassage(null)
+        setSelectedId('')
+        setKnowledgeOpen(false)
+        setDirectoryOpen(true)
+      }
       useEffect(() => {
         try { localStorage.setItem(SHELF_KEY, JSON.stringify(shelf)); setShelfError('') }
         catch { setShelfError(t('shelfLocal') + ' · ' + t('requestFailed')) }
@@ -3218,6 +3240,12 @@ window.__ModuleLoader__.load({
         dialog?.querySelector('input')?.focus({ preventScroll: true })
         return () => { if (opener?.isConnected) opener.focus?.({ preventScroll: true }) }
       }, [locationDialog !== null])
+      useEffect(() => {
+        if (branchDialog === null || typeof document === 'undefined') return
+        const opener = document.activeElement
+        rootRef.current?.querySelector('#branchInput')?.focus({ preventScroll: true })
+        return () => { if (opener?.isConnected) opener.focus?.({ preventScroll: true }) }
+      }, [branchDialog !== null])
       function bookDirectory() {
         const rows = (book, chapter) => items.filter((item) => {
           const loc = shelf.placements[item.id]
@@ -3602,11 +3630,13 @@ window.__ModuleLoader__.load({
       function navPanned() { return navDrag.current?.moved === true }
 
       const reloadAnalysis = useCallback(async (passageId) => {
+        const request = passageRequest.current
         const value = unwrap(await listAnalysis({ passageId }), t)
-        setAnalysis(value.analysis ?? null)
+        if (currentRead(passageId, request)) setAnalysis(value.analysis ?? null)
       }, [listAnalysis, t])
 
       const loadReading = useCallback(async (passage) => {
+        const request = passageRequest.current
         setReadingStatus('')
         setError('')
         try {
@@ -3614,11 +3644,13 @@ window.__ModuleLoader__.load({
             getSegmentation({ passageId: passage.id }).then((result) => unwrap(result, t)),
             listAnalysis({ passageId: passage.id }).then((result) => unwrap(result, t)),
           ])
+          if (!currentRead(passage.id, request)) return
           setSegmentation(segments.segmentation ?? null)
           setAnalysis(stored.analysis ?? null)
           setAnchorId(segments.segmentation?.paragraphs?.[0]?.sentences?.[0]?.id ?? 'passage')
           setDrafts({})
         } catch (cause) {
+          if (!currentRead(passage.id, request)) return
           setSegmentation(null)
           setAnalysis(null)
           setError(String(cause?.message ?? cause))
@@ -3626,7 +3658,21 @@ window.__ModuleLoader__.load({
       }, [getSegmentation, listAnalysis, t])
 
       useEffect(() => {
-        if (activePassage === null) { setSegmentation(null); setAnalysis(null); setDiscussion(null); return }
+        setSelectedNode(null)
+        setBranchDialog(null)
+        setAnchorId('passage')
+        setDrafts({})
+        setSentenceAnalysis(null)
+        setCoverage(null)
+        setSegmentation(null)
+        setAnalysis(null)
+        setDiscussion(null)
+        setNav({ x: 20, y: 20, scale: 0.65 })
+        navDrag.current = null
+        navWorldSize.current = null
+        returnPoint.current = null
+        setNavRowHeights(null)
+        if (activePassage === null) return
         loadReading(activePassage)
         loadDiscussion(activePassage.id)
         setAskDraft('')
@@ -3643,17 +3689,21 @@ window.__ModuleLoader__.load({
       useEffect(() => {
         if (activePassage === null || !/^p[0-9]+\.s[0-9]+$/u.test(anchorId)) { setSentenceAnalysis(null); return }
         let cancelled = false
+        const request = passageRequest.current
+        setSentenceAnalysis(null)
         readSentenceAnalysis({ passageId: activePassage.id, anchorId })
-          .then((result) => { if (!cancelled) setSentenceAnalysis(unwrap(result, t)) })
-          .catch(() => { if (!cancelled) setSentenceAnalysis(null) })
+          .then((result) => { if (!cancelled && currentRead(activePassage.id, request)) setSentenceAnalysis(unwrap(result, t)) })
+          .catch(() => { if (!cancelled && currentRead(activePassage.id, request)) setSentenceAnalysis(null) })
         return () => { cancelled = true }
       }, [activePassage, anchorId, readSentenceAnalysis, t])
 
       const loadCoverage = useCallback(async (passageId) => {
+        const request = passageRequest.current
         try {
-          setCoverage(unwrap(await readAnalysisCoverage({ passageId }), t))
+          const value = unwrap(await readAnalysisCoverage({ passageId }), t)
+          if (currentRead(passageId, request)) setCoverage(value)
         } catch {
-          setCoverage(null)
+          if (currentRead(passageId, request)) setCoverage(null)
         }
       }, [readAnalysisCoverage, t])
 
@@ -4154,13 +4204,14 @@ window.__ModuleLoader__.load({
       }
 
       async function loadDiscussion(passageId) {
+        const request = passageRequest.current
         try {
           const value = unwrap(await listDiscussion({ passageId }), t)
-          setDiscussion(value)
+          if (currentRead(passageId, request)) setDiscussion(value)
         } catch {
           // A panel from an older Host has no discussion endpoint yet; the rest of
           // the workbench keeps working rather than the whole reading failing.
-          setDiscussion({ branches: [], conclusions: [] })
+          if (currentRead(passageId, request)) setDiscussion({ branches: [], conclusions: [] })
         }
       }
 
@@ -4880,6 +4931,14 @@ window.__ModuleLoader__.load({
         return h('div', { className: 'modalBackdrop' },
           h('div', {
             className: 'modal', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'modalTitle',
+            onKeyDown: (event) => {
+              if (event.key === 'Escape' && !event.isComposing) { event.preventDefault(); event.stopPropagation(); setBranchDialog(null) }
+              if (event.key !== 'Tab') return
+              const fields = Array.from(event.currentTarget.querySelectorAll('input:not(:disabled), button:not(:disabled)'))
+              const first = fields[0], last = fields[fields.length - 1]
+              if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus() }
+              if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus() }
+            },
           },
             h('div', { className: 'eyebrow' }, 'NEW BRANCH'),
             h('h2', { id: 'modalTitle' }, t('newBranch')),
@@ -5326,7 +5385,7 @@ window.__ModuleLoader__.load({
                 h('span', { className: 'title' }, t('panel')),
               ),
               h('button', { type: 'button', 'aria-expanded': directoryOpen, 'aria-controls': 'book-directory', onClick: toggleDirectory }, t('shelfToggle')),
-              h('button', { type: 'button', onClick: () => { setActivePassage(null); setKnowledgeOpen(false); setDirectoryOpen(true) } }, t('shelfHome')),
+              h('button', { type: 'button', onClick: showBookshelf }, t('shelfHome')),
               h('button', {
                 className: 'navToggle', type: 'button', ref: navToggleRef,
                 'aria-expanded': navOpen ? 'true' : 'false', 'aria-controls': 'reading-route',

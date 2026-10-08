@@ -25,6 +25,7 @@ async function panel(services = {}) {
   const memoryStorage = { getItem: (key) => storage.get(key) ?? null, setItem: (key, value) => storage.set(key, value), removeItem: (key) => storage.delete(key) }
   const context = vm.createContext({
     window: { __ModuleLoader__: { load: (value) => { registration = value } } }, console,
+    setTimeout: (...args) => setTimeout(...args).unref(), clearTimeout,
     TextEncoder, crypto: webcrypto, sessionStorage: memoryStorage, localStorage: memoryStorage,
   })
   vm.runInContext(source, context)
@@ -89,6 +90,23 @@ test('knowledge navigation closes the route overlay before showing the library',
   const tree = p.render()
   assert.ok(button(tree, '打开路线'))
   assert.ok(all(tree, (node) => node.type === 'section' && node.props['aria-label'] === '知识库')[0])
+})
+
+test('a late passage response cannot replace the passage selected afterward', async () => {
+  const responses = new Map()
+  const slow = { ...passage, id: 'slow', title: 'Slow passage' }
+  const fast = { ...passage, id: 'fast', title: 'Fast passage' }
+  const p = await panel({ getPassage: ({ id }) => new Promise((resolve) => responses.set(id, resolve)) })
+  p.values.set(0, [slow, fast])
+  const choose = (title) => all(p.render(), (node) => node.type === 'button' && node.props.className?.includes('shelfPassage') && text(node).includes(title))[0].props.onClick()
+  choose('Slow passage')
+  choose('Fast passage')
+  responses.get('fast')(ok({ passage: fast }))
+  await new Promise((resolve) => setImmediate(resolve))
+  assert.equal(p.values.get(10).id, 'fast')
+  responses.get('slow')(ok({ passage: slow }))
+  await new Promise((resolve) => setImmediate(resolve))
+  assert.equal(p.values.get(10).id, 'fast')
 })
 
 async function openNext(panel) {
@@ -228,4 +246,63 @@ test('reading tools have one analyse action in the sentence workspace and no glo
   assert.equal(button(tree, '▷ 发音').props.disabled, true)
   const context = all(tree, (node) => node.props?.className === 'readingSource')[0]
   assert.equal(context.type, 'details')
+})
+
+test('a late failed read cannot blank the newer passage or show its error', async () => {
+  const responses = new Map()
+  const slow = { ...passage, id: 'slow', title: 'Slow passage' }
+  const fast = { ...passage, id: 'fast', title: 'Fast passage' }
+  const p = await panel({ getPassage: ({ id }) => new Promise((resolve, reject) => responses.set(id, { resolve, reject })) })
+  p.values.set(0, [slow, fast])
+  const choose = (title) => all(p.render(), (node) => node.type === 'button' && node.props.className?.includes('shelfPassage') && text(node).includes(title))[0].props.onClick()
+  choose('Slow passage'); choose('Fast passage')
+  responses.get('fast').resolve(ok({ passage: fast }))
+  await new Promise((resolve) => setImmediate(resolve))
+  responses.get('slow').reject(new Error('old request failed'))
+  await new Promise((resolve) => setImmediate(resolve))
+  assert.equal(p.values.get(10).id, 'fast')
+  assert.equal(p.values.get(14), '')
+  assert.equal(p.values.get(5), false)
+})
+
+test('returning to the bookshelf invalidates an unfinished passage read', async () => {
+  let resolveRead
+  const p = await panel({ getPassage: () => new Promise((resolve) => { resolveRead = resolve }) })
+  p.values.set(0, [passage])
+  all(p.render(), (node) => node.type === 'button' && node.props.className?.includes('shelfPassage'))[0].props.onClick()
+  button(p.render(), '书架').props.onClick()
+  resolveRead(ok({ passage }))
+  await new Promise((resolve) => setImmediate(resolve))
+  assert.equal(p.values.get(10), null)
+  assert.equal(p.values.get(5), false)
+  assert.equal(p.values.get(9), '')
+})
+
+test('selecting A again does not accept the first unfinished read of A', async () => {
+  const responses = []
+  const a = { ...passage, id: 'a', title: 'Passage A' }
+  const b = { ...passage, id: 'b', title: 'Passage B' }
+  const p = await panel({ getPassage: () => new Promise((resolve) => responses.push(resolve)) })
+  p.values.set(0, [a, b])
+  const choose = (title) => all(p.render(), (node) => node.type === 'button' && node.props.className?.includes('shelfPassage') && text(node).includes(title))[0].props.onClick()
+  choose('Passage A'); choose('Passage B'); choose('Passage A')
+  responses[2](ok({ passage: { ...a, sourceText: 'Latest A' } }))
+  await new Promise((resolve) => setImmediate(resolve))
+  responses[0](ok({ passage: { ...a, sourceText: 'Obsolete A' } }))
+  responses[1](ok({ passage: b }))
+  await new Promise((resolve) => setImmediate(resolve))
+  assert.equal(p.values.get(10).sourceText, 'Latest A')
+})
+
+test('the discussion dialog ignores composing Escape and closes on normal Escape', async () => {
+  const p = await panel()
+  button(p.render(), '＋ 讨论').props.onClick()
+  const dialog = all(p.render(), (node) => node.props?.role === 'dialog' && node.props['aria-labelledby'] === 'modalTitle')[0]
+  assert.ok(dialog)
+  const event = { key: 'Escape', isComposing: true, preventDefault() {}, stopPropagation() {} }
+  dialog.props.onKeyDown(event)
+  assert.ok(all(p.render(), (node) => node.props?.role === 'dialog' && node.props['aria-labelledby'] === 'modalTitle').length)
+  event.isComposing = false
+  dialog.props.onKeyDown(event)
+  assert.equal(all(p.render(), (node) => node.props?.role === 'dialog' && node.props['aria-labelledby'] === 'modalTitle').length, 0)
 })
