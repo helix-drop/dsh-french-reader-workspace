@@ -393,3 +393,18 @@ test('editing previewed text returns the composer to preview before saving', asy
   assert.equal(button(p.render(), '保存，继续当前段'), undefined)
   assert.equal(created, 0)
 })
+
+test('cancelling invalid next-paragraph input clears its error from the reading page', async () => {
+  for (const method of ['button', 'Escape']) {
+    const p = await panel({ listPassages: async () => ok({ items: [], hasMore: false }) })
+    await openNext(p)
+    await all(p.render(), (node) => node.type === 'form')[0].props.onSubmit({ preventDefault() {} })
+    assert.equal(p.values.get(14), '请粘贴法语原文。')
+    assert.equal(all(p.render(), (node) => node.props?.role === 'alert').length, 1)
+    if (method === 'button') button(p.render(), '返回当前段').props.onClick()
+    else all(p.render(), (node) => node.props?.role === 'dialog' && node.props['aria-labelledby'] === 'switchTitle')[0].props.onKeyDown({ key: 'Escape', isComposing: false, preventDefault() {}, stopPropagation() {} })
+    assert.equal(p.values.get(14), '')
+    assert.equal(p.values.get(10).id, 'parent')
+    assert.equal(all(p.render(), (node) => node.props?.role === 'dialog').length, 0)
+  }
+})

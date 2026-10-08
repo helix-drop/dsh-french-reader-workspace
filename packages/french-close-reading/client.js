@@ -3123,6 +3123,7 @@ window.__ModuleLoader__.load({
       // Discard reads from an earlier selection, including A -> B -> A.
       const passageRequest = useRef(0)
       const displayedPassage = useRef(activePassage?.id ?? null)
+      const switcherOpener = useRef(null)
       const lookupRequest = useRef(0)
       const focusedAnchor = useRef(anchorId)
       focusedAnchor.current = anchorId
@@ -3257,12 +3258,20 @@ window.__ModuleLoader__.load({
         if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus() }
         if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus() }
       }
+      function closeSwitcher() {
+        setSwitcherOpen(false)
+        setError('')
+        setStatus('')
+      }
       function useModalFocus(open, selector) {
         useEffect(() => {
           if (!open || typeof document === 'undefined') return
-          const opener = document.activeElement
+          const opener = selector.includes('switchTitle') ? (switcherOpener.current ?? document.activeElement) : document.activeElement
           rootRef.current?.querySelector(selector)?.querySelector('input:not(:disabled), textarea:not(:disabled), button:not(:disabled)')?.focus({ preventScroll: true })
-          return () => { if (opener?.isConnected) opener.focus?.({ preventScroll: true }) }
+          return () => {
+            if (opener?.isConnected) opener.focus?.({ preventScroll: true })
+            if (selector.includes('switchTitle')) switcherOpener.current = null
+          }
         }, [open])
         useEffect(() => {
           if (!open || busy || typeof document === 'undefined') return
@@ -3325,6 +3334,7 @@ window.__ModuleLoader__.load({
 
       async function composeNextPassage() {
         if (activePassage === null || busy) return
+        switcherOpener.current = typeof document === 'undefined' ? null : document.activeElement
         const parentId = activePassage.id
         const request = passageRequest.current
         setError('')
@@ -4085,7 +4095,7 @@ window.__ModuleLoader__.load({
           h('div', {
             className: 'modal switcher', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'switchTitle',
             onKeyDown: (event) => {
-              if (event.key === 'Escape' && !busy && !event.isComposing) { event.stopPropagation(); setSwitcherOpen(false) }
+              if (event.key === 'Escape' && !busy && !event.isComposing) { event.preventDefault(); event.stopPropagation(); closeSwitcher() }
               if (event.key !== 'Tab') return
               const fields = Array.from(event.currentTarget.querySelectorAll('input:not(:disabled), textarea:not(:disabled), button:not(:disabled)'))
               const first = fields[0], last = fields[fields.length - 1]
@@ -4104,7 +4114,7 @@ window.__ModuleLoader__.load({
             switcherMode !== 'list' ? passageComposer([
               h('button', {
                 key: 'cancel', type: 'button', disabled: busy,
-                onClick: () => switcherMode === 'continue' ? setSwitcherOpen(false) : setSwitcherMode('list'),
+                onClick: () => { setError(''); setStatus(''); if (switcherMode === 'continue') closeSwitcher(); else setSwitcherMode('list') },
               }, switcherMode === 'continue' ? t('resumeReading') : t('cancel')),
             ]) : passageRows(),
             switcherMode !== 'list'
@@ -4114,7 +4124,7 @@ window.__ModuleLoader__.load({
                   type: 'button', disabled: exporting, onClick: exportBackup,
                 }, exporting ? t('exporting') : t('exportAll')),
                 h('button', { type: 'button', disabled: exporting, onClick: exportSources }, t('exportSources')),
-                h('button', { type: 'button', onClick: () => setSwitcherOpen(false) }, t('cancel'))),
+                h('button', { type: 'button', onClick: closeSwitcher }, t('cancel'))),
           ),
         )
       }
@@ -5621,7 +5631,7 @@ window.__ModuleLoader__.load({
                     className: 'small quiet', type: 'button', onClick: cancelAnalysisRun,
                   }, t('cancel')),
                 ),
-                error === '' ? null : h('p', { className: 'error', role: 'alert' }, error),
+                error === '' || switcherOpen || locationDialog ? null : h('p', { className: 'error', role: 'alert' }, error),
                 !feedbackVisible || analysisError === '' ? null : h('p', { className: 'error', role: 'alert' }, analysisError),
                 !feedbackVisible || analysisStatus === '' ? null : h('p', { className: 'hint', role: 'status' }, analysisStatus),
                 detailContent()),
@@ -5662,7 +5672,7 @@ window.__ModuleLoader__.load({
               h('p', { className: 'hint' }, format(t, 'count', { count: total })))),
           switcherOpen ? passageSwitcher() : null,
           locationDialog ? locationDialogView() : null,
-          error ? h('p', { className: 'error', role: 'alert' }, error) : null)
+          error && !switcherOpen && !locationDialog ? h('p', { className: 'error', role: 'alert' }, error) : null)
       }
 
       return h('div', { className: 'fr-page' },
