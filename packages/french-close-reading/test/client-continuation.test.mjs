@@ -450,3 +450,33 @@ test('repeated compact resizes preserve the route preference from the wide layou
   box = { width: 1280, height: 900 }; resize()
   assert.ok(button(p.render(), '打开路线'))
 })
+
+
+test('new-passage preview and save prevent switching to the list until their responses settle', async () => {
+  let resolvePreview, resolveSave
+  const p = await panel({
+    previewImport: () => new Promise((resolve) => { resolvePreview = resolve }),
+    createPassage: () => new Promise((resolve) => { resolveSave = resolve }),
+  })
+  button(p.render(), '段落管理').props.onClick()
+  button(p.render(), '新建段落').props.onClick()
+  enter(p.render(), '标题', 'Test passage')
+  all(p.render(), (node) => node.type === 'textarea')[0].props.onChange({ target: { value: 'Je lis.' } })
+  const pending = all(p.render(), (node) => node.type === 'form')[0].props.onSubmit(submit)
+  const locked = button(p.render(), '段落列表').props.disabled
+  assert.ok(button(p.render(), '正在预览切分…'))
+  resolvePreview(ok({ paragraphs: 1, sentences: 1 }))
+  await pending
+  assert.equal(locked, true)
+  assert.equal(button(p.render(), '段落列表').props.disabled, false)
+  assert.ok(button(p.render(), '确认保存'))
+  const saving = all(p.render(), (node) => node.type === 'form')[0].props.onSubmit(submit)
+  await new Promise((resolve) => setImmediate(resolve))
+  const saveLocked = button(p.render(), '段落列表').props.disabled
+  assert.ok(button(p.render(), '正在安全保存…'))
+  resolveSave(ok({ kind: 'conflict', reason: 'limit-reached' }))
+  await saving
+  assert.equal(saveLocked, true)
+  assert.equal(button(p.render(), '段落列表').props.disabled, false)
+  assert.match(text(all(p.render(), (node) => node.props?.role === 'dialog')[0]), /250/u)
+})

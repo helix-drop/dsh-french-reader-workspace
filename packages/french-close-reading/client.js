@@ -1122,7 +1122,7 @@ window.__ModuleLoader__.load({
       source: '法语原文', sourcePlaceholder: '在这里粘贴法语原文……',
       sourceHelp: '每段最多 20,000 字符。段落按空行切分，句子保留法文排版细节（缩写、对话破折号、引号间距）。',
       preview: '预览切分', confirmSave: '确认保存', editAgain: '返回修改',
-      saving: '正在安全保存…', saved: '已保存；原文基线保持不变。',
+      previewing: '正在预览切分…', saving: '正在安全保存…', saved: '已保存；原文基线保持不变。',
       alreadySaved: '这次保存已在先前请求中完成，已恢复原记录。',
       previewTitle: '切分预览（尚未保存）', previewClean: '未发现编码或排版问题。',
       previewReady: '预览已生成：确认分段与标记后再保存。',
@@ -1319,7 +1319,7 @@ window.__ModuleLoader__.load({
       source: 'French source', sourcePlaceholder: 'Paste the French source here…',
       sourceHelp: 'Up to 20,000 characters per passage. Paragraphs split on blank lines; sentences keep French typography details.',
       preview: 'Preview split', confirmSave: 'Confirm and save', editAgain: 'Back to editing',
-      saving: 'Saving durably…', saved: 'Saved; the source baseline is unchanged.',
+      previewing: 'Previewing segmentation…', saving: 'Saving durably…', saved: 'Saved; the source baseline is unchanged.',
       alreadySaved: 'This save had already completed; the original record was restored.',
       previewTitle: 'Split preview (nothing saved yet)', previewClean: 'No encoding or typography problems found.',
       previewReady: 'Preview ready: check the boundaries and flags, then save.',
@@ -2771,6 +2771,7 @@ window.__ModuleLoader__.load({
       const [preview, setPreview] = useState(null)
       const pendingAttempt = useRef(null)
       const submitLock = useRef(false)
+      const previewPending = useRef(false)
 
       const refreshList = useCallback(async (nextOffset = 0) => {
         setLoadingList(true)
@@ -2853,6 +2854,7 @@ window.__ModuleLoader__.load({
         // reuses that preview, so the text the reader saw is the text saved.
         if (preview === null || preview.unavailable || preview.sourceText !== sourceText || preview.title !== title.trim()) {
           submitLock.current = true
+          previewPending.current = true
           setBusy(true)
           setError('')
           try {
@@ -2865,6 +2867,7 @@ window.__ModuleLoader__.load({
             setPreview({ unavailable: true, reason: String(cause?.message ?? cause), sourceText, title: title.trim() })
             setError(format(t, 'previewUnavailable', { reason: String(cause?.message ?? cause) }))
           } finally {
+            previewPending.current = false
             submitLock.current = false
             setBusy(false)
           }
@@ -4108,7 +4111,7 @@ window.__ModuleLoader__.load({
           },
             switcherMode === 'continue' ? null : h('div', { className: 'kbBar' },
               h('button', {
-                className: 'kbReturn', type: 'button',
+                className: 'kbReturn', type: 'button', disabled: busy,
                 onClick: () => setSwitcherMode(switcherMode === 'new' ? 'list' : 'new'),
               }, switcherMode === 'new' ? t('passageList') : t('newPassage')),
             ),
@@ -4165,7 +4168,7 @@ window.__ModuleLoader__.load({
           h('div', { className: 'modalFoot' },
             h('button', {
               className: 'primary', type: 'submit', disabled: busy,
-            }, busy ? t('saving') : preview?.unavailable ? t('preview') : preview === null ? t('preview') : switcherMode === 'continue' ? t('saveNextPassage') : t('confirmSave')),
+            }, busy ? t(previewPending.current ? 'previewing' : 'saving') : preview?.unavailable ? t('preview') : preview === null ? t('preview') : switcherMode === 'continue' ? t('saveNextPassage') : t('confirmSave')),
             ...extraButtons))
       }
 
