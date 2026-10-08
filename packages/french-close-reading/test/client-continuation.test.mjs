@@ -531,3 +531,51 @@ test('retrying a failed continuation save keeps the same operation and current r
   assert.ok(button(p.render(), '开始下一段'))
   assert.equal(all(p.render(), (node) => node.props?.role === 'dialog').length, 0)
 })
+
+
+test('ordinary new-passage entry does not reuse a cancelled continuation draft', async () => {
+  const p = await panel({ listPassages: async () => ok({ items: [], hasMore: false }) })
+  await openNext(p)
+  all(p.render(), (node) => node.type === 'textarea')[0].props.onChange({ target: { value: 'Continuation draft.' } })
+  button(p.render(), '返回当前段').props.onClick()
+  button(p.render(), '段落管理').props.onClick()
+  button(p.render(), '新建段落').props.onClick()
+  const newTree = p.render()
+  assert.equal(field(newTree, '标题').props.value, '')
+  assert.equal(all(newTree, (node) => node.type === 'textarea')[0].props.value, '')
+  enter(newTree, '标题', 'Independent passage')
+  all(p.render(), (node) => node.type === 'textarea')[0].props.onChange({ target: { value: 'Independent draft.' } })
+  button(p.render(), '取消').props.onClick()
+  button(p.render(), '取消').props.onClick()
+  const nextTree = await openNext(p)
+  assert.equal(field(nextTree, '标题').props.value, '第 3 章 · 段落 02')
+  assert.equal(all(nextTree, (node) => node.type === 'textarea')[0].props.value, 'Continuation draft.')
+})
+
+
+test('chapter entry preserves a parked continuation including its preview and manual title', async () => {
+  const p = await panel({
+    listPassages: async () => ok({ items: [], hasMore: false }),
+    previewImport: async () => ok({ paragraphs: 1, sentences: 1 }),
+  })
+  button(p.render(), '归类与排序').props.onClick()
+  enter(p.render(), '书名', 'Book A')
+  enter(p.render(), '章节', 'Chapter A')
+  enter(p.render(), '段落序号', '7')
+  button(p.render(), '保存位置').props.onClick()
+  await openNext(p)
+  enter(p.render(), '标题', 'Manually named continuation')
+  all(p.render(), (node) => node.type === 'textarea')[0].props.onChange({ target: { value: 'Nous continuons.' } })
+  await all(p.render(), (node) => node.type === 'form')[0].props.onSubmit(submit)
+  button(p.render(), '返回当前段').props.onClick()
+  button(p.render(), '＋ 录入段落').props.onClick()
+  assert.equal(all(p.render(), (node) => node.type === 'textarea')[0].props.value, '')
+  button(p.render(), '取消').props.onClick()
+  button(p.render(), '取消').props.onClick()
+  const tree = await openNext(p)
+  assert.equal(field(tree, '标题').props.value, 'Manually named continuation')
+  assert.equal(field(tree, '书名').props.value, 'Book A')
+  assert.equal(field(tree, '段落序号').props.value, 8)
+  assert.equal(all(tree, (node) => node.type === 'textarea')[0].props.value, 'Nous continuons.')
+  assert.ok(button(tree, '保存，继续当前段'))
+})

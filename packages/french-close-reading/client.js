@@ -3118,6 +3118,7 @@ window.__ModuleLoader__.load({
       // not leave 解析中 on screen forever. The reader can always cancel earlier.
       const ANALYSIS_TIMEOUT_MS = 180000
       const [continuationParent, setContinuationParent] = useState(null)
+      const parkedContinuation = useRef(null)
       const [nextPassages, setNextPassages] = useState(readContinuationLinks())
       const [shelf, setShelf] = useState(readShelf())
       const [directoryOpen, setDirectoryOpen] = useState(true)
@@ -3168,6 +3169,9 @@ window.__ModuleLoader__.load({
         return number
       }
       function beginChapterPassage(book = '', chapter = '') {
+        if (continuationParent !== null) {
+          parkedContinuation.current = { parentId: continuationParent, title, sourceText, preview, draftLocation }
+        }
         setDraftLocation({ book, chapter, number: nextChapterNumber(book, chapter) })
         setTitle(book ? nextPassageTitle(`${book} · ${chapter}`, [], nextChapterNumber(book, chapter)) : '')
         setSourceText(''); setPreview(null); setStatus(''); setError('')
@@ -3344,6 +3348,19 @@ window.__ModuleLoader__.load({
         const request = passageRequest.current
         setError('')
         if (continuationParent !== parentId) {
+          const parked = parkedContinuation.current
+          if (parked?.parentId === parentId) {
+            setTitle(parked.title)
+            setSourceText(parked.sourceText)
+            setPreview(parked.preview)
+            setDraftLocation(parked.draftLocation)
+            setStatus('')
+            setContinuationParent(parentId)
+            parkedContinuation.current = null
+            setSwitcherMode('continue')
+            setSwitcherOpen(true)
+            return
+          }
           setBusy(true)
           try {
             // Read all pages, so numbering does not depend on the visible library page.
@@ -4116,7 +4133,11 @@ window.__ModuleLoader__.load({
             switcherMode === 'continue' ? null : h('div', { className: 'kbBar' },
               h('button', {
                 className: 'kbReturn', type: 'button', disabled: busy,
-                onClick: () => setSwitcherMode(switcherMode === 'new' ? 'list' : 'new'),
+                onClick: () => {
+                  if (switcherMode === 'new') setSwitcherMode('list')
+                  else if (continuationParent !== null) beginChapterPassage()
+                  else setSwitcherMode('new')
+                },
               }, switcherMode === 'new' ? t('passageList') : t('newPassage')),
             ),
             h('h2', { id: 'switchTitle' }, switcherMode === 'continue' ? t('nextPassage') : switcherMode === 'new' ? t('newPassage') : t('switchPassage')),
