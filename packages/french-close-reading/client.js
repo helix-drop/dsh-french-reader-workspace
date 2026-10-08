@@ -3083,6 +3083,7 @@ window.__ModuleLoader__.load({
       // prototype's window-based 1120: wide mode needs nav(380) + detail(780) + 30.
       const [compact, setCompact] = useState(false)
       const wideNavPreference = useRef(true)
+      const previousLayoutCompact = useRef(null)
       const navToggleRef = useRef(null)
       const rootRef = useRef(null)
       const [actionText, setActionText] = useState('')
@@ -3425,10 +3426,12 @@ window.__ModuleLoader__.load({
           const box = root.getBoundingClientRect()
           if (box.width < 1) return
           const next = box.width <= 1190 || box.width / Math.max(1, box.height) <= 1
+          const previous = previousLayoutCompact.current
+          previousLayoutCompact.current = next
           setCompact(next)
-          setNavOpen((open) => {
+          if (previous !== next) setNavOpen((open) => {
             if (next) {
-              wideNavPreference.current = open
+              if (previous === false) wideNavPreference.current = open
               return false
             }
             return wideNavPreference.current

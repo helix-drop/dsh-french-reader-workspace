@@ -7,10 +7,11 @@ import { webcrypto } from 'node:crypto'
 const source = readFileSync(new URL('../client.js', import.meta.url), 'utf8')
 const passage = { id: 'parent', title: '第 3 章', sourceText: 'Je lis.', sourceRevision: 1 }
 
-async function panel(services = {}) {
+async function panel(services = {}, browser = {}) {
   let stateIndex = 0, refIndex = 0, registration, component, props
   const values = new Map([[10, passage], [16, { paragraphs: [] }]])
   const refs = []
+  const effects = []
   const React = {
     createElement: (type, props, ...children) => ({ type, props: { ...props, children } }),
     useState(initial) {
@@ -19,14 +20,14 @@ async function panel(services = {}) {
       return [values.get(index), (next) => values.set(index, typeof next === 'function' ? next(values.get(index)) : next)]
     },
     useRef(initial) { const index = refIndex++; return refs[index] ??= { current: initial } },
-    useEffect() {}, useLayoutEffect() {}, useCallback: (fn) => fn, useMemo: (fn) => fn(),
+    useEffect(factory) { effects.push(factory) }, useLayoutEffect() {}, useCallback: (fn) => fn, useMemo: (fn) => fn(),
   }
   const storage = new Map()
   const memoryStorage = { getItem: (key) => storage.get(key) ?? null, setItem: (key, value) => storage.set(key, value), removeItem: (key) => storage.delete(key) }
   const context = vm.createContext({
     window: { __ModuleLoader__: { load: (value) => { registration = value } } }, console,
     setTimeout: (...args) => setTimeout(...args).unref(), clearTimeout,
-    TextEncoder, crypto: webcrypto, sessionStorage: memoryStorage, localStorage: memoryStorage,
+    TextEncoder, crypto: webcrypto, sessionStorage: memoryStorage, localStorage: memoryStorage, ...browser,
   })
   vm.runInContext(source, context)
   const api = new Proxy(services, { get: (target, key) => target[key] ?? (async () => ({ ok: true, value: {} })) })
@@ -43,7 +44,7 @@ async function panel(services = {}) {
     remote: { frenchReader: api, $mount: async () => async () => {} },
   }
   await registration.factory(() => React).apply(ctx)
-  return { render() { stateIndex = 0; refIndex = 0; return component(props) }, values }
+  return { render() { stateIndex = 0; refIndex = 0; return component(props) }, values, effects }
 }
 function all(node, predicate) {
   if (node == null || typeof node !== 'object') return []
@@ -422,4 +423,30 @@ test('lookup results show the word and return to analysis without claiming a con
   assert.doesNotMatch(text(result), /已确认的学习结论|返回来源讨论/u)
   button(p.render(), '← 返回解析').props.onClick()
   assert.equal(all(p.render(), (node) => node.props?.className === 'lookupResult').length, 0)
+})
+
+test('repeated compact resizes preserve the route preference from the wide layout', async () => {
+  let resize
+  class Observer {
+    constructor(callback) { resize = callback }
+    observe() {}
+    disconnect() {}
+  }
+  const p = await panel({}, { ResizeObserver: Observer })
+  let box = { width: 1280, height: 900 }
+  const root = all(p.render(), (node) => node.props?.className === 'fr-root bookLayout')[0]
+  root.props.ref.current = { getBoundingClientRect: () => box }
+  p.effects.find((factory) => factory.toString().includes('wideNavPreference.current'))()
+  assert.ok(button(p.render(), '收起路线'))
+  box = { width: 390, height: 844 }; resize()
+  assert.ok(button(p.render(), '打开路线'))
+  box = { width: 320, height: 568 }; resize()
+  box = { width: 844, height: 390 }; resize()
+  box = { width: 1280, height: 900 }; resize()
+  assert.ok(button(p.render(), '收起路线'))
+  button(p.render(), '收起路线').props.onClick()
+  box = { width: 390, height: 844 }; resize()
+  box = { width: 320, height: 568 }; resize()
+  box = { width: 1280, height: 900 }; resize()
+  assert.ok(button(p.render(), '打开路线'))
 })
