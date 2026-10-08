@@ -1,0 +1,17 @@
+# Installed dependencies
+node_modules/
+
+# Local configuration and credentials
+.env
+.env.*
+!.env.example
+!.env.sample
+*.pem
+*.key
+
+# Local caches and temporary snapshots
+.DS_Store
+*.tsbuildinfo
+.work-snapshot-*
+*.log
+coverage/

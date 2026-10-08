@@ -1,0 +1,17 @@
+{
+  "title": "French Close Reading",
+  "description": "Save French passages and build translations, sentence analysis, and discussion branches.",
+  "tabConjugation": "Conjugation",
+  "conjugationHint": "Pronunciation data is fetched per verb: only the forms the source actually lists, and anything not retrieved is reported as missing.",
+  "conjugationLemmaPlaceholder": "Verb infinitive, e.g. venir",
+  "conjugationRead": "Read stored data",
+  "conjugationFetch": "Fetch from source",
+  "conjugationPrompt": "Enter a verb to read or fetch.",
+  "conjugationNoData": "No data yet",
+  "conjugationPending": "The last fetch did not finish ({status}): {reason}; {missing} forms missing",
+  "conjugationFor": "Phonetic bases of {lemma}",
+  "conjugationSource": "Source {source} · {status} · {missing} forms missing",
+  "conjugationMissing": "Not covered by the data: {persons}",
+  "conjugationFetched": "Fetch finished ({status}): {tenses} tenses, {bases} bases, {requests} requests, {missing} forms missing",
+  "conjugationRefused": "Nothing was fetched: {reason}"
+}

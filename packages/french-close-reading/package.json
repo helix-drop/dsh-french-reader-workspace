@@ -1,0 +1,136 @@
+{
+  "name": "@local/french-close-reading",
+  "version": "0.1.0",
+  "private": true,
+  "description": "French passage close-reading workspace for DeepSeek Harness",
+  "type": "module",
+  "scripts": {
+    "test": "node --test test/*.test.mjs"
+  },
+  "main": "lib/index.js",
+  "types": "lib/index.d.ts",
+  "icon": "./icon.svg",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./types": {
+      "types": "./lib/types.d.ts",
+      "default": "./lib/types.js"
+    },
+    "./client": "./client.js",
+    "./typert": {
+      "types": "./lib/typert.host.d.ts",
+      "default": "./lib/typert.host.js"
+    },
+    "./remote": {
+      "types": "./lib/typert.remote-client.d.ts",
+      "default": "./lib/typert.remote-client.js"
+    },
+    "./package.json": "./package.json",
+    "./locale/*.json": "./locale/*.json"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-layout",
+        "@deepseek-ai/dsh-api-remotes"
+      ]
+    }
+  },
+  "files": [
+    "lib/index.js",
+    "lib/index.d.ts",
+    "lib/controller.js",
+    "lib/controller.d.ts",
+    "lib/domain.js",
+    "lib/domain.d.ts",
+    "lib/types.js",
+    "lib/types.d.ts",
+    "lib/segmentation.js",
+    "lib/segmentation.d.ts",
+    "lib/tools.js",
+    "lib/tools.d.ts",
+    "lib/typert.host.js",
+    "lib/typert.host.d.ts",
+    "lib/typert.remote-client.js",
+    "lib/typert.remote-client.d.ts",
+    "client.js",
+    "cordis.patch.yml",
+    "locale/en.json",
+    "locale/zh.json",
+    "icon.svg",
+    "README.md",
+    "VERIFICATION.md",
+    "lib/output-policy.js",
+    "lib/output-policy.d.ts",
+    "lib/source-gate.js",
+    "lib/source-gate.d.ts",
+    "lib/import-preview.js",
+    "lib/import-preview.d.ts",
+    "lib/conjugation.js",
+    "lib/conjugation.d.ts",
+    "lib/coverage.js",
+    "lib/coverage.d.ts",
+    "lib/lexicon-store.js",
+    "lib/lexicon-store.d.ts",
+    "lib/discussion.js",
+    "lib/discussion.d.ts",
+    "lib/discussion-store.js",
+    "lib/discussion-store.d.ts",
+    "lib/generation.js",
+    "lib/generation.d.ts",
+    "lib/generation-types.js",
+    "lib/generation-types.d.ts",
+    "lib/agy-backend.js",
+    "lib/agy-backend.d.ts",
+    "lib/context-compiler.js",
+    "lib/context-compiler.d.ts",
+    "lib/digest.js",
+    "lib/digest.d.ts",
+    "lib/answer-extraction.js",
+    "lib/answer-extraction.d.ts",
+    "lib/generation-store.js",
+    "lib/generation-store.d.ts",
+    "lib/conjugation-data.js",
+    "lib/conjugation-data.d.ts",
+    "lib/conjugation-source.js",
+    "lib/conjugation-source.d.ts",
+    "lib/conjugation-store.js",
+    "lib/conjugation-store.d.ts",
+    "lib/conjugation-fetch.js",
+    "lib/conjugation-fetch.d.ts",
+    "lib/analysis.js",
+    "lib/analysis.d.ts",
+    "lib/analysis-store.js",
+    "lib/analysis-store.d.ts",
+    "lib/limits.js",
+    "lib/limits.d.ts",
+    "lib/source-fetch.js",
+    "lib/source-fetch.d.ts"
+  ],
+  "dependencies": {
+    "zod": "4.4.3"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "~4.0.4",
+    "@deepseek-ai/dsh-api-gateway": "0.2.0-rc.2",
+    "@deepseek-ai/dsh-api-remotes": "0.2.0-rc.2",
+    "@deepseek-ai/dsh-storage-domain": "0.2.0-rc.2",
+    "@deepseek-ai/dsh-typert-protocol": "0.2.0-rc.2"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "~4.0.4",
+    "@deepseek-ai/dsh-storage-domain": "0.2.0-rc.2",
+    "@deepseek-ai/dsh-typert-protocol": "0.2.0-rc.2",
+    "zod": "4.4.3",
+    "typescript": "6.0.3",
+    "@deepseek-ai/dsh-typert-generator": "0.2.0-rc.2"
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "references": [
+    { "path": "../typert-protocol/tsconfig.host.json" }
+  ],
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "lib",
+    "tsBuildInfoFile": "lib/.host.tsbuildinfo"
+  },
+  "include": ["src/**/*.ts"]
+}

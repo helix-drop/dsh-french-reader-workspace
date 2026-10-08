@@ -1,0 +1,15 @@
+{
+  "name": "dsh-french-reader-workspace",
+  "private": true,
+  "type": "module",
+  "workspaces": ["packages/*"],
+  "scripts": {
+    "build": "tsc --build tsconfig.host.json && node scripts/generate-typert.mjs",
+    "typecheck": "tsc --build tsconfig.host.json",
+    "generate:typert": "node scripts/generate-typert.mjs"
+  },
+  "devDependencies": {
+    "@deepseek-ai/dsh-typert-generator": "0.2.0-rc.2",
+    "typescript": "6.0.3"
+  }
+}

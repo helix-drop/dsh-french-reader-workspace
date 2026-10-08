@@ -1,0 +1,341 @@
+ortho	phon	lemme	cgram	genre	nombre	freqlemfilms2	freqlemlivres	freqfilms2	freqlivres	infover	nbhomogr	nbhomoph	islem	nblettres	nbphons	cvcv	p_cvcv	voisorth	voisphon	puorth	puphon	syll	nbsyll	cv-cv	orthrenv	phonrenv	orthosyll	cgramortho	deflem	defobs	old20	pld20	morphoder	nbmorph
+a	a	avoir	VER			13572.40	6426.49	5498.34	1669.39	ind:pre:3s;	3	9	0	1	1	V	V	25	20	1	1	a	1	V	a	a	a	NOM,AUX,VER	93	16	1	1	avoir	1
+ai	E	avoir	VER			13572.40	6426.49	2475.78	619.05	ind:pre:1s;	2	15	0	2	1	VV	V	17	20	0	1	E	1	V	ia	E	ai	AUX,VER	93	16	1	1	avoir	1
+aie	E	avoir	VER			13572.40	6426.49	58.62	17.84	imp:pre:2s;sub:pre:1s;	2	15	0	3	1	VVV	V	22	20	0	1	E	1	V	eia	E	aie	AUX,VER	93	16	1	1	avoir	1
+aient	E	avoir	VER			13572.40	6426.49	8.19	10.00	sub:pre:3p;	2	15	0	5	1	VVVCC	V	10	20	0	1	E	1	V	tneia	E	aient	AUX,VER	93	16	1.3	1	avoir	1
+aies	E	avoir	VER			13572.40	6426.49	17.00	3.11	sub:pre:2s;	2	15	0	4	1	VVVC	V	13	20	0	1	E	1	V	seia	E	aies	AUX,VER	93	16	1	1	avoir	1
+ait	e	avoir	VER			13572.40	6426.49	78.06	49.12	sub:pre:3s;	2	9	0	3	1	VVC	V	15	20	0	1	e	1	V	tia	e	ait	AUX,VER	93	16	1	1	avoir	1
+as	a	avoir	VER			13572.40	6426.49	1274.31	208.72	ind:pre:2s;	3	9	0	2	1	VC	V	10	20	2	1	a	1	V	sa	a	as	AUX,VER,NOM	93	16	1	1	avoir	1
+aura	oRa	avoir	VER			13572.40	6426.49	187.56	75.14	ind:fut:3s;	3	6	0	4	3	VVCV	VCV	6	22	4	3	o-Ra	2	V-CV	arua	aRo	au-ra	NOM,AUX,VER	93	16	1.45	1	avoir	1
+aurai	oRE	avoir	VER			13572.40	6426.49	78.85	32.36	ind:fut:1s;	3	9	0	5	3	VVCVV	VCV	2	23	5	3	o-RE	2	V-CV	iarua	ERo	au-rai	AUX,VER	93	16	1.7	1	avoir	1
+auraient	oRE	avoir	VER			13572.40	6426.49	6.81	14.32	cnd:pre:3p;	2	9	0	8	3	VVCVVVCC	VCV	4	23	0	3	o-RE	2	V-CV	tneiarua	ERo	au-raient	AUX,VER	93	16	1.75	1	avoir	1
+aurais	oRE	avoir	VER			13572.40	6426.49	74.56	33.72	cnd:pre:1s;cnd:pre:2s;	2	9	0	6	3	VVCVVC	VCV	2	23	0	3	o-RE	2	V-CV	siarua	ERo	au-rais	AUX,VER	93	16	1.75	1	avoir	1
+aurait	oRE	avoir	VER			13572.40	6426.49	64.61	101.82	cnd:pre:3s;	2	9	0	6	3	VVCVVC	VCV	6	23	0	3	o-RE	2	V-CV	tiarua	ERo	au-rait	AUX,VER	93	16	1.55	1	avoir	1
+auras	oRa	avoir	VER			13572.40	6426.49	87.32	21.42	ind:fut:2s;	3	6	0	5	3	VVCVC	VCV	1	22	0	3	o-Ra	2	V-CV	sarua	aRo	au-ras	NOM,AUX,VER	93	16	1.75	1	avoir	1
+aurez	oRe	avoir	VER			13572.40	6426.49	60.72	16.49	ind:fut:2p;	2	3	0	5	3	VVCVC	VCV	3	19	0	3	o-Re	2	V-CV	zerua	eRo	au-rez	AUX,VER	93	16	1.75	1	avoir	1
+auriez	oRje	avoir	VER			13572.40	6426.49	20.82	6.15	cnd:pre:2p;	2	2	0	6	4	VVCVVC	VCYV	1	8	0	0	o-Rje	2	V-CYV	zeirua	ejRo	au-riez	AUX,VER	93	16	1.85	1.35	avoir	1
+aurions	oRj§	avoir	VER			13572.40	6426.49	4.57	5.00	cnd:pre:1p;	2	4	0	7	4	VVCVVCC	VCYV	0	6	0	4	o-Rj§	2	V-CYV	snoirua	§jRo	au-rions	AUX,VER	93	16	1.9	1.45	avoir	1
+aurons	oR§	avoir	VER			13572.40	6426.49	23.03	12.64	ind:fut:1p;	2	4	0	6	3	VVCVCC	VCV	6	18	0	0	o-R§	2	V-CV	snorua	§Ro	au-rons	AUX,VER	93	16	1.6	1	avoir	1
+auront	oR§	avoir	VER			13572.40	6426.49	22.01	13.92	ind:fut:3p;	2	4	0	6	3	VVCVCC	VCV	2	18	0	0	o-R§	2	V-CV	tnorua	§Ro	au-ront	AUX,VER	93	16	1.85	1	avoir	1
+avaient	avE	avoir	VER			13572.40	6426.49	50.06	175.68	ind:imp:3p;	2	6	0	7	3	VCVVVCC	VCV	2	14	0	0	a-vE	2	V-CV	tneiava	Eva	a-vaient	AUX,VER	93	16	1.65	1	avoir	1
+avais	avE	avoir	VER			13572.40	6426.49	373.32	351.96	ind:imp:1s;ind:imp:2s;	2	6	0	5	3	VCVVC	VCV	1	14	0	0	a-vE	2	V-CV	siava	Eva	a-vais	AUX,VER	93	16	1.65	1	avoir	1
+avait	avE	avoir	VER			13572.40	6426.49	596.64	1496.15	ind:imp:3s;	2	6	0	5	3	VCVVC	VCV	2	14	0	0	a-vE	2	V-CV	tiava	Eva	a-vait	AUX,VER	93	16	1.65	1	avoir	1
+avez	ave	avoir	VER			13572.40	6426.49	661.88	134.19	ind:pre:2p;	2	5	0	4	3	VCVC	VCV	3	19	0	3	a-ve	2	V-CV	zeva	eva	a-vez	AUX,VER	93	16	1.5	1	avoir	1
+aviez	avje	avoir	VER			13572.40	6426.49	44.64	14.66	ind:imp:2p;	2	2	0	5	4	VCVVC	VCYV	0	8	0	0	a-vje	2	V-CYV	zeiva	ejva	a-viez	AUX,VER	93	16	1.85	1.3	avoir	1
+avions	avj§	avoir	VER			13572.40	6426.49	23.85	46.82	ind:imp:1p;	3	4	0	6	4	VCVVCC	VCYV	0	6	0	4	a-vj§	2	V-CYV	snoiva	§jva	a-vions	NOM,AUX,VER	93	16	1.7	1.45	avoir	1
+avoir	avwaR	avoir	VER			13572.40	6426.49	404.19	177.30	inf;	3	4	1	5	5	VCVVC	VCYVC	0	6	5	5	a-vwaR	2	V-CYVC	riova	Rawva	a-voir	AUX,NOM,VER	93	16	1.7	1.35	avoir	1
+avons	av§	avoir	VER			13572.40	6426.49	237.78	68.85	ind:pre:1p;	2	2	0	5	3	VCVCC	VCV	1	14	0	0	a-v§	2	V-CV	snova	§va	a-vons	AUX,VER	93	16	1.7	1	avoir	1
+ayant	Ej@	avoir	VER			13572.40	6426.49	0.90	3.85	par:pre;	2	3	0	5	3	VVVCC	VYV	4	13	0	0	E-j@	2	V-YV	tnaya	@jE	ayant	AUX,VER	93	16	1.65	1.2	avoir	1
+ayez	Eje	avoir	VER			13572.40	6426.49	34.30	10.54	imp:pre:2p;sub:pre:2p;	2	2	0	4	3	VVVC	VYV	2	16	0	0	E-je	2	V-YV	zeya	ejE	ayez	AUX,VER	93	16	1.8	1	avoir	1
+ayons	Ej§	avoir	VER			13572.40	6426.49	5.92	3.24	imp:pre:1p;sub:pre:1p;	2	4	0	5	3	VVVCC	VYV	3	13	0	3	E-j§	2	V-YV	snoya	§jE	ayons	AUX,VER	93	16	1.6	1	avoir	1
+connais	konE	connaître	VER			961.03	629.26	415.87	111.35	imp:pre:2s;ind:pre:1s;ind:pre:2s;	2	3	0	7	4	CVCCVVC	CVCV	6	20	7	4	ko-nE	2	CV-CV	siannoc	Enok	con-nais	VER	93	16	1.7	1	connaître	1
+connaissaient	konEsE	connaître	VER			961.03	629.26	5.23	16.08	ind:imp:3p;	1	3	0	13	6	CVCCVVCCVVVCC	CVCVCV	0	3	0	0	ko-nE-sE	3	CV-CV-CV	tneiassiannoc	EsEnok	con-nais-saient	VER	93	16	2.75	1.8	connaître	1
+connaissais	konEsE	connaître	VER			961.03	629.26	34.19	41.82	ind:imp:1s;ind:imp:2s;	1	3	0	11	6	CVCCVVCCVVC	CVCVCV	1	3	0	0	ko-nE-sE	3	CV-CV-CV	siassiannoc	EsEnok	con-nais-sais	VER	93	16	2.65	1.8	connaître	1
+connaissait	konEsE	connaître	VER			961.03	629.26	20.02	90.68	ind:imp:3s;	1	3	0	11	6	CVCCVVCCVVC	CVCVCV	2	3	0	0	ko-nE-sE	3	CV-CV-CV	tiassiannoc	EsEnok	con-nais-sait	VER	93	16	2.55	1.8	connaître	1
+connaissant	konEs@	connaître	VER			961.03	629.26	2.65	8.51	par:pre;	2	2	0	11	6	CVCCVVCCVCC	CVCVCV	2	3	11	6	ko-nE-s@	3	CV-CV-CV	tnassiannoc	@sEnok	con-nais-sant	ADJ,VER	93	16	2.4	1.7	connaître	1
+connaisse	konEs	connaître	VER			961.03	629.26	10.78	4.32	sub:pre:1s;sub:pre:3s;	1	3	0	9	5	CVCCVVCCV	CVCVC	0	3	0	0	ko-nEs	2	CV-CVC	essiannoc	sEnok	con-nais-se	VER	93	16	2.15	1.55	connaître	1
+connaissent	konEs	connaître	VER			961.03	629.26	18.32	16.89	ind:pre:3p;	1	3	0	11	5	CVCCVVCCVCC	CVCVC	1	3	0	0	ko-nEs	2	CV-CVC	tnessiannoc	sEnok	con-nais-sent	VER	93	16	2.15	1.55	connaître	1
+connaisses	konEs	connaître	VER			961.03	629.26	1.90	0.74	sub:pre:2s;	1	3	0	10	5	CVCCVVCCVC	CVCVC	1	3	0	0	ko-nEs	2	CV-CVC	sessiannoc	sEnok	con-nais-ses	VER	93	16	2.15	1.55	connaître	1
+connaissez	konEse	connaître	VER			961.03	629.26	125.09	29.53	imp:pre:2p;ind:pre:2p;	1	1	0	10	6	CVCCVVCCVC	CVCVCV	1	3	0	0	ko-nE-se	3	CV-CV-CV	zessiannoc	esEnok	con-nais-sez	VER	93	16	2.45	1.75	connaître	1
+connaissiez	konEsje	connaître	VER			961.03	629.26	13.71	2.84	ind:imp:2p;sub:pre:2p;	1	1	0	11	7	CVCCVVCCVVC	CVCVCYV	0	1	0	0	ko-nE-sje	3	CV-CV-CYV	zeissiannoc	ejsEnok	con-nais-siez	VER	93	16	2.8	1.9	connaître	1
+connaissions	konEsj§	connaître	VER			961.03	629.26	1.40	5.61	ind:imp:1p;	1	1	0	12	7	CVCCVVCCVVCC	CVCVCYV	0	1	0	0	ko-nE-sj§	3	CV-CV-CYV	snoissiannoc	§jsEnok	con-nais-sions	VER	93	16	3.05	1.85	connaître	1
+connaissons	konEs§	connaître	VER			961.03	629.26	11.78	6.89	imp:pre:1p;ind:pre:1p;	1	1	0	11	6	CVCCVVCCVCC	CVCVCV	0	3	0	0	ko-nE-s§	3	CV-CV-CV	snossiannoc	§sEnok	con-nais-sons	VER	93	16	2.65	1.75	connaître	1
+connaît	konE	connaître	VER			961.03	629.26	103.42	57.03	ind:pre:3s;	1	3	0	7	4	CVCCVVC	CVCV	0	20	0	4	ko-nE	2	CV-CV	tîannoc	Enok	con-naît	VER	93	16	2	1	connaître	1
+connaîtra	konEtRa	connaître	VER			961.03	629.26	2.67	1.69	ind:fut:3s;	1	2	0	9	7	CVCCVVCCV	CVCVCCV	1	4	0	0	ko-nE-tRa	3	CV-CV-CCV	artîannoc	aRtEnok	con-naî-tra	VER	93	16	2.4	1.85	connaître	1
+connaîtrai	konEtRE	connaître	VER			961.03	629.26	1.17	1.96	ind:fut:1s;	1	4	0	10	7	CVCCVVCCVV	CVCVCCV	1	4	0	0	ko-nE-tRE	3	CV-CV-CCV	iartîannoc	ERtEnok	con-naî-trai	VER	93	16	2.45	1.75	connaître	1
+connaîtraient	konEtRE	connaître	VER			961.03	629.26	0.07	0.95	cnd:pre:3p;	1	4	0	13	7	CVCCVVCCVVVCC	CVCVCCV	0	4	0	0	ko-nE-tRE	3	CV-CV-CCV	tneiartîannoc	ERtEnok	con-naî-traient	VER	93	16	3.2	1.75	connaître	1
+connaîtrais	konEtRE	connaître	VER			961.03	629.26	1.54	1.62	cnd:pre:1s;cnd:pre:2s;	1	4	0	11	7	CVCCVVCCVVC	CVCVCCV	1	4	0	0	ko-nE-tRE	3	CV-CV-CCV	siartîannoc	ERtEnok	con-naî-trais	VER	93	16	2.55	1.75	connaître	1
+connaîtrait	konEtRE	connaître	VER			961.03	629.26	0.72	2.77	cnd:pre:3s;	1	4	0	11	7	CVCCVVCCVVC	CVCVCCV	1	4	0	0	ko-nE-tRE	3	CV-CV-CCV	tiartîannoc	ERtEnok	con-naî-trait	VER	93	16	2.55	1.75	connaître	1
+connaîtras	konEtRa	connaître	VER			961.03	629.26	1.85	1.42	ind:fut:2s;	1	2	0	10	7	CVCCVVCCVC	CVCVCCV	1	4	0	0	ko-nE-tRa	3	CV-CV-CCV	sartîannoc	aRtEnok	con-naî-tras	VER	93	16	2.45	1.85	connaître	1
+connaître	konEtR	connaître	VER			961.03	629.26	88.63	90.14	inf;;inf;;inf;;	1	1	1	9	6	CVCCVVCCV	CVCVCC	1	1	6	5	ko-nEtR	2	CV-CVCC	ertîannoc	RtEnok	con-naî-tre	VER	93	16	2.5	1.75	connaître	1
+connaîtrez	konEtRe	connaître	VER			961.03	629.26	1.47	0.74	ind:fut:2p;	1	1	0	10	7	CVCCVVCCVC	CVCVCCV	0	4	0	0	ko-nE-tRe	3	CV-CV-CCV	zertîannoc	eRtEnok	con-naî-trez	VER	93	16	2.6	1.7	connaître	1
+connaîtriez	konEtRije	connaître	VER			961.03	629.26	0.70	0.20	cnd:pre:2p;	1	1	0	11	9	CVCCVVCCVVC	CVCVCCVYV	0	1	0	0	ko-nE-tRi-je	4	CV-CV-CCV-YV	zeirtîannoc	ejiRtEnok	con-naî-triez	VER	93	16	2.85		connaître	1
+connaîtrions	konEtRij§	connaître	VER			961.03	629.26	0.03	0.14	cnd:pre:1p;	1	1	0	12	9	CVCCVVCCVVCC	CVCVCCVYV	0	1	0	0	ko-nE-tRi-j§	4	CV-CV-CCV-YV	snoirtîannoc	§jiRtEnok	con-naî-trions	VER	93	16	3.15	2.8	connaître	1
+connaîtrons	konEtR§	connaître	VER			961.03	629.26	0.76	0.88	ind:fut:1p;	1	2	0	11	7	CVCCVVCCVCC	CVCVCCV	1	3	0	0	ko-nE-tR§	3	CV-CV-CCV	snortîannoc	§RtEnok	con-naî-trons	VER	93	16	2.65	1.8	connaître	1
+connaîtront	konEtR§	connaître	VER			961.03	629.26	0.81	0.74	ind:fut:3p;	1	2	0	11	7	CVCCVVCCVCC	CVCVCCV	1	3	0	0	ko-nE-tR§	3	CV-CV-CCV	tnortîannoc	§RtEnok	con-naî-tront	VER	93	16	2.9	1.8	connaître	1
+connu	kony	connaître	VER	m	s	961.03	629.26	70.33	84.53	par:pas;	2	10	0	5	4	CVCCV	CVCV	3	6	5	4	ko-ny	2	CV-CV	unnoc	ynok	con-nu	VER,ADJ	93	16	1.7	1.4	connaître	1
+connue	kony	connaître	VER	f	s	961.03	629.26	13.32	17.77	par:pas;	2	10	0	6	4	CVCCVV	CVCV	5	6	0	4	ko-ny	2	CV-CV	eunnoc	ynok	con-nue	VER,ADJ	93	16	1.6	1.4	connaître	1
+connues	kony	connaître	VER	f	p	961.03	629.26	2.03	5.34	par:pas;	2	10	0	7	4	CVCCVVC	CVCV	3	6	0	4	ko-ny	2	CV-CV	seunnoc	ynok	con-nues	VER,ADJ	93	16	1.7	1.4	connaître	1
+connurent	konyR	connaître	VER			961.03	629.26	0.33	1.55	ind:pas:3p;	1	1	0	9	5	CVCCVCVCC	CVCVC	1	4	0	0	ko-nyR	2	CV-CVC	tnerunnoc	Rynok	con-nu-rent	VER	93	16	2.05	1.75	connaître	1
+connus	kony	connaître	VER	m	p	961.03	629.26	9.39	14.26	ind:pas:1s;ind:pas:2s;par:pas;	2	10	0	6	4	CVCCVC	CVCV	6	6	0	4	ko-ny	2	CV-CV	sunnoc	ynok	con-nus	VER,ADJ	93	16	1.6	1.4	connaître	1
+connusse	konys	connaître	VER			961.03	629.26	0.00	0.34	sub:imp:1s;	1	3	0	8	5	CVCCVCCV	CVCVC	1	7	0	0	ko-nys	2	CV-CVC	essunnoc	synok	con-nus-se	VER	93	16	2	1.6	connaître	1
+connussent	konys	connaître	VER			961.03	629.26	0.00	0.34	sub:imp:3p;	1	3	0	10	5	CVCCVCCVCC	CVCVC	0	7	0	0	ko-nys	2	CV-CVC	tnessunnoc	synok	con-nus-sent	VER	93	16	2.4	1.6	connaître	1
+connusses	konys	connaître	VER			961.03	629.26	0.00	0.07	sub:imp:2s;	1	3	0	9	5	CVCCVCCVC	CVCVC	1	7	0	0	ko-nys	2	CV-CVC	sessunnoc	synok	con-nus-ses	VER	93	16	2.4	1.6	connaître	1
+connut	kony	connaître	VER			961.03	629.26	0.84	7.09	ind:pas:3s;	1	10	0	6	4	CVCCVC	CVCV	4	6	0	4	ko-ny	2	CV-CV	tunnoc	ynok	con-nut	VER	93	16	1.75	1.4	connaître	1
+connûmes	konym	connaître	VER			961.03	629.26	0.01	0.20	ind:pas:1p;	1	1	0	8	5	CVCCVCVC	CVCVC	0	2	0	0	ko-nym	2	CV-CVC	semûnnoc	mynok	con-nû-mes	VER	93	16	2.6	1.85	connaître	1
+connût	kony	connaître	VER			961.03	629.26	0.00	2.23	sub:imp:3s;	1	10	0	6	4	CVCCVC	CVCV	1	6	0	4	ko-ny	2	CV-CV	tûnnoc	ynok	con-nût	VER	93	16	1.95	1.4	connaître	1
+es	E	être	VER			32236.50	15085.47	1849.07	256.62	ind:pre:2s;	2	15	0	2	1	VC	V	8	20	0	1	E	1	V	se	E	es	AUX,VER	100	19	1.05	1	être	1
+est	e	être	VER			32236.50	15085.47	19417.69	6331.76	ind:pre:3s;	4	9	0	3	1	VCC	V	4	20	3	1	e	1	V	tse	e	est	ADJ,NOM,AUX,VER	100	19	1.45	1	être	1
+eu	y	avoir	VER	m	s	13572.40	6426.49	668.39	436.76	par:pas;	2	16	0	2	1	VV	V	17	20	0	1	y	1	V	ue	y	eu	AUX,VER	93	16	1	1	avoir	1
+eue	y	avoir	VER	f	s	13572.40	6426.49	17.70	13.31	par:pas;	2	16	0	3	1	VVV	V	17	20	3	1	y	1	V	eue	y	eue	AUX,VER	93	16	1	1	avoir	1
+eues	y	avoir	VER	f	p	13572.40	6426.49	3.78	2.64	par:pas;	3	16	0	4	1	VVVC	V	10	20	0	1	y	1	V	seue	y	eues	AUX,VER,ADJ	93	16	1.4	1	avoir	1
+eurent	yR	avoir	VER			13572.40	6426.49	1.42	14.12	ind:pas:3p;	2	5	0	6	2	VVCVCC	VC	10	17	0	2	yR	1	VC	tnerue	Ry	eu-rent	AUX,VER	93	16	1.45	1	avoir	1
+eus	y	avoir	VER	m	p	13572.40	6426.49	11.32	36.01	ind:pas:1s;par:pas;	2	16	0	3	1	VVC	V	18	20	0	1	y	1	V	sue	y	eus	AUX,VER	93	16	1	1	avoir	1
+eusse	ys	avoir	VER			13572.40	6426.49	0.26	2.43	sub:imp:1s;	2	7	0	5	2	VVCCV	VC	9	19	0	2	ys	1	VC	essue	sy	eus-se	AUX,VER	93	16	1.45	1	avoir	1
+eussent	ys	avoir	VER			13572.40	6426.49	0.00	3.18	sub:imp:3p;	2	7	0	7	2	VVCCVCC	VC	6	19	0	2	ys	1	VC	tnessue	sy	eus-sent	AUX,VER	93	16	1.7	1	avoir	1
+eusses	ys	avoir	VER			13572.40	6426.49	0.00	0.14	sub:imp:2s;	2	7	0	6	2	VVCCVC	VC	4	19	0	2	ys	1	VC	sessue	sy	eus-ses	AUX,VER	93	16	1.75	1	avoir	1
+eussiez	ysje	avoir	VER			13572.40	6426.49	0.01	0.00	sub:imp:2p;	2	2	0	7	4	VVCCVVC	VCYV	3	4	0	0	y-sje	2	V-CYV	zeissue	ejsy	eus-siez	AUX,VER	93	16	2	1.55	avoir	1
+eussions	ysj§	avoir	VER			13572.40	6426.49	0.00	0.41	sub:imp:1p;	2	2	0	8	4	VVCCVVCC	VCYV	2	4	0	0	y-sj§	2	V-CYV	snoissue	§jsy	eus-sions	AUX,VER	93	16	2	1.55	avoir	1
+eussé	yse	avoir	VER			13572.40	6426.49	0.00	0.14	sub:imp:1s;	2	2	0	5	3	VVCCV	VCV	1	9	0	0	y-se	2	V-CV	éssue	esy	eus-sé	AUX,VER	93	16	1.95	1.25	avoir	1
+eut	y	avoir	VER			13572.40	6426.49	12.14	247.09	ind:pas:3s;	2	16	0	3	1	VVC	V	17	20	0	1	y	1	V	tue	y	eut	AUX,VER	93	16	1	1	avoir	1
+eûmes	ym	avoir	VER			13572.40	6426.49	0.14	4.46	ind:pas:1p;	2	4	0	5	2	VVCVC	VC	8	15	0	0	ym	1	VC	semûe	my	eû-mes	AUX,VER	93	16	1.6	1	avoir	1
+eût	y	avoir	VER			13572.40	6426.49	1.43	31.76	sub:imp:3s;	2	16	0	3	1	VVC	V	9	20	0	1	y	1	V	tûe	y	eût	AUX,VER	93	16	1.5	1	avoir	1
+eûtes	yt	avoir	VER			13572.40	6426.49	0.01	0.00	ind:pas:2p;	1	5	0	5	2	VVCVC	VC	4	18	0	2	yt	1	VC	setûe	ty	eû-tes	VER	93	16	1.8	1	avoir	1
+fini	fini	finir	VER	m	s	557.61	417.97	292.55	149.26	par:pas;	2	10	0	4	4	CVCV	CVCV	4	5	4	4	fi-ni	2	CV-CV	inif	inif	fi-ni	ADJ,VER	100	30	1.55	1.45	finir	1
+finie	fini	finir	VER	f	s	557.61	417.97	26.99	12.23	par:pas;	2	10	0	5	4	CVCVV	CVCV	3	5	0	4	fi-ni	2	CV-CV	einif	inif	fi-nie	ADJ,VER	100	30	1.7	1.45	finir	1
+finies	fini	finir	VER	f	p	557.61	417.97	3.04	2.57	par:pas;	2	10	0	6	4	CVCVVC	CVCV	0	5	0	4	fi-ni	2	CV-CV	seinif	inif	fi-nies	ADJ,VER	100	30	1.85	1.45	finir	1
+finir	finiR	finir	VER			557.61	417.97	96.48	68.92	inf;	1	2	1	5	5	CVCVC	CVCVC	3	3	5	5	fi-niR	2	CV-CVC	rinif	Rinif	fi-nir	VER	100	30	1.75	1.6	finir	1
+finira	finiRa	finir	VER			557.61	417.97	20.35	8.99	ind:fut:3s;	1	2	0	6	6	CVCVCV	CVCVCV	0	3	0	0	fi-ni-Ra	3	CV-CV-CV	arinif	aRinif	fi-ni-ra	VER	100	30	1.85	1.8	finir	1
+finirai	finiRE	finir	VER			557.61	417.97	5.65	1.89	ind:fut:1s;	1	4	0	7	6	CVCVCVV	CVCVCV	1	4	0	0	fi-ni-RE	3	CV-CV-CV	iarinif	ERinif	fi-ni-rai	VER	100	30	1.85	1.75	finir	1
+finiraient	finiRE	finir	VER			557.61	417.97	0.34	1.76	cnd:pre:3p;	1	4	0	10	6	CVCVCVVVCC	CVCVCV	0	4	0	0	fi-ni-RE	3	CV-CV-CV	tneiarinif	ERinif	fi-ni-raient	VER	100	30	2.25	1.75	finir	1
+finirais	finiRE	finir	VER			557.61	417.97	2.05	2.30	cnd:pre:1s;cnd:pre:2s;	1	4	0	8	6	CVCVCVVC	CVCVCV	1	4	0	0	fi-ni-RE	3	CV-CV-CV	siarinif	ERinif	fi-ni-rais	VER	100	30	1.95	1.75	finir	1
+finirait	finiRE	finir	VER			557.61	417.97	4.51	11.28	cnd:pre:3s;	1	4	0	8	6	CVCVCVVC	CVCVCV	1	4	0	0	fi-ni-RE	3	CV-CV-CV	tiarinif	ERinif	fi-ni-rait	VER	100	30	1.9	1.75	finir	1
+finiras	finiRa	finir	VER			557.61	417.97	7.36	1.96	ind:fut:2s;	1	2	0	7	6	CVCVCVC	CVCVCV	1	3	0	0	fi-ni-Ra	3	CV-CV-CV	sarinif	aRinif	fi-ni-ras	VER	100	30	1.95	1.8	finir	1
+finirent	finiR	finir	VER			557.61	417.97	0.27	2.30	ind:pas:3p;	1	2	0	8	5	CVCVCVCC	CVCVC	1	3	0	5	fi-niR	2	CV-CVC	tnerinif	Rinif	fi-ni-rent	VER	100	30	1.95	1.6	finir	1
+finirez	finiRe	finir	VER			557.61	417.97	3.10	0.95	ind:fut:2p;	1	1	0	7	6	CVCVCVC	CVCVCV	0	4	0	0	fi-ni-Re	3	CV-CV-CV	zerinif	eRinif	fi-ni-rez	VER	100	30	1.95	1.7	finir	1
+finiriez	finiRje	finir	VER			557.61	417.97	0.36	0.14	cnd:pre:2p;	1	1	0	8	7	CVCVCVVC	CVCVCYV	0	2	0	0	fi-ni-Rje	3	CV-CV-CYV	zeirinif	ejRinif	fi-ni-riez	VER	100	30	2.45	1.95	finir	1
+finirions	finiRj§	finir	VER			557.61	417.97	0.34	0.54	cnd:pre:1p;	1	1	0	9	7	CVCVCVVCC	CVCVCYV	1	2	0	0	fi-ni-Rj§	3	CV-CV-CYV	snoirinif	§jRinif	fi-ni-rions	VER	100	30	2.4	2.15	finir	1
+finirons	finiR§	finir	VER			557.61	417.97	1.63	1.08	ind:fut:1p;	1	2	0	8	6	CVCVCVCC	CVCVCV	1	4	0	0	fi-ni-R§	3	CV-CV-CV	snorinif	§Rinif	fi-ni-rons	VER	100	30	2.1	1.7	finir	1
+finiront	finiR§	finir	VER			557.61	417.97	3.31	2.09	ind:fut:3p;	1	2	0	8	6	CVCVCVCC	CVCVCV	2	4	0	0	fi-ni-R§	3	CV-CV-CV	tnorinif	§Rinif	fi-ni-ront	VER	100	30	2.35	1.7	finir	1
+finis	fini	finir	VER	m	p	557.61	417.97	21.82	11.28	imp:pre:2s;ind:pre:1s;ind:pre:2s;par:pas;	2	10	0	5	4	CVCVC	CVCV	7	5	0	4	fi-ni	2	CV-CV	sinif	inif	fi-nis	ADJ,VER	100	30	1.45	1.45	finir	1
+finissaient	finisE	finir	VER			557.61	417.97	0.44	8.38	ind:imp:3p;	1	3	0	11	6	CVCVCCVVVCC	CVCVCV	0	6	0	0	fi-ni-sE	3	CV-CV-CV	tneiassinif	Esinif	fi-nis-saient	VER	100	30	2.45	1.65	finir	1
+finissais	finisE	finir	VER			557.61	417.97	1.06	3.38	ind:imp:1s;ind:imp:2s;	1	3	0	9	6	CVCVCCVVC	CVCVCV	1	6	0	0	fi-ni-sE	3	CV-CV-CV	siassinif	Esinif	fi-nis-sais	VER	100	30	2.4	1.65	finir	1
+finissait	finisE	finir	VER			557.61	417.97	2.68	30.00	ind:imp:3s;	1	3	0	9	6	CVCVCCVVC	CVCVCV	3	6	0	0	fi-ni-sE	3	CV-CV-CV	tiassinif	Esinif	fi-nis-sait	VER	100	30	2.05	1.65	finir	1
+finissant	finis@	finir	VER			557.61	417.97	0.48	3.85	par:pre;	2	3	0	9	6	CVCVCCVCC	CVCVCV	2	4	7	6	fi-ni-s@	3	CV-CV-CV	tnassinif	@sinif	fi-nis-sant	VER,ADJ	100	30	2	1.7	finir	1
+finisse	finis	finir	VER			557.61	417.97	9.34	6.49	sub:pre:1s;sub:pre:3s;	1	3	0	7	5	CVCVCCV	CVCVC	2	6	0	0	fi-nis	2	CV-CVC	essinif	sinif	fi-nis-se	VER	100	30	1.8	1.45	finir	1
+finissent	finis	finir	VER			557.61	417.97	8.49	10.41	ind:pre:3p;	1	3	0	9	5	CVCVCCVCC	CVCVC	1	6	0	0	fi-nis	2	CV-CVC	tnessinif	sinif	fi-nis-sent	VER	100	30	1.95	1.45	finir	1
+finisses	finis	finir	VER			557.61	417.97	0.63	0.14	sub:pre:2s;	1	3	0	8	5	CVCVCCVC	CVCVC	3	6	0	0	fi-nis	2	CV-CVC	sessinif	sinif	fi-nis-ses	VER	100	30	1.8	1.45	finir	1
+finissez	finise	finir	VER			557.61	417.97	5.80	1.15	imp:pre:2p;ind:pre:2p;	1	1	0	8	6	CVCVCCVC	CVCVCV	1	6	0	0	fi-ni-se	3	CV-CV-CV	zessinif	esinif	fi-nis-sez	VER	100	30	2	1.6	finir	1
+finissiez	finisje	finir	VER			557.61	417.97	0.41	0.20	ind:imp:2p;	1	1	0	9	7	CVCVCCVVC	CVCVCYV	0	3	0	0	fi-ni-sje	3	CV-CV-CYV	zeissinif	ejsinif	fi-nis-siez	VER	100	30	2.65	1.75	finir	1
+finissions	finisj§	finir	VER			557.61	417.97	0.20	1.08	ind:imp:1p;	1	3	0	10	7	CVCVCCVVCC	CVCVCYV	0	2	0	6	fi-ni-sj§	3	CV-CV-CYV	snoissinif	§jsinif	fi-nis-sions	VER	100	30	2.5	1.85	finir	1
+finissons	finis§	finir	VER			557.61	417.97	7.82	1.82	imp:pre:1p;ind:pre:1p;	1	1	0	9	6	CVCVCCVCC	CVCVCV	1	6	0	0	fi-ni-s§	3	CV-CV-CV	snossinif	§sinif	fi-nis-sons	VER	100	30	2.15	1.6	finir	1
+finit	fini	finir	VER			557.61	417.97	29.97	70.47	ind:pre:3s;ind:pas:3s;	1	10	0	5	4	CVCVC	CVCV	6	5	0	4	fi-ni	2	CV-CV	tinif	inif	fi-nit	VER	100	30	1.65	1.45	finir	1
+finîmes	finim	finir	VER			557.61	417.97	0.14	0.41	ind:pas:1p;	1	1	0	7	5	CVCVCVC	CVCVC	0	4	0	0	fi-nim	2	CV-CVC	semînif	minif	fi-nî-mes	VER	100	30	2.45	1.75	finir	1
+finît	fini	finir	VER			557.61	417.97	0.00	0.68	sub:imp:3s;	1	10	0	5	4	CVCVC	CVCV	2	5	0	4	fi-ni	2	CV-CV	tînif	inif	fi-nît	VER	100	30	1.9	1.45	finir	1
+furent	fyR	être	VER			32236.50	15085.47	6.49	35.34	ind:pas:3p;	2	2	0	6	3	CVCVCC	CVC	14	21	0	0	fyR	1	CVC	tneruf	Ryf	fu-rent	AUX,VER	100	19	1.2	1	être	1
+fus	fy	être	VER			32236.50	15085.47	3.36	17.57	ind:pas:1s;ind:pas:2s;	2	8	0	3	2	CVC	CV	17	24	0	2	fy	1	CV	suf	yf	fus	AUX,VER	100	19	1	1	être	1
+fusse	fys	être	VER			32236.50	15085.47	0.03	3.11	sub:imp:1s;	2	6	0	5	3	CVCCV	CVC	13	21	0	0	fys	1	CVC	essuf	syf	fus-se	AUX,VER	100	19	1.15	1	être	1
+fussent	fys	être	VER			32236.50	15085.47	0.33	19.39	sub:imp:3p;	2	6	0	7	3	CVCCVCC	CVC	8	21	0	0	fys	1	CVC	tnessuf	syf	fus-sent	AUX,VER	100	19	1.5	1	être	1
+fusses	fys	être	VER			32236.50	15085.47	0.00	0.20	sub:imp:2s;	2	6	0	6	3	CVCCVC	CVC	8	21	0	0	fys	1	CVC	sessuf	syf	fus-ses	AUX,VER	100	19	1.5	1	être	1
+fussiez	fysje	être	VER			32236.50	15085.47	0.30	0.07	sub:imp:2p;	2	2	0	7	5	CVCCVVC	CVCYV	6	9	0	0	fy-sje	2	CV-CYV	zeissuf	ejsyf	fus-siez	AUX,VER	100	19	1.7	1.5	être	1
+fussions	fysj§	être	VER			32236.50	15085.47	0.12	0.74	sub:imp:1p;	2	2	0	8	5	CVCCVVCC	CVCYV	4	9	0	0	fy-sj§	2	CV-CYV	snoissuf	§jsyf	fus-sions	AUX,VER	100	19	1.7	1.5	être	1
+fut	fy	être	VER			32236.50	15085.47	55.88	284.46	ind:pas:3s;	2	8	0	3	2	CVC	CV	18	24	0	2	fy	1	CV	tuf	yf	fut	AUX,VER	100	19	1	1	être	1
+fûmes	fym	être	VER			32236.50	15085.47	0.35	4.59	ind:pas:1p;	2	5	0	5	3	CVCVC	CVC	10	15	0	0	fym	1	CVC	semûf	myf	fû-mes	AUX,VER	100	19	1.5	1	être	1
+fût	fy	être	VER			32236.50	15085.47	5.57	100.74	sub:imp:3s;	3	8	0	3	2	CVC	CV	11	24	2	2	fy	1	CV	tûf	yf	fût	NOM,AUX,VER	100	19	1.4	1	être	1
+fûtes	fyt	être	VER			32236.50	15085.47	0.22	0.54	ind:pas:2p;	2	2	0	5	3	CVCVC	CVC	5	24	0	0	fyt	1	CVC	setûf	tyf	fû-tes	AUX,VER	100	19	1.65	1	être	1
+ont	§	avoir	VER			13572.40	6426.49	381.18	240.61	ind:pre:3p;	2	5	0	3	1	VCC	V	5	20	0	1	§	1	V	tno	§	ont	AUX,VER	93	16	1.3	1	avoir	1
+ouvert	uvER	ouvrir	VER	m	s	413.32	492.50	56.83	56.35	par:pas;	2	4	0	6	4	VVCVCC	VCVC	0	5	6	4	u-vER	2	V-CVC	trevuo	REvu	ou-vert	ADJ,VER	96	26	1.8	1.45	ouvrir	1
+ouverte	uvERt	ouvrir	VER	f	s	413.32	492.50	22.29	27.97	par:pas;	2	4	0	7	5	VVCVCCV	VCVCC	1	0	0	0	u-vERt	2	V-CVCC	etrevuo	tREvu	ou-ver-te	ADJ,VER	96	26	1.75	1.8	ouvrir	1
+ouvertes	uvERt	ouvrir	VER	f	p	413.32	492.50	2.88	13.38	par:pas;	2	4	0	8	5	VVCVCCVC	VCVCC	0	0	0	0	u-vERt	2	V-CVCC	setrevuo	tREvu	ou-ver-tes	ADJ,VER	96	26	1.95	1.8	ouvrir	1
+ouverts	uvER	ouvrir	VER	m	p	413.32	492.50	4.40	13.38	par:pas;	2	4	0	7	4	VVCVCCC	VCVC	1	5	0	4	u-vER	2	V-CVC	strevuo	REvu	ou-verts	ADJ,VER	96	26	1.75	1.45	ouvrir	1
+ouvraient	uvRE	ouvrir	VER			413.32	492.50	0.52	12.50	ind:imp:3p;	1	3	0	9	4	VVCCVVVCC	VCCV	0	9	0	0	u-vRE	2	V-CCV	tneiarvuo	ERvu	ou-vraient	VER	96	26	1.85	1.3	ouvrir	1
+ouvrais	uvRE	ouvrir	VER			413.32	492.50	1.39	4.12	ind:imp:1s;ind:imp:2s;	1	3	0	7	4	VVCCVVC	VCCV	2	9	0	0	u-vRE	2	V-CCV	siarvuo	ERvu	ou-vrais	VER	96	26	1.75	1.3	ouvrir	1
+ouvrait	uvRE	ouvrir	VER			413.32	492.50	2.40	46.62	ind:imp:3s;	1	3	0	7	4	VVCCVVC	VCCV	3	9	0	0	u-vRE	2	V-CCV	tiarvuo	ERvu	ou-vrait	VER	96	26	1.65	1.3	ouvrir	1
+ouvrant	uvR@	ouvrir	VER			413.32	492.50	1.86	18.65	par:pre;	3	4	0	7	4	VVCCVCC	VCCV	3	6	6	4	u-vR@	2	V-CCV	tnarvuo	@Rvu	ou-vrant	ADJ,NOM,VER	96	26	1.65	1.55	ouvrir	1
+ouvre	uvR	ouvrir	VER			413.32	492.50	141.45	80.07	imp:pre:2s;ind:pre:1s;ind:pre:3s;sub:pre:3s;	1	3	0	5	3	VVCCV	VCC	2	4	0	0	uvR	1	VCC	ervuo	Rvu	ou-vre	VER	96	26	1.6	1.35	ouvrir	1
+ouvrent	uvR	ouvrir	VER			413.32	492.50	6.24	10.88	ind:pre:3p;sub:pre:3p;	1	3	0	7	3	VVCCVCC	VCC	1	4	0	0	uvR	1	VCC	tnervuo	Rvu	ou-vrent	VER	96	26	1.8	1.35	ouvrir	1
+ouvres	uvR	ouvrir	VER			413.32	492.50	10.20	1.62	ind:pre:2s;sub:pre:2s;	1	3	0	6	3	VVCCVC	VCC	5	4	0	0	uvR	1	VCC	servuo	Rvu	ou-vres	VER	96	26	1.5	1.35	ouvrir	1
+ouvrez	uvRe	ouvrir	VER			413.32	492.50	64.17	6.22	imp:pre:2p;imp:pre:2p;ind:pre:2p;	1	6	0	6	4	VVCCVC	VCCV	2	6	0	4	u-vRe	2	V-CCV	zervuo	eRvu	ou-vrez	VER	96	26	1.65	1.5	ouvrir	1
+ouvriez	uvRie	ouvrir	VER			413.32	492.50	0.41	0.00	ind:imp:2p;	1	1	0	7	5	VVCCVVC	VCCVV	1	3	0	0	u-vRi-e	3	V-CCV-V	zeirvuo	eiRvu	ou-vriez	VER	96	26	1.75	1.55	ouvrir	1
+ouvrions	uvRij§	ouvrir	VER			413.32	492.50	0.10	0.88	ind:imp:1p;	1	1	0	8	6	VVCCVVCC	VCCVYV	0	3	0	0	u-vRi-j§	3	V-CCV-YV	snoirvuo	§jiRvu	ou-vrions	VER	96	26	1.85	1.8	ouvrir	1
+ouvrir	uvRiR	ouvrir	VER			413.32	492.50	79.61	88.58	inf;	1	2	1	6	5	VVCCVC	VCCVC	3	4	6	5	u-vRiR	2	V-CCVC	rirvuo	RiRvu	ou-vrir	VER	96	26	1.6	1.45	ouvrir	1
+ouvrira	uvRiRa	ouvrir	VER			413.32	492.50	4.13	1.96	ind:fut:3s;	1	2	0	7	6	VVCCVCV	VCCVCV	0	3	0	0	u-vRi-Ra	3	V-CCV-CV	arirvuo	aRiRvu	ou-vri-ra	VER	96	26	1.75	1.7	ouvrir	1
+ouvrirai	uvRiRE	ouvrir	VER			413.32	492.50	2.45	0.95	ind:fut:1s;	1	4	0	8	6	VVCCVCVV	VCCVCV	1	3	0	0	u-vRi-RE	3	V-CCV-CV	iarirvuo	ERiRvu	ou-vri-rai	VER	96	26	1.7	1.7	ouvrir	1
+ouvriraient	uvRiRE	ouvrir	VER			413.32	492.50	0.09	1.28	cnd:pre:3p;	1	4	0	11	6	VVCCVCVVVCC	VCCVCV	0	3	0	0	u-vRi-RE	3	V-CCV-CV	tneiarirvuo	ERiRvu	ou-vri-raient	VER	96	26	2.5	1.7	ouvrir	1
+ouvrirais	uvRiRE	ouvrir	VER			413.32	492.50	0.41	0.61	cnd:pre:1s;cnd:pre:2s;	1	4	0	9	6	VVCCVCVVC	VCCVCV	1	3	0	0	u-vRi-RE	3	V-CCV-CV	siarirvuo	ERiRvu	ou-vri-rais	VER	96	26	1.9	1.7	ouvrir	1
+ouvrirait	uvRiRE	ouvrir	VER			413.32	492.50	0.75	4.26	cnd:pre:3s;	1	4	0	9	6	VVCCVCVVC	VCCVCV	1	3	0	0	u-vRi-RE	3	V-CCV-CV	tiarirvuo	ERiRvu	ou-vri-rait	VER	96	26	1.85	1.7	ouvrir	1
+ouvriras	uvRiRa	ouvrir	VER			413.32	492.50	0.85	0.27	ind:fut:2s;	1	2	0	8	6	VVCCVCVC	VCCVCV	1	3	0	0	u-vRi-Ra	3	V-CCV-CV	sarirvuo	aRiRvu	ou-vri-ras	VER	96	26	1.8	1.7	ouvrir	1
+ouvrirent	uvRiR	ouvrir	VER			413.32	492.50	0.51	3.78	ind:pas:3p;	1	2	0	9	5	VVCCVCVCC	VCCVC	1	4	0	5	u-vRiR	2	V-CCVC	tnerirvuo	RiRvu	ou-vri-rent	VER	96	26	2.05	1.45	ouvrir	1
+ouvrirez	uvRiRe	ouvrir	VER			413.32	492.50	0.60	0.07	ind:fut:2p;	1	1	0	8	6	VVCCVCVC	VCCVCV	0	4	0	0	u-vRi-Re	3	V-CCV-CV	zerirvuo	eRiRvu	ou-vri-rez	VER	96	26	1.85	1.55	ouvrir	1
+ouvririez	uvRiRje	ouvrir	VER			413.32	492.50	0.18	0.07	cnd:pre:2p;	1	1	0	9	7	VVCCVCVVC	VCCVCYV	0	1	0	0	u-vRi-Rje	3	V-CCV-CYV	zeirirvuo	ejRiRvu	ou-vri-riez	VER	96	26	2.65	1.85	ouvrir	1
+ouvririons	uvRiRj§	ouvrir	VER			413.32	492.50	0.15	0.00	cnd:pre:1p;	1	1	0	10	7	VVCCVCVVCC	VCCVCYV	0	1	0	0	u-vRi-Rj§	3	V-CCV-CYV	snoirirvuo	§jRiRvu	ou-vri-rions	VER	96	26	2.7	2.15	ouvrir	1
+ouvrirons	uvRiR§	ouvrir	VER			413.32	492.50	0.77	0.00	ind:fut:1p;	1	2	0	9	6	VVCCVCVCC	VCCVCV	1	4	0	0	u-vRi-R§	3	V-CCV-CV	snorirvuo	§RiRvu	ou-vri-rons	VER	96	26	2	1.6	ouvrir	1
+ouvriront	uvRiR§	ouvrir	VER			413.32	492.50	1.35	0.68	ind:fut:3p;	1	2	0	9	6	VVCCVCVCC	VCCVCV	2	4	0	0	u-vRi-R§	3	V-CCV-CV	tnorirvuo	§RiRvu	ou-vri-ront	VER	96	26	2.05	1.6	ouvrir	1
+ouvris	uvRi	ouvrir	VER			413.32	492.50	0.36	7.97	ind:pas:1s;ind:pas:2s;	1	3	0	6	4	VVCCVC	VCCV	4	4	0	0	u-vRi	2	V-CCV	sirvuo	iRvu	ou-vris	VER	96	26	1.65	1.4	ouvrir	1
+ouvrissent	uvRis	ouvrir	VER			413.32	492.50	0.00	0.20	sub:imp:3p;	1	1	0	10	5	VVCCVCCVCC	VCCVC	0	3	0	0	u-vRis	2	V-CCVC	tnessirvuo	siRvu	ou-vris-sent	VER	96	26	2.75	1.8	ouvrir	1
+ouvrit	uvRi	ouvrir	VER			413.32	492.50	2.54	86.62	ind:pas:3s;	1	3	0	6	4	VVCCVC	VCCV	3	4	0	0	u-vRi	2	V-CCV	tirvuo	iRvu	ou-vrit	VER	96	26	1.7	1.4	ouvrir	1
+ouvrons	uvR§	ouvrir	VER			413.32	492.50	3.39	0.95	imp:pre:1p;ind:pre:1p;	1	1	0	7	4	VVCCVCC	VCCV	0	4	0	0	u-vR§	2	V-CCV	snorvuo	§Rvu	ou-vrons	VER	96	26	1.85	1.65	ouvrir	1
+ouvrîmes	uvRim	ouvrir	VER			413.32	492.50	0.00	0.34	ind:pas:1p;	1	1	0	8	5	VVCCVCVC	VCCVC	0	3	0	0	u-vRim	2	V-CCVC	semîrvuo	miRvu	ou-vrî-mes	VER	96	26	2.8	1.8	ouvrir	1
+ouvrît	uvRi	ouvrir	VER			413.32	492.50	0.01	1.28	sub:imp:3s;	1	3	0	6	4	VVCCVC	VCCV	1	4	0	0	u-vRi	2	V-CCV	tîrvuo	iRvu	ou-vrît	VER	96	26	1.85	1.4	ouvrir	1
+parla	paRla	parler	VER			1970.55	1086.01	2.71	38.99	ind:pas:3s;	1	3	0	5	5	CVCCV	CVCCV	5	9	0	0	paR-la	2	CVC-CV	alrap	alRap	par-la	VER	100	19	1.6	1.35	parler	1
+parlai	paRlE	parler	VER			1970.55	1086.01	0.59	3.78	ind:pas:1s;	1	4	0	6	5	CVCCVV	CVCCV	1	10	0	0	paR-lE	2	CVC-CV	ialrap	ElRap	par-lai	VER	100	19	1.75	1.2	parler	1
+parlaient	paRlE	parler	VER			1970.55	1086.01	5.94	40.27	ind:imp:3p;	1	4	0	9	5	CVCCVVVCC	CVCCV	3	10	0	0	paR-lE	2	CVC-CV	tneialrap	ElRap	par-laient	VER	100	19	1.8	1.2	parler	1
+parlais	paRlE	parler	VER			1970.55	1086.01	32.98	19.53	ind:imp:1s;ind:imp:2s;	1	4	0	7	5	CVCCVVC	CVCCV	4	10	0	0	paR-lE	2	CVC-CV	sialrap	ElRap	par-lais	VER	100	19	1.6	1.2	parler	1
+parlait	paRlE	parler	VER			1970.55	1086.01	44.37	157.09	ind:imp:3s;	1	4	0	7	5	CVCCVVC	CVCCV	6	10	0	0	paR-lE	2	CVC-CV	tialrap	ElRap	par-lait	VER	100	19	1.6	1.2	parler	1
+parlant	paRl@	parler	VER			1970.55	1086.01	15.70	36.15	par:pre;	3	4	0	7	5	CVCCVCC	CVCCV	5	7	7	5	paR-l@	2	CVC-CV	tnalrap	@lRap	par-lant	ADJ,NOM,VER	100	19	1.6	1.35	parler	1
+parlas	paRla	parler	VER			1970.55	1086.01	0.01	0.07	ind:pas:2s;	1	3	0	6	5	CVCCVC	CVCCV	4	9	0	0	paR-la	2	CVC-CV	salrap	alRap	par-las	VER	100	19	1.65	1.35	parler	1
+parlassent	paRlas	parler	VER			1970.55	1086.01	0.00	0.20	sub:imp:3p;	1	2	0	10	6	CVCCVCCVCC	CVCCVC	0	2	0	0	paR-las	2	CVC-CVC	tnessalrap	salRap	par-las-sent	VER	100	19	2.45	1.8	parler	1
+parlasses	paRlas	parler	VER			1970.55	1086.01	0.00	0.07	sub:imp:2s;	1	2	0	9	6	CVCCVCCVC	CVCCVC	0	2	0	0	paR-las	2	CVC-CVC	sessalrap	salRap	par-las-ses	VER	100	19	2.6	1.8	parler	1
+parle	paRl	parler	VER			1970.55	1086.01	451.68	168.78	imp:pre:2s;ind:pre:1s;ind:pre:3s;sub:pre:1s;sub:pre:3s;	1	3	0	5	4	CVCCV	CVCC	11	13	0	0	paRl	1	CVCC	elrap	lRap	par-le	VER	100	19	1.1	1	parler	1
+parlent	paRl	parler	VER			1970.55	1086.01	32.08	29.39	ind:pre:3p;sub:pre:3p;	1	3	0	7	4	CVCCVCC	CVCC	4	13	0	0	paRl	1	CVCC	tnelrap	lRap	par-lent	VER	100	19	1.75	1	parler	1
+parler	paRle	parler	VER			1970.55	1086.01	728.02	341.82	inf;;inf;;inf;;inf;;	3	13	1	6	5	CVCCVC	CVCCV	4	8	6	5	paR-le	2	CVC-CV	relrap	elRap	par-ler	ADJ,NOM,VER	100	19	1.55	1.35	parler	1
+parlera	paRl°Ra	parler	VER			1970.55	1086.01	23.70	6.22	ind:fut:3s;	1	2	0	7	7	CVCCVCV	CVCCVCV	1	4	0	0	paR-l°-Ra	3	CVC-CV-CV	arelrap	aR°lRap	par-le-ra	VER	100	19	1.8	1.8	parler	1
+parlerai	paRl°RE	parler	VER			1970.55	1086.01	22.47	8.24	ind:fut:1s;	1	4	0	8	7	CVCCVCVV	CVCCVCV	2	4	0	0	paR-l°-RE	3	CVC-CV-CV	iarelrap	ER°lRap	par-le-rai	VER	100	19	1.7	1.8	parler	1
+parleraient	paRl°RE	parler	VER			1970.55	1086.01	0.14	1.42	cnd:pre:3p;	1	4	0	11	7	CVCCVCVVVCC	CVCCVCV	0	4	0	0	paR-l°-RE	3	CVC-CV-CV	tneiarelrap	ER°lRap	par-le-raient	VER	100	19	2.15	1.8	parler	1
+parlerais	paRl°RE	parler	VER			1970.55	1086.01	3.96	2.03	cnd:pre:1s;cnd:pre:2s;	1	4	0	9	7	CVCCVCVVC	CVCCVCV	2	4	0	0	paR-l°-RE	3	CVC-CV-CV	siarelrap	ER°lRap	par-le-rais	VER	100	19	1.8	1.8	parler	1
+parlerait	paRl°RE	parler	VER			1970.55	1086.01	3.17	6.49	cnd:pre:3s;	1	4	0	9	7	CVCCVCVVC	CVCCVCV	2	4	0	0	paR-l°-RE	3	CVC-CV-CV	tiarelrap	ER°lRap	par-le-rait	VER	100	19	1.8	1.8	parler	1
+parleras	paRl°Ra	parler	VER			1970.55	1086.01	3.89	1.28	ind:fut:2s;	1	2	0	8	7	CVCCVCVC	CVCCVCV	1	4	0	0	paR-l°-Ra	3	CVC-CV-CV	sarelrap	aR°lRap	par-le-ras	VER	100	19	1.8	1.8	parler	1
+parlerez	paRl°Re	parler	VER			1970.55	1086.01	2.71	0.47	ind:fut:2p;	1	1	0	8	7	CVCCVCVC	CVCCVCV	0	4	0	0	paR-l°-Re	3	CVC-CV-CV	zerelrap	eR°lRap	par-le-rez	VER	100	19	1.95	1.75	parler	1
+parleriez	paRl°Rje	parler	VER			1970.55	1086.01	0.50	0.14	cnd:pre:2p;	1	1	0	9	8	CVCCVCVVC	CVCCVCYV	1	1	0	0	paR-l°-Rje	3	CVC-CV-CYV	zeirelrap	ejR°lRap	par-le-riez	VER	100	19	2.15	2	parler	1
+parlerions	paRl°Rj§	parler	VER			1970.55	1086.01	0.26	0.47	cnd:pre:1p;	1	1	0	10	8	CVCCVCVVCC	CVCCVCYV	0	1	0	0	paR-l°-Rj§	3	CVC-CV-CYV	snoirelrap	§jR°lRap	par-le-rions	VER	100	19	2.4	2.05	parler	1
+parlerons	paRl°R§	parler	VER			1970.55	1086.01	6.53	2.03	ind:fut:1p;	1	2	0	9	7	CVCCVCVCC	CVCCVCV	1	6	0	0	paR-l°-R§	3	CVC-CV-CV	snorelrap	§R°lRap	par-le-rons	VER	100	19	1.9	1.65	parler	1
+parleront	paRl°R§	parler	VER			1970.55	1086.01	1.75	1.22	ind:fut:3p;	1	2	0	9	7	CVCCVCVCC	CVCCVCV	3	6	0	0	paR-l°-R§	3	CVC-CV-CV	tnorelrap	§R°lRap	par-le-ront	VER	100	19	1.85	1.65	parler	1
+parles	paRl	parler	VER			1970.55	1086.01	152.20	35.34	ind:pre:2s;sub:pre:2s;	1	3	0	6	4	CVCCVC	CVCC	9	13	0	0	paRl	1	CVCC	selrap	lRap	par-les	VER	100	19	1.3	1	parler	1
+parlez	paRle	parler	VER			1970.55	1086.01	120.79	22.03	imp:pre:2p;ind:pre:2p;	1	13	0	6	5	CVCCVC	CVCCV	4	8	0	5	paR-le	2	CVC-CV	zelrap	elRap	par-lez	VER	100	19	1.65	1.35	parler	1
+parliez	paRlje	parler	VER			1970.55	1086.01	10.93	3.11	ind:imp:2p;sub:pre:2p;	1	1	0	7	6	CVCCVVC	CVCCYV	1	2	0	0	paR-lje	2	CVC-CYV	zeilrap	ejlRap	par-liez	VER	100	19	1.85	1.7	parler	1
+parlions	paRlj§	parler	VER			1970.55	1086.01	6.69	12.16	ind:imp:1p;	1	1	0	8	6	CVCCVVCC	CVCCYV	1	2	0	0	paR-lj§	2	CVC-CYV	snoilrap	§jlRap	par-lions	VER	100	19	1.85	1.8	parler	1
+parlons	paRl§	parler	VER			1970.55	1086.01	46.28	16.22	imp:pre:1p;ind:pre:1p;	1	1	0	7	5	CVCCVCC	CVCCV	3	7	0	0	paR-l§	2	CVC-CV	snolrap	§lRap	par-lons	VER	100	19	1.8	1.55	parler	1
+parlâmes	paRlam	parler	VER			1970.55	1086.01	0.02	1.55	ind:pas:1p;	1	1	0	8	6	CVCCVCVC	CVCCVC	0	1	0	0	paR-lam	2	CVC-CVC	semâlrap	malRap	par-lâ-mes	VER	100	19	2.35	1.9	parler	1
+parlât	paRla	parler	VER			1970.55	1086.01	0.10	3.11	sub:imp:3s;	1	3	0	6	5	CVCCVC	CVCCV	0	9	0	0	paR-la	2	CVC-CV	tâlrap	alRap	par-lât	VER	100	19	2	1.35	parler	1
+parlèrent	paRlER	parler	VER			1970.55	1086.01	0.08	7.77	ind:pas:3p;	1	1	0	9	6	CVCCVCVCC	CVCCVC	1	4	0	0	paR-lER	2	CVC-CVC	tnerèlrap	RElRap	par-lè-rent	VER	100	19	1.95	1.75	parler	1
+parlé	paRle	parler	VER	m	s	1970.55	1086.01	248.94	118.04	par:pas;par:pas;par:pas;par:pas;	2	13	0	5	5	CVCCV	CVCCV	4	8	5	5	paR-le	2	CVC-CV	élrap	elRap	par-lé	VER,ADJ	100	19	1.6	1.35	parler	1
+parlée	paRle	parler	VER	f	s	1970.55	1086.01	0.39	0.27	par:pas;	2	13	0	6	5	CVCCVV	CVCCV	2	8	0	5	paR-le	2	CVC-CV	eélrap	elRap	par-lée	VER,ADJ	100	19	1.7	1.35	parler	1
+parlées	paRle	parler	VER	f	p	1970.55	1086.01	0.30	0.07	par:pas;	2	13	0	7	5	CVCCVVC	CVCCV	1	8	0	5	paR-le	2	CVC-CV	seélrap	elRap	par-lées	VER,ADJ	100	19	1.75	1.35	parler	1
+parlés	paRle	parler	VER	m	p	1970.55	1086.01	0.65	0.20	par:pas;	2	13	0	6	5	CVCCVC	CVCCV	4	8	0	5	paR-le	2	CVC-CV	sélrap	elRap	par-lés	VER,ADJ	100	19	1.65	1.35	parler	1
+passer	pase	prendre	VER			1913.83	1466.42	0.01	0.00	imp:pre:2p;	2	14	0	6	4	CVCCVC	CVCV	9	27	6	4	pa-se	2	CV-CV	ressap	esap	pas-ser	VER	95	24	1.4	1	prendre	1
+prenaient	pR°nE	prendre	VER			1913.83	1466.42	3.31	30.68	ind:imp:3p;	1	3	0	9	5	CCVCVVVCC	CCVCV	0	4	0	0	pR°-nE	2	CCV-CV	tneianerp	En°Rp	pre-naient	VER	95	24	2	1.65	prendre	1
+prenais	pR°nE	prendre	VER			1913.83	1466.42	10.15	19.53	ind:imp:1s;ind:imp:2s;	1	3	0	7	5	CCVCVVC	CCVCV	2	4	0	0	pR°-nE	2	CCV-CV	sianerp	En°Rp	pre-nais	VER	95	24	1.85	1.65	prendre	1
+prenait	pR°nE	prendre	VER			1913.83	1466.42	18.66	113.92	ind:imp:3s;	1	3	0	7	5	CCVCVVC	CCVCV	3	4	0	0	pR°-nE	2	CCV-CV	tianerp	En°Rp	pre-nait	VER	95	24	1.8	1.65	prendre	1
+prenant	pR°n@	prendre	VER			1913.83	1466.42	6.62	48.04	par:pre;	2	3	0	7	5	CCVCVCC	CCVCV	2	4	6	5	pR°-n@	2	CCV-CV	tnanerp	@n°Rp	pre-nant	ADJ,VER	95	24	1.75	1.65	prendre	1
+prend	pR@	prendre	VER			1913.83	1466.42	179.02	129.05	ind:pre:3s;	1	2	0	5	3	CCVCC	CCV	0	19	0	0	pR@	1	CCV	dnerp	@Rp	prend	VER	95	24	1.8	1	prendre	1
+prendra	pR@dRa	prendre	VER			1913.83	1466.42	37.82	9.66	ind:fut:3s;	1	2	0	7	6	CCVCCCV	CCVCCV	1	3	0	0	pR@-dRa	2	CCV-CCV	ardnerp	aRd@Rp	pren-dra	VER	95	24	1.75	1.65	prendre	1
+prendrai	pR@dRE	prendre	VER			1913.83	1466.42	27.68	5.14	ind:fut:1s;	1	4	0	8	6	CCVCCCVV	CCVCCV	1	3	0	0	pR@-dRE	2	CCV-CCV	iardnerp	ERd@Rp	pren-drai	VER	95	24	1.7	1.65	prendre	1
+prendraient	pR@dRE	prendre	VER			1913.83	1466.42	1.24	2.57	cnd:pre:3p;	1	4	0	11	6	CCVCCCVVVCC	CCVCCV	0	3	0	0	pR@-dRE	2	CCV-CCV	tneiardnerp	ERd@Rp	pren-draient	VER	95	24	2.05	1.65	prendre	1
+prendrais	pR@dRE	prendre	VER			1913.83	1466.42	11.04	3.58	cnd:pre:1s;cnd:pre:2s;	1	4	0	9	6	CCVCCCVVC	CCVCCV	1	3	0	0	pR@-dRE	2	CCV-CCV	siardnerp	ERd@Rp	pren-drais	VER	95	24	1.75	1.65	prendre	1
+prendrait	pR@dRE	prendre	VER			1913.83	1466.42	7.91	14.80	cnd:pre:3s;	1	4	0	9	6	CCVCCCVVC	CCVCCV	1	3	0	0	pR@-dRE	2	CCV-CCV	tiardnerp	ERd@Rp	pren-drait	VER	95	24	1.8	1.65	prendre	1
+prendras	pR@dRa	prendre	VER			1913.83	1466.42	7.86	2.50	ind:fut:2s;	1	2	0	8	6	CCVCCCVC	CCVCCV	1	3	0	0	pR@-dRa	2	CCV-CCV	sardnerp	aRd@Rp	pren-dras	VER	95	24	1.75	1.65	prendre	1
+prendre	pR@dR	prendre	VER			1913.83	1466.42	465.77	344.05	inf;;inf;;inf;;	1	1	1	7	5	CCVCCCV	CCVCC	1	0	5	4	pR@dR	1	CCVCC	erdnerp	Rd@Rp	pren-dre	VER	95	24	1.75	1.6	prendre	1
+prendrez	pR@dRe	prendre	VER			1913.83	1466.42	8.49	2.64	ind:fut:2p;	1	1	0	8	6	CCVCCCVC	CCVCCV	0	3	0	0	pR@-dRe	2	CCV-CCV	zerdnerp	eRd@Rp	pren-drez	VER	95	24	1.8	1.65	prendre	1
+prendriez	pR@dRije	prendre	VER			1913.83	1466.42	1.36	0.74	cnd:pre:2p;	1	1	0	9	8	CCVCCCVVC	CCVCCVYV	0	1	0	0	pR@-dRi-je	3	CCV-CCV-YV	zeirdnerp	ejiRd@Rp	pren-driez	VER	95	24	2.15	2.3	prendre	1
+prendrions	pR@dRij§	prendre	VER			1913.83	1466.42	0.16	0.27	cnd:pre:1p;	1	1	0	10	8	CCVCCCVVCC	CCVCCVYV	0	1	0	0	pR@-dRi-j§	3	CCV-CCV-YV	snoirdnerp	§jiRd@Rp	pren-drions	VER	95	24	2.35	2.2	prendre	1
+prendrons	pR@dR§	prendre	VER			1913.83	1466.42	6.12	1.49	ind:fut:1p;	1	2	0	9	6	CCVCCCVCC	CCVCCV	1	3	0	0	pR@-dR§	2	CCV-CCV	snordnerp	§Rd@Rp	pren-drons	VER	95	24	1.8	1.65	prendre	1
+prendront	pR@dR§	prendre	VER			1913.83	1466.42	4.47	3.72	ind:fut:3p;	1	2	0	9	6	CCVCCCVCC	CCVCCV	1	3	0	0	pR@-dR§	2	CCV-CCV	tnordnerp	§Rd@Rp	pren-dront	VER	95	24	1.95	1.65	prendre	1
+prends	pR@	prendre	VER			1913.83	1466.42	431.50	70.20	imp:pre:2s;ind:pre:1s;ind:pre:2s;	1	2	0	6	3	CCVCCC	CCV	0	19	0	0	pR@	1	CCV	sdnerp	@Rp	prend-s	VER	95	24	1.8	1	prendre	1
+prenez	pR°ne	prendre	VER			1913.83	1466.42	175.12	25.47	imp:pre:2p;ind:pre:2p;	1	1	0	6	5	CCVCVC	CCVCV	1	5	0	0	pR°-ne	2	CCV-CV	zenerp	en°Rp	pre-nez	VER	95	24	1.9	1.6	prendre	1
+preniez	pR°nje	prendre	VER			1913.83	1466.42	3.58	1.62	ind:imp:2p;	1	1	0	7	6	CCVCVVC	CCVCYV	0	3	0	0	pR°-nje	2	CCV-CYV	zeinerp	ejn°Rp	pre-niez	VER	95	24	1.9	1.65	prendre	1
+prenions	pR°nj§	prendre	VER			1913.83	1466.42	1.40	4.66	ind:imp:1p;	1	1	0	8	6	CCVCVVCC	CCVCYV	0	1	0	0	pR°-nj§	2	CCV-CYV	snoinerp	§jn°Rp	pre-nions	VER	95	24	1.9	1.8	prendre	1
+prenne	pREn	prendre	VER			1913.83	1466.42	21.02	16.08	sub:pre:1s;sub:pre:3s;	1	3	0	6	4	CCVCCV	CCVC	0	13	0	0	pREn	1	CCVC	ennerp	nERp	pren-ne	VER	95	24	1.75	1	prendre	1
+prennent	pREn	prendre	VER			1913.83	1466.42	27.90	29.12	ind:pre:3p;	1	3	0	8	4	CCVCCVCC	CCVC	0	13	0	0	pREn	1	CCVC	tnennerp	nERp	pren-nent	VER	95	24	2	1	prendre	1
+prennes	pREn	prendre	VER			1913.83	1466.42	5.01	2.03	sub:pre:2s;	1	3	0	7	4	CCVCCVC	CCVC	0	13	0	0	pREn	1	CCVC	sennerp	nERp	pren-nes	VER	95	24	1.8	1	prendre	1
+prenons	pR°n§	prendre	VER			1913.83	1466.42	20.80	7.03	imp:pre:1p;ind:pre:1p;	1	1	0	7	5	CCVCVCC	CCVCV	1	5	0	0	pR°-n§	2	CCV-CV	snonerp	§n°Rp	pre-nons	VER	95	24	1.9	1.55	prendre	1
+prirent	pRiR	prendre	VER			1913.83	1466.42	0.80	15.20	ind:pas:3p;	1	1	0	7	4	CCVCVCC	CCVC	3	6	0	0	pRiR	1	CCVC	tnerirp	RiRp	pri-rent	VER	95	24	1.65	1.2	prendre	1
+pris	pRi	prendre	VER	m		1913.83	1466.42	374.60	333.04	ind:pas:1s;ind:pas:2s;par:pas;par:pas;par:pas;	2	8	0	4	3	CCVC	CCV	19	19	4	3	pRi	1	CCV	sirp	iRp	pris	VER,ADJ	95	24	1	1	prendre	1
+prise	pRiz	prendre	VER	f	s	1913.83	1466.42	38.26	42.64	par:pas;	4	9	0	5	4	CCVCV	CCVC	12	13	5	4	pRiz	1	CCVC	esirp	ziRp	pri-se	VER,ADJ,NOM	95	24	1	1	prendre	1
+prises	pRiz	prendre	VER	f	p	1913.83	1466.42	8.42	12.16	par:pas;	4	9	0	6	4	CCVCVC	CCVC	11	13	0	4	pRiz	1	CCVC	sesirp	ziRp	pri-ses	VER,ADJ,NOM	95	24	1.2	1	prendre	1
+prisse	pRis	prendre	VER			1913.83	1466.42	0.01	0.14	sub:imp:1s;	1	2	0	6	4	CCVCCV	CCVC	9	14	0	0	pRis	1	CCVC	essirp	siRp	pris-se	VER	95	24	1.35	1.1	prendre	1
+prissent	pRis	prendre	VER			1913.83	1466.42	0.00	0.61	sub:imp:3p;	1	2	0	8	4	CCVCCVCC	CCVC	7	14	0	0	pRis	1	CCVC	tnessirp	siRp	pris-sent	VER	95	24	1.5	1.1	prendre	1
+prissions	pRisj§	prendre	VER			1913.83	1466.42	0.00	0.07	sub:imp:1p;	1	1	0	9	6	CCVCCVVCC	CCVCYV	2	3	0	0	pRi-sj§	2	CCV-CYV	snoissirp	§jsiRp	pris-sions	VER	95	24	1.9	1.75	prendre	1
+prit	pRi	prendre	VER			1913.83	1466.42	7.27	164.80	ind:pas:3s;	1	8	0	4	3	CCVC	CCV	9	19	0	3	pRi	1	CCV	tirp	iRp	prit	VER	95	24	1.35	1	prendre	1
+prîmes	pRim	prendre	VER			1913.83	1466.42	0.22	2.77	ind:pas:1p;	1	7	0	6	4	CCVCVC	CCVC	1	10	0	4	pRim	1	CCVC	semîrp	miRp	prî-mes	VER	95	24	1.9	1	prendre	1
+prît	pRi	prendre	VER			1913.83	1466.42	0.24	6.42	sub:imp:3s;	1	8	0	4	3	CCVC	CCV	3	19	0	3	pRi	1	CCV	tîrp	iRp	prît	VER	95	24	1.75	1	prendre	1
+sera	s°Ra	être	VER			32236.50	15085.47	478.03	161.82	ind:fut:3s;	2	4	0	4	4	CVCV	CVCV	6	12	0	0	s°-Ra	2	CV-CV	ares	aR°s	se-ra	AUX,VER	100	19	1.45		être	1
+serai	s°RE	être	VER			32236.50	15085.47	140.69	39.46	ind:fut:1s;	2	8	0	5	4	CVCVV	CVCV	4	10	0	0	s°-RE	2	CV-CV	iares	ER°s	se-rai	AUX,VER	100	19	1.45		être	1
+seraient	s°RE	être	VER			32236.50	15085.47	15.68	28.72	cnd:pre:3p;	2	8	0	8	4	CVCVVVCC	CVCV	2	10	0	0	s°-RE	2	CV-CV	tneiares	ER°s	se-raient	AUX,VER	100	19	1.75		être	1
+serais	s°RE	être	VER			32236.50	15085.47	86.94	39.59	cnd:pre:1s;cnd:pre:2s;	2	8	0	6	4	CVCVVC	CVCV	4	10	0	0	s°-RE	2	CV-CV	siares	ER°s	se-rais	AUX,VER	100	19	1.45		être	1
+serait	s°RE	être	VER			32236.50	15085.47	311.37	285.27	cnd:pre:3s;	2	8	0	6	4	CVCVVC	CVCV	5	10	0	0	s°-RE	2	CV-CV	tiares	ER°s	se-rait	AUX,VER	100	19	1.4		être	1
+seras	s°Ra	être	VER			32236.50	15085.47	81.58	21.96	ind:fut:2s;	2	4	0	5	4	CVCVC	CVCV	3	12	0	0	s°-Ra	2	CV-CV	sares	aR°s	se-ras	AUX,VER	100	19	1.65		être	1
+serez	s°Re	être	VER			32236.50	15085.47	52.41	12.09	ind:fut:2p;	2	2	0	5	4	CVCVC	CVCV	3	11	0	0	s°-Re	2	CV-CV	zeres	eR°s	se-rez	AUX,VER	100	19	1.65		être	1
+seriez	s°Rje	être	VER			32236.50	15085.47	17.64	5.81	cnd:pre:2p;	2	2	0	6	5	CVCVVC	CVCYV	3	6	0	0	s°-Rje	2	CV-CYV	zeires	ejR°s	se-riez	AUX,VER	100	19	1.6	1.7	être	1
+serions	s°Rj§	être	VER			32236.50	15085.47	7.14	6.42	cnd:pre:1p;	2	2	0	7	5	CVCVVCC	CVCYV	4	6	0	0	s°-Rj§	2	CV-CYV	snoires	§jR°s	se-rions	AUX,VER	100	19	1.55	1.7	être	1
+serons	s°R§	être	VER			32236.50	15085.47	31.22	12.03	ind:fut:1p;	2	4	0	6	4	CVCVCC	CVCV	4	11	0	0	s°-R§	2	CV-CV	snores	§R°s	se-rons	AUX,VER	100	19	1.5		être	1
+seront	s°R§	être	VER			32236.50	15085.47	54.06	23.99	ind:fut:3p;	2	4	0	6	4	CVCVCC	CVCV	2	11	0	0	s°-R§	2	CV-CV	tnores	§R°s	se-ront	AUX,VER	100	19	1.8		être	1
+soient	swa	être	VER			32236.50	15085.47	34.30	32.03	sub:pre:3p;	2	12	0	6	3	CVVVCC	CYV	4	19	0	3	swa	1	CYV	tneios	aws	soient	AUX,VER	100	19	1.8	1	être	1
+sois	swa	être	VER			32236.50	15085.47	205.19	39.80	imp:pre:2s;sub:pre:1s;sub:pre:2s;	2	12	0	4	3	CVVC	CYV	23	19	0	3	swa	1	CYV	sios	aws	sois	AUX,VER	100	19	1	1	être	1
+soit	swa	être	VER			32236.50	15085.47	319.65	167.03	sub:pre:3s;	4	12	0	4	3	CVVC	CYV	15	19	4	3	swa	1	CYV	tios	aws	soit	ADV,CON,AUX,VER	100	19	1.1	1	être	1
+sommes	sOm	être	VER			32236.50	15085.47	293.82	130.95	imp:pre:1p;ind:pre:1p;sub:pre:2s;	4	7	0	6	3	CVCCVC	CVC	8	14	0	3	sOm	1	CVC	semmos	mOs	som-mes	NOM,VER,AUX	100	19	1.5	1.2	être	1
+sont	s§	être	VER			32236.50	15085.47	1449.03	713.18	ind:pre:3p;	2	5	0	4	2	CVCC	CV	12	27	0	2	s§	1	CV	tnos	§s	sont	AUX,VER	100	19	1.25	1	être	1
+soyez	swaje	être	VER			32236.50	15085.47	102.17	17.97	imp:pre:2p;sub:pre:2p;	2	2	0	5	5	CVVVC	CYVYV	2	12	0	0	swa-je	2	CYV-YV	zeyos	ejaws	soyez	AUX,VER	100	19	1.85	1.3	être	1
+soyons	swaj§	être	VER			32236.50	15085.47	22.05	8.11	imp:pre:1p;sub:pre:1p;	2	2	0	6	5	CVVVCC	CYVYV	2	6	0	0	swa-j§	2	CYV-YV	snoyos	§jaws	soyons	AUX,VER	100	19	1.85	1.6	être	1
+suis	s8i	être	VER			32236.50	15085.47	668.88	9.59	imp:pre:2s;ind:pre:1s;ind:pre:2s;	3	7	0	4	3	CVVC	CYV	17	16	0	3	s8i	1	CYV	sius	i8s	suis	VER,AUX	100	19	1	1	être	1
+trace	tRas	tracer	VER			10.49	42.36	2.79	5.54	imp:pre:2s;ind:pre:1s;ind:pre:3s;	2	7	0	5	4	CCVCV	CCVC	6	13	5	4	tRas	1	CCVC	ecart	saRt	tra-ce	NOM,VER	92	14	1.35	1	tracer	1
+tracent	tRas	tracer	VER			10.49	42.36	0.30	1.42	ind:pre:3p;	1	7	0	7	4	CCVCVCC	CCVC	1	13	0	4	tRas	1	CCVC	tnecart	saRt	tra-cent	VER	92	14	1.95	1	tracer	1
+tracer	tRase	tracer	VER			10.49	42.36	2.08	7.23	inf;	1	8	1	6	5	CCVCVC	CCVCV	4	14	6	5	tRa-se	2	CCV-CV	recart	esaRt	tra-cer	VER	92	14	1.6	1	tracer	1
+tracera	tRas°Ra	tracer	VER			10.49	42.36	0.01	0.07	ind:fut:3s;	1	1	0	7	7	CCVCVCV	CCVCVCV	0	4	0	0	tRa-s°-Ra	3	CCV-CV-CV	arecart	aR°saRt	tra-ce-ra	VER	92	14	1.95		tracer	1
+tracerez	tRas°Re	tracer	VER			10.49	42.36	0.01	0.00	ind:fut:2p;	1	1	0	8	7	CCVCVCVC	CCVCVCV	0	2	0	0	tRa-s°-Re	3	CCV-CV-CV	zerecart	eR°saRt	tra-ce-rez	VER	92	14	2.4		tracer	1
+tracerons	tRas°R§	tracer	VER			10.49	42.36	0.01	0.00	ind:fut:1p;	1	1	0	9	7	CCVCVCVCC	CCVCVCV	0	4	0	0	tRa-s°-R§	3	CCV-CV-CV	snorecart	§R°saRt	tra-ce-rons	VER	92	14	2.5		tracer	1
+traces	tRas	tracer	VER			10.49	42.36	0.56	0.00	ind:pre:2s;	2	7	0	6	4	CCVCVC	CCVC	6	13	0	4	tRas	1	CCVC	secart	saRt	tra-ces	NOM,VER	92	14	1.45	1	tracer	1
+tracez	tRase	tracer	VER			10.49	42.36	0.26	0.14	imp:pre:2p;ind:pre:2p;	1	8	0	6	5	CCVCVC	CCVCV	3	14	0	5	tRa-se	2	CCV-CV	zecart	esaRt	tra-cez	VER	92	14	1.8	1	tracer	1
+tracions	tRasj§	tracer	VER			10.49	42.36	0.00	0.07	ind:imp:1p;	1	1	0	8	6	CCVCVVCC	CCVCYV	0	2	0	0	tRa-sj§	2	CCV-CYV	snoicart	§jsaRt	tra-cions	VER	92	14	1.95	1.65	tracer	1
+tracèrent	tRasER	tracer	VER			10.49	42.36	0.00	0.14	ind:pas:3p;	1	1	0	9	6	CCVCVCVCC	CCVCVC	0	5	0	0	tRa-sER	2	CCV-CVC	tnerècart	REsaRt	tra-cè-rent	VER	92	14	2	1.6	tracer	1
+tracé	tRase	tracer	VER	m	s	10.49	42.36	2.22	7.30	par:pas;	2	8	0	5	5	CCVCV	CCVCV	4	14	5	5	tRa-se	2	CCV-CV	écart	esaRt	tra-cé	VER,NOM	92	14	1.55	1	tracer	1
+tracée	tRase	tracer	VER	f	s	10.49	42.36	1.13	3.24	par:pas;	1	8	0	6	5	CCVCVV	CCVCV	2	14	0	5	tRa-se	2	CCV-CV	eécart	esaRt	tra-cée	VER	92	14	1.6	1	tracer	1
+tracées	tRase	tracer	VER	f	p	10.49	42.36	0.28	3.31	par:pas;	1	8	0	7	5	CCVCVVC	CCVCV	1	14	0	5	tRa-se	2	CCV-CV	seécart	esaRt	tra-cées	VER	92	14	1.75	1	tracer	1
+tracés	tRase	tracer	VER	m	p	10.49	42.36	0.40	3.51	par:pas;	2	8	0	6	5	CCVCVC	CCVCV	5	14	0	5	tRa-se	2	CCV-CV	sécart	esaRt	tra-cés	VER,NOM	92	14	1.5	1	tracer	1
+traça	tRasa	tracer	VER			10.49	42.36	0.00	2.36	ind:pas:3s;	1	2	0	5	5	CCVCV	CCVCV	0	7	0	0	tRa-sa	2	CCV-CV	açart	asaRt	tra-ça	VER	92	14	1.95	1.4	tracer	1
+traçai	tRasE	tracer	VER			10.49	42.36	0.00	0.14	ind:pas:1s;	1	4	0	6	5	CCVCVV	CCVCV	0	12	0	0	tRa-sE	2	CCV-CV	iaçart	EsaRt	tra-çai	VER	92	14	1.85	1.15	tracer	1
+traçaient	tRasE	tracer	VER			10.49	42.36	0.02	1.82	ind:imp:3p;	1	4	0	9	5	CCVCVVVCC	CCVCV	1	12	0	0	tRa-sE	2	CCV-CV	tneiaçart	EsaRt	tra-çaient	VER	92	14	1.95	1.15	tracer	1
+traçais	tRasE	tracer	VER			10.49	42.36	0.03	0.41	ind:imp:1s;	1	4	0	7	5	CCVCVVC	CCVCV	1	12	0	0	tRa-sE	2	CCV-CV	siaçart	EsaRt	tra-çais	VER	92	14	1.9	1.15	tracer	1
+traçait	tRasE	tracer	VER			10.49	42.36	0.14	3.24	ind:imp:3s;	1	4	0	7	5	CCVCVVC	CCVCV	4	12	0	0	tRa-sE	2	CCV-CV	tiaçart	EsaRt	tra-çait	VER	92	14	1.75	1.15	tracer	1
+traçant	tRas@	tracer	VER			10.49	42.36	0.15	2.30	par:pre;	1	1	0	7	5	CCVCVCC	CCVCV	3	11	6	0	tRa-s@	2	CCV-CV	tnaçart	@saRt	tra-çant	VER	92	14	1.8	1.2	tracer	1
+traçons	tRas§	tracer	VER			10.49	42.36	0.11	0.00	ind:pre:1p;	1	1	0	7	5	CCVCVCC	CCVCV	1	8	0	0	tRa-s§	2	CCV-CV	snoçart	§saRt	tra-çons	VER	92	14	1.95	1.3	tracer	1
+traçât	tRasa	tracer	VER			10.49	42.36	0.00	0.14	sub:imp:3s;	1	2	0	6	5	CCVCVC	CCVCV	0	7	0	0	tRa-sa	2	CCV-CV	tâçart	asaRt	tra-çât	VER	92	14	2.35	1.4	tracer	1
+venaient	v°nE	venir	VER			2763.82	1514.53	9.96	73.65	ind:imp:3p;	1	3	0	8	4	CVCVVVCC	CVCV	2	13	0	0	v°-nE	2	CV-CV	tneianev	En°v	ve-naient	VER	100	16	1.8	1.25	venir	1
+venais	v°nE	venir	VER			2763.82	1514.53	23.32	29.86	ind:imp:1s;ind:imp:2s;	1	3	0	6	4	CVCVVC	CVCV	6	13	0	0	v°-nE	2	CV-CV	sianev	En°v	ve-nais	VER	100	16	1.65	1.25	venir	1
+venait	v°nE	venir	VER			2763.82	1514.53	50.25	271.89	ind:imp:3s;	1	3	0	6	4	CVCVVC	CVCV	6	13	0	0	v°-nE	2	CV-CV	tianev	En°v	ve-nait	VER	100	16	1.6	1.25	venir	1
+venant	v°n@	venir	VER			2763.82	1514.53	17.66	32.36	par:pre;	2	2	0	6	4	CVCVCC	CVCV	4	7	5	4	v°-n@	2	CV-CV	tnanev	@n°v	ve-nant	NOM,VER	100	16	1.7	1.65	venir	1
+venez	v°ne	venir	VER			2763.82	1514.53	304.03	41.42	imp:pre:2p;ind:pre:2p;	1	1	0	5	4	CVCVC	CVCV	4	11	0	0	v°-ne	2	CV-CV	zenev	en°v	ve-nez	VER	100	16	1.65	1.4	venir	1
+veniez	v°nje	venir	VER			2763.82	1514.53	9.37	3.24	ind:imp:2p;	1	1	0	6	5	CVCVVC	CVCYV	5	6	0	0	v°-nje	2	CV-CYV	zeinev	ejn°v	ve-niez	VER	100	16	1.6	1.65	venir	1
+venions	v°nj§	venir	VER			2763.82	1514.53	2.07	5.88	ind:imp:1p;	1	1	0	7	5	CVCVVCC	CVCYV	4	4	0	0	v°-nj§	2	CV-CYV	snoinev	§jn°v	ve-nions	VER	100	16	1.65	1.75	venir	1
+venir	v°niR	venir	VER			2763.82	1514.53	367.13	196.01	inf;	1	1	1	5	5	CVCVC	CVCVC	2	2	5	5	v°-niR	2	CV-CVC	rinev	Rin°v	ve-nir	VER	100	16	1.8	1.9	venir	1
+venons	v°n§	venir	VER			2763.82	1514.53	17.22	8.18	imp:pre:1p;ind:pre:1p;	1	1	0	6	4	CVCVCC	CVCV	4	10	0	0	v°-n§	2	CV-CV	snonev	§n°v	ve-nons	VER	100	16	1.7	1.45	venir	1
+venu	v°ny	venir	VER	m	s	2763.82	1514.53	244.70	135.14	par:pas;	2	11	0	4	4	CVCV	CVCV	6	9	4	4	v°-ny	2	CV-CV	unev	yn°v	ve-nu	VER,ADJ	100	16	1.5	1.55	venir	1
+venue	v°ny	venir	VER	f	s	2763.82	1514.53	93.14	60.47	par:pas;	3	11	0	5	4	CVCVV	CVCV	7	9	5	4	v°-ny	2	CV-CV	eunev	yn°v	ve-nue	VER,ADJ,NOM	100	16	1.45	1.55	venir	1
+venues	v°ny	venir	VER	f	p	2763.82	1514.53	5.49	6.96	par:pas;	3	11	0	6	4	CVCVVC	CVCV	6	9	0	4	v°-ny	2	CV-CV	seunev	yn°v	ve-nues	VER,ADJ,NOM	100	16	1.5	1.55	venir	1
+venus	v°ny	venir	VER	m	p	2763.82	1514.53	53.34	40.41	par:pas;	3	11	0	5	4	CVCVC	CVCV	7	9	0	4	v°-ny	2	CV-CV	sunev	yn°v	ve-nus	VER,ADJ,NOM	100	16	1.45	1.55	venir	1
+viendra	vj5dRa	venir	VER			2763.82	1514.53	52.92	23.11	ind:fut:3s;	1	2	0	7	6	CVVCCCV	CYVCCV	1	4	0	0	vj5-dRa	2	CYV-CCV	ardneiv	aRd5jv	vien-dra	VER	100	16	1.8	1.8	venir	1
+viendrai	vj5dRE	venir	VER			2763.82	1514.53	21.68	5.95	ind:fut:1s;	1	4	0	8	6	CVVCCCVV	CYVCCV	2	4	0	0	vj5-dRE	2	CYV-CCV	iardneiv	ERd5jv	vien-drai	VER	100	16	1.7	1.8	venir	1
+viendraient	vj5dRE	venir	VER			2763.82	1514.53	1.68	6.35	cnd:pre:3p;	1	4	0	11	6	CVVCCCVVVCC	CYVCCV	1	4	0	0	vj5-dRE	2	CYV-CCV	tneiardneiv	ERd5jv	vien-draient	VER	100	16	2.3	1.8	venir	1
+viendrais	vj5dRE	venir	VER			2763.82	1514.53	11.80	2.70	cnd:pre:1s;cnd:pre:2s;	1	4	0	9	6	CVVCCCVVC	CYVCCV	2	4	0	0	vj5-dRE	2	CYV-CCV	siardneiv	ERd5jv	vien-drais	VER	100	16	1.75	1.8	venir	1
+viendrait	vj5dRE	venir	VER			2763.82	1514.53	9.89	20.27	cnd:pre:3s;	1	4	0	9	6	CVVCCCVVC	CYVCCV	2	4	0	0	vj5-dRE	2	CYV-CCV	tiardneiv	ERd5jv	vien-drait	VER	100	16	1.8	1.8	venir	1
+viendras	vj5dRa	venir	VER			2763.82	1514.53	13.72	3.85	ind:fut:2s;	1	2	0	8	6	CVVCCCVC	CYVCCV	2	4	0	0	vj5-dRa	2	CYV-CCV	sardneiv	aRd5jv	vien-dras	VER	100	16	1.8	1.8	venir	1
+viendrez	vj5dRe	venir	VER			2763.82	1514.53	5.73	4.05	ind:fut:2p;	1	1	0	8	6	CVVCCCVC	CYVCCV	1	4	0	0	vj5-dRe	2	CYV-CCV	zerdneiv	eRd5jv	vien-drez	VER	100	16	2	1.8	venir	1
+viendriez	vj5dRije	venir	VER			2763.82	1514.53	3.04	1.15	cnd:pre:2p;	1	1	0	9	8	CVVCCCVVC	CYVCCVYV	1	2	0	0	vj5-dRi-je	3	CYV-CCV-YV	zeirdneiv	ejiRd5jv	vien-driez	VER	100	16	2.35	2.55	venir	1
+viendrions	vj5dRij§	venir	VER			2763.82	1514.53	0.13	0.34	cnd:pre:1p;	1	1	0	10	8	CVVCCCVVCC	CYVCCVYV	0	1	0	0	vj5-dRi-j§	3	CYV-CCV-YV	snoirdneiv	§jiRd5jv	vien-drions	VER	100	16	2.5	2.55	venir	1
+viendrons	vj5dR§	venir	VER			2763.82	1514.53	1.67	0.74	ind:fut:1p;	1	2	0	9	6	CVVCCCVCC	CYVCCV	2	4	0	0	vj5-dR§	2	CYV-CCV	snordneiv	§Rd5jv	vien-drons	VER	100	16	1.9	1.8	venir	1
+viendront	vj5dR§	venir	VER			2763.82	1514.53	14.25	8.31	ind:fut:3p;	1	2	0	9	6	CVVCCCVCC	CYVCCV	2	4	0	0	vj5-dR§	2	CYV-CCV	tnordneiv	§Rd5jv	vien-dront	VER	100	16	2.15	1.8	venir	1
+vienne	vjEn	venir	VER			2763.82	1514.53	34.52	25.00	sub:pre:1s;sub:pre:3s;	1	3	0	6	4	CVVCCV	CYVC	3	6	0	0	vjEn	1	CYVC	enneiv	nEjv	vien-ne	VER	100	16	1.8	1.6	venir	1
+viennent	vjEn	venir	VER			2763.82	1514.53	76.48	62.77	ind:pre:3p;sub:pre:3p;	1	3	0	8	4	CVVCCVCC	CYVC	1	6	0	0	vjEn	1	CYVC	tnenneiv	nEjv	vien-nent	VER	100	16	2.35	1.6	venir	1
+viennes	vjEn	venir	VER			2763.82	1514.53	11.59	3.11	sub:pre:2s;	1	3	0	7	4	CVVCCVC	CYVC	3	6	0	0	vjEn	1	CYVC	senneiv	nEjv	vien-nes	VER	100	16	1.8	1.6	venir	1
+viens	vj5	venir	VER			2763.82	1514.53	944.81	126.49	imp:pre:2s;ind:pre:1s;ind:pre:2s;inf;	1	2	0	5	3	CVVCC	CYV	7	9	0	0	vj5	1	CYV	sneiv	5jv	viens	VER	100	16	1.55	1.5	venir	1
+vient	vj5	venir	VER			2763.82	1514.53	352.24	206.22	ind:pre:3s;	1	2	0	5	3	CVVCC	CYV	7	9	0	0	vj5	1	CYV	tneiv	5jv	vient	VER	100	16	1.3	1.5	venir	1
+vinrent	v5R	venir	VER			2763.82	1514.53	1.53	10.54	ind:pas:3p;	1	1	0	7	3	CVCCVCC	CVC	2	6	0	0	v5R	1	CVC	tnerniv	R5v	vin-rent	VER	100	16	1.85	1.6	venir	1
+vins	v5	venir	VER			2763.82	1514.53	0.58	1.49	ind:pas:1s;ind:pas:2s;	3	9	0	4	2	CVCC	CV	15	25	4	2	v5	1	CV	sniv	5v	vins	VER,NOM,ADJ	100	16	1	1	venir	1
+vinsse	v5s	venir	VER			2763.82	1514.53	0.00	0.20	sub:imp:1s;	1	2	0	6	3	CVCCCV	CVC	0	8	0	0	v5s	1	CVC	essniv	s5v	vins-se	VER	100	16	1.9	1.45	venir	1
+vinssent	v5s	venir	VER			2763.82	1514.53	0.00	1.08	sub:imp:3p;	1	2	0	8	3	CVCCCVCC	CVC	1	8	0	0	v5s	1	CVC	tnessniv	s5v	vins-sent	VER	100	16	2.05	1.45	venir	1
+vint	v5	venir	VER			2763.82	1514.53	7.58	88.72	ind:pas:3s;	1	9	0	4	2	CVCC	CV	8	25	0	2	v5	1	CV	tniv	5v	vint	VER	100	16	1.4	1	venir	1
+vînt	v5	venir	VER			2763.82	1514.53	0.30	6.62	sub:imp:3s;	1	9	0	4	2	CVCC	CV	4	25	0	2	v5	1	CV	tnîv	5v	vînt	VER	100	16	1.75	1	venir	1
+écarta	ekaRta	écarter	VER			24.83	92.36	0.51	13.72	ind:pas:3s;	1	2	0	6	6	VCVCCV	VCVCCV	3	5	0	0	e-kaR-ta	3	V-CVC-CV	atracé	atRake	é-car-ta	VER	100	18	1.7	1.55	écarter	1
+écartai	ekaRtE	écarter	VER			24.83	92.36	0.00	1.89	ind:pas:1s;	1	4	0	7	6	VCVCCVV	VCVCCV	0	6	0	0	e-kaR-tE	3	V-CVC-CV	iatracé	EtRake	é-car-tai	VER	100	18	1.85	1.5	écarter	1
+écartaient	ekaRtE	écarter	VER			24.83	92.36	0.04	4.66	ind:imp:3p;	1	4	0	10	6	VCVCCVVVCC	VCVCCV	0	6	0	0	e-kaR-tE	3	V-CVC-CV	tneiatracé	EtRake	é-car-taient	VER	100	18	2	1.5	écarter	1
+écartais	ekaRtE	écarter	VER			24.83	92.36	0.06	0.68	ind:imp:1s;ind:imp:2s;	1	4	0	8	6	VCVCCVVC	VCVCCV	1	6	0	0	e-kaR-tE	3	V-CVC-CV	siatracé	EtRake	é-car-tais	VER	100	18	1.95	1.5	écarter	1
+écartait	ekaRtE	écarter	VER			24.83	92.36	0.51	7.23	ind:imp:3s;	1	4	0	8	6	VCVCCVVC	VCVCCV	2	6	0	0	e-kaR-tE	3	V-CVC-CV	tiatracé	EtRake	é-car-tait	VER	100	18	1.85	1.5	écarter	1
+écartant	ekaRt@	écarter	VER			24.83	92.36	0.16	9.86	par:pre;	1	1	0	8	6	VCVCCVCC	VCVCCV	2	5	0	0	e-kaR-t@	3	V-CVC-CV	tnatracé	@tRake	é-car-tant	VER	100	18	1.9	1.7	écarter	1
+écarte	ekaRt	écarter	VER			24.83	92.36	5.95	13.45	imp:pre:2s;ind:pre:1s;ind:pre:3s;	1	3	0	6	5	VCVCCV	VCVCC	3	2	0	0	e-kaRt	2	V-CVCC	etracé	tRake	é-car-te	VER	100	18	1.55	1.55	écarter	1
+écartent	ekaRt	écarter	VER			24.83	92.36	0.26	3.78	ind:pre:3p;	1	3	0	8	5	VCVCCVCC	VCVCC	1	2	0	0	e-kaRt	2	V-CVCC	tnetracé	tRake	é-car-tent	VER	100	18	1.95	1.55	écarter	1
+écarter	ekaRte	écarter	VER			24.83	92.36	4.77	16.89	inf;;	1	12	1	7	6	VCVCCVC	VCVCCV	2	6	7	6	e-kaR-te	3	V-CVC-CV	retracé	etRake	é-car-ter	VER	100	18	1.7	1.6	écarter	1
+écartera	ekaRt°Ra	écarter	VER			24.83	92.36	0.05	0.14	ind:fut:3s;	1	2	0	8	8	VCVCCVCV	VCVCCVCV	1	5	0	0	e-kaR-t°-Ra	4	V-CVC-CV-CV	aretracé	aR°tRake	é-car-te-ra	VER	100	18	1.9		écarter	1
+écarteraient	ekaRt°RE	écarter	VER			24.83	92.36	0.00	0.07	cnd:pre:3p;	1	2	0	12	8	VCVCCVCVVVCC	VCVCCVCV	1	5	0	0	e-kaR-t°-RE	4	V-CVC-CV-CV	tneiaretracé	ER°tRake	é-car-te-raient	VER	100	18	2.55		écarter	1
+écarterait	ekaRt°RE	écarter	VER			24.83	92.36	0.04	0.07	cnd:pre:3s;	1	2	0	10	8	VCVCCVCVVC	VCVCCVCV	1	5	0	0	e-kaR-t°-RE	4	V-CVC-CV-CV	tiaretracé	ER°tRake	é-car-te-rait	VER	100	18	2.2		écarter	1
+écarteras	ekaRt°Ra	écarter	VER			24.83	92.36	0.12	0.00	ind:fut:2s;	1	2	0	9	8	VCVCCVCVC	VCVCCVCV	0	5	0	0	e-kaR-t°-Ra	4	V-CVC-CV-CV	saretracé	aR°tRake	é-car-te-ras	VER	100	18	2.35		écarter	1
+écarterez	ekaRt°Re	écarter	VER			24.83	92.36	0.01	0.00	ind:fut:2p;	1	1	0	9	8	VCVCCVCVC	VCVCCVCV	0	4	0	0	e-kaR-t°-Re	4	V-CVC-CV-CV	zeretracé	eR°tRake	é-car-te-rez	VER	100	18	2.7	2.2	écarter	1
+écarteront	ekaRt°R§	écarter	VER			24.83	92.36	0.01	0.07	ind:fut:3p;	1	1	0	10	8	VCVCCVCVCC	VCVCCVCV	0	3	0	0	e-kaR-t°-R§	4	V-CVC-CV-CV	tnoretracé	§R°tRake	é-car-te-ront	VER	100	18	2.55		écarter	1
+écartes	ekaRt	écarter	VER			24.83	92.36	0.72	0.20	ind:pre:2s;	1	3	0	7	5	VCVCCVC	VCVCC	3	2	0	0	e-kaRt	2	V-CVCC	setracé	tRake	é-car-tes	VER	100	18	1.65	1.55	écarter	1
+écartez	ekaRte	écarter	VER			24.83	92.36	6.30	1.01	imp:pre:2p;ind:pre:2p;	1	12	0	7	6	VCVCCVC	VCVCCV	2	6	0	6	e-kaR-te	3	V-CVC-CV	zetracé	etRake	é-car-tez	VER	100	18	1.85	1.6	écarter	1
+écartions	ekaRtj§	écarter	VER			24.83	92.36	0.02	0.14	ind:imp:1p;	1	1	0	9	7	VCVCCVVCC	VCVCCYV	0	0	0	0	e-kaR-tj§	3	V-CVC-CYV	snoitracé	§jtRake	é-car-tions	VER	100	18	2.55	1.9	écarter	1
+écartons	ekaRt§	écarter	VER			24.83	92.36	0.32	0.14	imp:pre:1p;ind:pre:1p;	1	1	0	8	6	VCVCCVCC	VCVCCV	0	4	0	0	e-kaR-t§	3	V-CVC-CV	snotracé	§tRake	é-car-tons	VER	100	18	1.9	1.6	écarter	1
+écartâmes	ekaRtam	écarter	VER			24.83	92.36	0.00	0.07	ind:pas:1p;	1	1	0	9	7	VCVCCVCVC	VCVCCVC	0	0	0	0	e-kaR-tam	3	V-CVC-CVC	semâtracé	matRake	é-car-tâ-mes	VER	100	18	2.85	1.9	écarter	1
+écartât	ekaRta	écarter	VER			24.83	92.36	0.00	0.41	sub:imp:3s;	1	2	0	7	6	VCVCCVC	VCVCCV	0	5	0	0	e-kaR-ta	3	V-CVC-CV	tâtracé	atRake	é-car-tât	VER	100	18	2.1	1.55	écarter	1
+écartèrent	ekaRtER	écarter	VER			24.83	92.36	0.12	2.43	ind:pas:3p;	1	1	0	10	7	VCVCCVCVCC	VCVCCVC	1	2	0	0	e-kaR-tER	3	V-CVC-CVC	tnerètracé	REtRake	é-car-tè-rent	VER	100	18	2.5	1.8	écarter	1
+écarté	ekaRte	écarter	VER	m	s	24.83	92.36	2.69	8.04	par:pas;	3	12	0	6	6	VCVCCV	VCVCCV	3	6	6	6	e-kaR-te	3	V-CVC-CV	étracé	etRake	é-car-té	VER,ADJ,NOM	100	18	1.65	1.6	écarter	1
+écartée	ekaRte	écarter	VER	f	s	24.83	92.36	0.88	1.89	par:pas;	2	12	0	7	6	VCVCCVV	VCVCCV	1	6	0	6	e-kaR-te	3	V-CVC-CV	eétracé	etRake	é-car-tée	VER,ADJ	100	18	1.8	1.6	écarter	1
+écartées	ekaRte	écarter	VER	f	p	24.83	92.36	0.21	2.43	par:pas;	2	12	0	8	6	VCVCCVVC	VCVCCV	0	6	0	6	e-kaR-te	3	V-CVC-CV	seétracé	etRake	é-car-tées	VER,ADJ	100	18	1.85	1.6	écarter	1
+écartés	ekaRte	écarter	VER	m	p	24.83	92.36	1.10	3.11	par:pas;	3	12	0	7	6	VCVCCVC	VCVCCV	2	6	0	6	e-kaR-te	3	V-CVC-CV	sétracé	etRake	é-car-tés	VER,ADJ,NOM	100	18	1.75	1.6	écarter	1
+étaient	etE	être	VER			32236.50	15085.47	197.09	534.19	ind:imp:3p;ind:pre:3p;sub:pre:3p;	2	9	0	7	3	VCVVVCC	VCV	3	14	0	3	e-tE	2	V-CV	tneiaté	Ete	é-taient	AUX,VER	100	19	1.75	1.05	être	1
+étais	etE	être	VER			32236.50	15085.47	649.35	403.11	ind:imp:1s;ind:imp:2s;	3	9	0	5	3	VCVVC	VCV	8	14	0	3	e-tE	2	V-CV	siaté	Ete	é-tais	NOM,AUX,VER	100	19	1.35	1.05	être	1
+était	etE	être	VER			32236.50	15085.47	2356.65	3688.99	ind:imp:3s;	2	9	0	5	3	VCVVC	VCV	5	14	0	3	e-tE	2	V-CV	tiaté	Ete	é-tait	AUX,VER	100	19	1.5	1.05	être	1
+étant	et@	être	VER			32236.50	15085.47	3.21	14.19	par:pre;	2	6	0	5	3	VCVCC	VCV	3	11	0	3	e-t@	2	V-CV	tnaté	@te	é-tant	AUX,VER	100	19	1.65	1.1	être	1
+étiez	etje	être	VER			32236.50	15085.47	114.69	24.19	ind:imp:2p;	2	4	0	5	4	VCVVC	VCYV	3	6	0	4	e-tje	2	V-CYV	zeité	ejte	é-tiez	AUX,VER	100	19	1.7	1.4	être	1
+étions	etj§	être	VER			32236.50	15085.47	48.46	89.73	ind:imp:1p;	2	2	0	6	4	VCVVCC	VCYV	2	4	0	0	e-tj§	2	V-CYV	snoité	§jte	é-tions	AUX,VER	100	19	1.9	1.8	être	1
+été	ete	être	VER	m	s	32236.50	15085.47	1041.22	818.99	par:pas;	3	4	0	3	3	VCV	VCV	2	17	3	3	e-te	2	V-CV	été	ete	é-té	NOM,AUX,VER	100	19	1.7	1	être	1
+êtes	Et	être	VER			32236.50	15085.47	1002.88	195.54	imp:pre:2p;ind:pre:2p;	2	2	0	4	2	VCVC	VC	1	20	0	0	Et	1	VC	setê	tE	ê-tes	AUX,VER	100	19	1.7	1	être	1
+être	EtR	être	VER			32236.50	15085.47	1111.69	505.61	inf;;inf;;inf;;	3	8	1	4	3	VCCV	VCC	1	5	4	3	EtR	1	VCC	ertê	RtE	ê-tre	AUX,NOM,VER	100	19	1.85	1.3	être	1

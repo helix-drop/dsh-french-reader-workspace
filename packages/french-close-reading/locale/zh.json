@@ -1,0 +1,17 @@
+{
+  "title": "法语精读",
+  "description": "保存法语段落并逐步建立翻译、句法解析与分支讨论。",
+  "tabConjugation": "变位",
+  "conjugationHint": "读音数据按动词抓取：只抓取来源实际列出的形式，未取得的一律标为缺失。",
+  "conjugationLemmaPlaceholder": "动词原形，例如 venir",
+  "conjugationRead": "读取已存数据",
+  "conjugationFetch": "从来源抓取",
+  "conjugationPrompt": "输入动词原形后读取或抓取。",
+  "conjugationNoData": "尚无数据",
+  "conjugationPending": "上次抓取未完成（{status}）：{reason}；缺 {missing} 个形式",
+  "conjugationFor": "{lemma} 的语音基底",
+  "conjugationSource": "来源 {source} · 状态 {status} · 缺 {missing} 个形式",
+  "conjugationMissing": "数据未覆盖：{persons}",
+  "conjugationFetched": "抓取完成（{status}）：{tenses} 个时态、{bases} 个基底、{requests} 次请求、缺 {missing} 个形式",
+  "conjugationRefused": "未发起抓取：{reason}"
+}

@@ -1,0 +1,4 @@
+- insert:
+    - id: french-close-reading
+      name: '@local/french-close-reading'
+      config: {}
