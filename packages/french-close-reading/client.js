@@ -1100,6 +1100,13 @@ window.__ModuleLoader__.load({
     const PENDING_KEY = 'french-close-reading:pending-create:v1'
 
     const zh = {
+      shelfTitle: '书籍目录', shelfHome: '书架', shelfToggle: '目录', closeDirectory: '收起目录', removeEmptyBook: '移除空书籍', unfilePassage: '移出书籍', newBook: '添加书籍', newChapter: '添加章节',
+      bookField: '书名', chapterField: '章节', numberField: '段落序号', unfiled: '未归类', noChapter: '未分章',
+      organizePassage: '归类与排序', saveLocation: '保存位置', sourceReading: '原文全文', learningTools: '句子学习',
+      shelfWelcome: '从书籍目录开始阅读', shelfWelcomeHint: '展开书籍与章节，选择段落。新内容按书籍归类，段落序号在章节内接续。',
+      shelfEmpty: '尚未添加书籍。添加书籍后，可在章节内录入第一段。', shelfLocal: '目录归类保存在本机',
+      locationConflict: '本章已有相同段落序号，请修改序号。', bookRequired: '请填写书名。', readingSettings: '显示设置',
+      addToChapter: '录入段落', libraryActions: '段落管理', sourceSelectHint: '展开查看上下文，点击句子切换。',
       panel: '法语精读', brandSub: 'FRENCH CLOSE READING · 原文为锚，逐层精读',
       close: '关闭面板', loading: '载入中…',
       tabPassages: '段落库', tabKnowledge: '知识库',
@@ -1146,9 +1153,11 @@ window.__ModuleLoader__.load({
       // detail pane's button: 解析这句 in the text, 查看解析 once it exists.
       analyseThisSentence: '解析这句', viewAnalysis: '查看解析',
       paragraphLabel: '段落 {index}', sentenceMark: '当前 · 第 {index} 句',
-      // The prototype's bar and canvas wording, verbatim.
-      analyseTop: '解析', navToggle: '原文 · 路线 ↙', navTitle: '原文 · 路线',
-      navZoomOut: '缩小导航', navZoomIn: '放大导航', navCollapse: '收起导航',
+      // Reading toolbar and route controls.
+      analyseTop: '解析', navToggle: '打开路线', navTitle: '原文 · 路线',
+      navZoomOut: '缩小', navZoomIn: '放大', navCollapse: '收起路线',
+      nextPassage: '录入下一段', startNextPassage: '开始下一段', nextPassageHint: '标题自动接续段落编号，可手动修改。保存后继续学习当前段。',
+      saveNextPassage: '保存，继续当前段', nextPassageSaved: '下一段已保存，准备好后即可开始。', resumeReading: '返回当前段',
       navStageLabel: '可缩放导航；加减号缩放，方向键平移', navHint: '双指滑动平移 · 捏合缩放', navFit: '全览',
       progressSentences: '{covered} / {total} 句', paragraphAnchor: '段落后重新解析',
       audioGenerate: '▷ 发音', audioRegenerate: '↻ 重新生成',
@@ -1164,7 +1173,7 @@ window.__ModuleLoader__.load({
       synSubject: '主语', synVerb: '变位动词', synObject: '宾语／同位语', synPredicative: '表语',
       synAdverbial: '状语／副词', synInfinitive: '不定式补语', synModifier: '名词修饰', synClause: '从句范围',
       syntaxToggle: '句法配色', lookupWord: '查词', audioUnavailable: '未接入',
-      addBranchShort: '＋ 分支', notAnalysed: '尚未解析', statusDraft: '草稿', statusReviewed: '已复核',
+      addBranchShort: '＋ 讨论', notAnalysed: '尚未解析', statusDraft: '草稿', statusReviewed: '已复核',
       partStructure: '结构与说明', analysisTitle: '句子解析', sentenceTranslationLabel: '句子译文', noStructureYet: '本条尚未给出结构与说明。',
       certainty_syntax: '句法事实', certainty_context: '语境解释', certainty_rhetoric: '修辞效果', certainty_unverified: '待查证',
       lexiconTab: '词汇', statusGenerated: '已生成', branchOpen: '待理解', branchSettled: '已理解',
@@ -1289,6 +1298,13 @@ window.__ModuleLoader__.load({
       activationFailedHint: '应用本身未受影响：这一条只是本插件自己的失败信息。请在控制台查看完整堆栈，修好后重新加载页面。',
     }
     const en = {
+      shelfTitle: 'Books', shelfHome: 'Library', shelfToggle: 'Contents', closeDirectory: 'Close contents', removeEmptyBook: 'Remove empty book', unfilePassage: 'Unfile passage', newBook: 'Add book', newChapter: 'Add chapter',
+      bookField: 'Book', chapterField: 'Chapter', numberField: 'Paragraph number', unfiled: 'Unfiled', noChapter: 'No chapter',
+      organizePassage: 'Organize and order', saveLocation: 'Save location', sourceReading: 'Full source text', learningTools: 'Sentence tools',
+      shelfWelcome: 'Read from your book library', shelfWelcomeHint: 'Expand a book and chapter to open a passage. Add new text within its chapter.',
+      shelfEmpty: 'Add a book, then enter the first passage in its chapter.', shelfLocal: 'Organization is saved on this device',
+      locationConflict: 'This paragraph number is already in use in this chapter.', bookRequired: 'Enter a book title.', readingSettings: 'Display',
+      addToChapter: 'Add passage', libraryActions: 'Passage management', sourceSelectHint: 'Expand for context; select a sentence to focus it.',
       panel: 'French Close Reading', brandSub: 'FRENCH CLOSE READING · the source is the anchor',
       close: 'Close panel', loading: 'Loading…',
       tabPassages: 'Passages', tabKnowledge: 'Knowledge',
@@ -1332,8 +1348,10 @@ window.__ModuleLoader__.load({
       analyseSentence: 'Analyse this sentence', reanalyseSentence: 'Re-analyse', analyzing: 'Analysing…',
       analyseThisSentence: 'Analyse this sentence', viewAnalysis: 'View analysis',
       paragraphLabel: 'Paragraph {index}', sentenceMark: 'Current · sentence {index}',
-      analyseTop: 'Analyse', navToggle: 'Text · route ↙', navTitle: 'Text · route',
-      navZoomOut: 'Zoom out', navZoomIn: 'Zoom in', navCollapse: 'Collapse navigation',
+      analyseTop: 'Analyse', navToggle: 'Open route', navTitle: 'Text · route',
+      navZoomOut: 'Zoom out', navZoomIn: 'Zoom in', navCollapse: 'Close route',
+      nextPassage: 'Add next passage', startNextPassage: 'Read next passage', nextPassageHint: 'The paragraph number advances automatically. You can edit the title. Saving keeps the current passage open.',
+      saveNextPassage: 'Save and keep reading', nextPassageSaved: 'Next passage saved. Start it when ready.', resumeReading: 'Back to current passage',
       navStageLabel: 'Zoomable navigation; minus and plus zoom, arrow keys pan',
       navHint: 'Two-finger swipe to pan · pinch to zoom', navFit: 'Fit',
       progressSentences: '{covered} / {total} sentences', paragraphAnchor: 'Paragraph anchor',
@@ -1350,7 +1368,7 @@ window.__ModuleLoader__.load({
       synSubject: 'Subject', synVerb: 'Finite verb', synObject: 'Object / apposition', synPredicative: 'Predicative',
       synAdverbial: 'Adverbial / adverb', synInfinitive: 'Infinitive complement', synModifier: 'Noun modifier',
       synClause: 'Clause range', syntaxToggle: 'Syntax colour', lookupWord: 'Look up', audioUnavailable: 'not wired',
-      addBranchShort: '＋ Branch', notAnalysed: 'not analysed yet', statusDraft: 'draft', statusReviewed: 'reviewed',
+      addBranchShort: '＋ Discussion', notAnalysed: 'not analysed yet', statusDraft: 'draft', statusReviewed: 'reviewed',
       partStructure: 'Structure and notes', analysisTitle: 'Sentence analysis', sentenceTranslationLabel: 'Sentence translation', noStructureYet: 'No structure has been recorded for this sentence yet.',
       certainty_syntax: 'syntax', certainty_context: 'context', certainty_rhetoric: 'rhetoric', certainty_unverified: 'unverified',
       lexiconTab: 'Vocabulary', statusGenerated: 'generated', branchOpen: 'open', branchSettled: 'understood',
@@ -1742,12 +1760,100 @@ window.__ModuleLoader__.load({
       .fr-root .runStatus{display:flex;align-items:center;gap:12px;font-size:11px;color:var(--muted);margin:10px 0 4px}
       .fr-root .runStatus button{border:0;background:none;padding:2px 4px;font-size:11px;color:var(--green)}
       .fr-root .runStatus button:hover{text-decoration:underline}
+      /* Explicit route actions and passage continuation. */
+      .fr-root .compactTop .navToggle{padding:5px 10px;border:1px solid var(--green);border-radius:6px;color:var(--green);white-space:nowrap;font-weight:600}
+      .fr-root .compactTop .navToggle[aria-expanded='true']{background:var(--green);color:var(--paper)}
+      .fr-root .navHead{height:auto;min-height:48px;flex-wrap:wrap;gap:8px;padding:9px 12px}
+      .fr-root .navHead .controls{display:flex;align-items:center;gap:5px;flex-wrap:wrap}
+      .fr-root .navHead .controls button{min-width:44px;min-height:32px;width:auto;height:auto;border:1px solid var(--line);border-radius:5px;padding:5px 8px;font-size:11px;white-space:nowrap;background:var(--paper)}
+      .fr-root #navScale{min-width:40px;text-align:center;font-size:11px;font-variant-numeric:tabular-nums}
+      .fr-root .continuationBar{display:flex;align-items:center;gap:12px;justify-content:space-between;padding:8px 25px;border-bottom:1px solid var(--line);background:var(--paper)}
+      .fr-root .currentPassageTitle{font-size:11px;color:var(--muted);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+      .fr-root .continuationBar button{flex-shrink:0;white-space:nowrap;min-height:32px}
+      .fr-root .modal.switcher{max-height:calc(100% - 24px);overflow:auto}
+      .fr-root .modal.switcher textarea{max-height:200px;min-height:90px}
+      @container (max-width:560px){.fr-root .compactTop .topLeft{gap:8px}.fr-root .compactTop .navToggle{font-size:10px;padding:5px 7px}.fr-root .continuationBar{padding:7px 17px}.fr-root .navHead>strong{font-size:11px}}
       /* The model the run will use — visible and changeable, not implicit. */
       .fr-root .readingActions select.modelSelect{font-size:11px;max-width:200px;min-width:0;padding:3px 6px;border:1px solid var(--line);border-radius:6px;background:var(--paper);color:var(--ink)}
+
+      /* Book-first entrance and contextual reading tools. */
+      .fr-root.bookLayout .bookDirectory{position:absolute;left:0;top:46px;bottom:0;width:270px;z-index:4;display:flex;flex-direction:column;border-right:1px solid var(--line);background:var(--paper)}
+      .fr-root.bookLayout .bookDirectory.hiddenDirectory{display:none}
+      .fr-root .directoryHead{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:18px 14px;border-bottom:1px solid var(--line);font-size:13px}
+      .fr-root .directoryTree{flex:1;min-height:0;overflow:auto;padding:15px 10px}
+      .fr-root .shelfBook{margin-bottom:18px}.fr-root .shelfBook>summary{font-weight:650;font-size:13px;padding:8px 5px;cursor:pointer;overflow-wrap:anywhere}
+      .fr-root .shelfChapter{margin:3px 0 8px 12px;border-left:1px solid var(--line);padding-left:10px}
+      .fr-root .shelfChapter>summary{font-size:12px;color:var(--muted);padding:8px 2px;cursor:pointer;overflow-wrap:anywhere}
+      .fr-root .shelfRow{display:flex;align-items:center;min-width:0;border-radius:6px;margin:4px 0}.fr-root .shelfRow.current{background:var(--pale);box-shadow:inset 3px 0 var(--green)}
+      .fr-root .shelfPassage{display:flex;gap:8px;text-align:left;flex:1;min-width:0;padding:9px 6px;border:0;background:transparent;font-size:12px}
+      .fr-root .shelfNumber{font-size:10px;font-variant-numeric:tabular-nums;color:var(--muted);padding-top:2px}
+      .fr-root .shelfPassageText{display:flex;flex-direction:column;gap:4px;min-width:0}.fr-root .shelfPassageText>span{overflow-wrap:anywhere;line-height:1.5}.fr-root .shelfPassageText small{display:block;font:11px/1.5 Georgia,serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--muted)}
+      .fr-root .shelfOrganize{flex-shrink:0;padding:7px 4px;border:0;background:transparent;min-width:28px}.fr-root .chapterAdd{font-size:11px;padding:7px 5px;border:0;background:transparent;color:var(--green);text-align:left}
+      .fr-root .directoryFoot{border-top:1px solid var(--line);padding:12px 14px;display:flex;gap:7px;flex-wrap:wrap}.fr-root .directoryFoot small{width:100%;font-size:10px;color:var(--muted)}
+      .fr-root.bookLayout[data-directory='open'] .shelfWelcome{margin-left:270px}.fr-root .shelfWelcome .frontDoorInner{padding-top:90px;max-width:760px}.fr-root .shelfWelcomeActions{display:flex;gap:12px;flex-wrap:wrap;margin:30px 0}
+      .fr-root.bookLayout .workspace[data-view='focus']>.detailPane{position:relative;left:auto!important;right:auto!important;width:min(900px,calc(100% - 48px));margin:0 auto;height:100%;min-height:0;border-right:0;background:var(--paper)}
+      .fr-root.bookLayout[data-directory='open'] .workspace{margin-left:270px;width:calc(100% - 270px)}
+      .fr-root.bookLayout .workspace .navigation{left:0;right:auto;width:min(700px,calc(100% - 20px));z-index:7;box-shadow:8px 0 25px var(--fr-c71)}
+      .fr-root.bookLayout .continuationBar{min-height:82px;padding:18px 28px;gap:10px}.fr-root .passageHeading{min-width:0;flex:1}.fr-root .bookBreadcrumb{font-size:11px;color:var(--muted);margin-bottom:8px;overflow-wrap:anywhere}.fr-root.bookLayout .currentPassageTitle{font-size:17px;color:var(--ink);display:block;white-space:normal;line-height:1.5}
+      .fr-root.bookLayout .crumb{padding:9px 28px;font-size:11px;border-bottom:1px solid var(--line)}
+      .fr-root .readingSource{padding-bottom:14px;border-bottom:1px solid var(--line)}.fr-root .sourceSectionHead{display:flex;align-items:baseline;gap:12px;justify-content:space-between;color:var(--muted);font-size:11px;flex-wrap:wrap}.fr-root .sourceSectionHead strong{font-size:12px;color:var(--ink)}
+      .fr-root .sourceParagraph.quote{font:20px/1.9 Georgia,serif;margin:20px 0 0}.fr-root .readingSentence{border-radius:3px;cursor:pointer}.fr-root .readingSentence:hover{background:var(--pale)}.fr-root .readingSentence.selected{background:var(--pale);box-shadow:0 2px 0 var(--green)}.fr-root .readingSentence:focus-visible{outline:2px solid var(--green);outline-offset:3px}
+      .fr-root .sentenceWorkspace{padding:12px 0 18px;border-bottom:1px solid var(--line);margin-bottom:24px}.fr-root .sentenceWorkspace .paneHead{padding:0;height:auto;min-height:36px}.fr-root .sentenceWorkspace .readingActions{padding:10px 0;min-height:0;border:0;gap:8px;flex-wrap:wrap}.fr-root .sentenceWorkspace .branchStrip{padding:2px 0;min-height:0;border:0}
+      .fr-root .sentenceWorkspace .readingActions button{min-height:32px}.fr-root .sentenceWorkspace .readingActions select{margin-left:auto;min-height:32px}.fr-root .locationFields{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) 90px;gap:12px}.fr-root .locationFields .kbField{min-width:0}.fr-root .locationFields input{width:100%;min-width:0}.fr-root .locationFields datalist{display:none}
+      @container (max-width:959px){.fr-root.bookLayout[data-directory='open'] .workspace{margin-left:0;width:100%}.fr-root.bookLayout[data-directory='open'] .shelfWelcome{margin-left:0}.fr-root.bookLayout .bookDirectory{width:min(310px,calc(100% - 30px));box-shadow:12px 0 25px var(--fr-c71);z-index:10}.fr-root.bookLayout .workspace[data-view='focus']>.detailPane{width:100%}.fr-root.bookLayout .compactTop{height:auto;min-height:62px;max-height:none;flex-wrap:wrap;padding:8px 12px;gap:8px}.fr-root.bookLayout .compactTop .topLeft{flex-wrap:wrap;gap:6px}.fr-root.bookLayout .workspace{height:calc(100% - 62px)}.fr-root.bookLayout .continuationBar{padding:15px 20px;flex-wrap:wrap}.fr-root.bookLayout .continuationBar .quiet{padding-left:0}.fr-root.bookLayout .bookDirectory{top:62px}}
+      @container (max-width:560px){.fr-root.bookLayout .continuationBar .passageHeading{flex-basis:100%}.fr-root .shelfWelcome .frontDoorInner{padding:50px 22px}.fr-root.bookLayout .detailScroll{padding:20px}.fr-root .sourceParagraph.quote{font-size:18px}.fr-root .locationFields{grid-template-columns:minmax(0,1fr) 80px}.fr-root .locationFields .kbField:first-child{grid-column:1/-1}.fr-root .sentenceWorkspace .readingActions select{margin-left:0;max-width:100%}.fr-root.bookLayout .compactTop .title{display:none}.fr-root.bookLayout .compactTop button{padding:5px 6px;font-size:10px}.fr-root.bookLayout .compactTop .topActions{gap:4px}.fr-root.bookLayout .continuationBar .currentPassageTitle{font-size:16px}}
+      .fr-root .readingSource>summary.sourceSectionHead{display:list-item;cursor:pointer;padding:4px 0;font-size:11px}.fr-root .readingSource>summary span{margin-left:15px}.fr-root .sentenceWorkspace .readingActions button.primary{background:var(--green);color:var(--paper);border:1px solid var(--green);padding:5px 12px}.fr-root .sentenceWorkspace .readingActions button.primary:disabled{opacity:.45}
     `
 
     function format(t, key, values = {}) {
       return String(t(key)).replace(/\{(\w+)\}/gu, (_, name) => String(values[name] ?? ''))
+    }
+
+    const SHELF_KEY = 'french-close-reading/bookshelf-v1'
+    function readShelf() {
+      try {
+        const value = JSON.parse(localStorage.getItem(SHELF_KEY) ?? 'null')
+        if (!value || !Array.isArray(value.books) || !value.placements || typeof value.placements !== 'object') return { books: [], placements: {} }
+        return {
+          books: value.books.filter((book) => typeof book.name === 'string' && Array.isArray(book.chapters))
+            .map((book) => ({ name: book.name, chapters: book.chapters.filter((chapter) => typeof chapter === 'string') })),
+          placements: Object.fromEntries(Object.entries(value.placements).filter(([, loc]) => loc && typeof loc.book === 'string' && typeof loc.chapter === 'string' && Number.isSafeInteger(loc.number) && loc.number > 0)),
+        }
+      } catch { return { books: [], placements: {} } }
+    }
+    function addShelfChapter(shelf, bookName, chapterName) {
+      const existing = shelf.books.find((book) => book.name === bookName)
+      const chapter = chapterName || '未分章'
+      const books = existing
+        ? shelf.books.map((book) => book !== existing ? book : { ...book, chapters: [...new Set([...book.chapters, chapter])] })
+        : [...shelf.books, { name: bookName, chapters: [chapter] }]
+      return { ...shelf, books }
+    }
+
+    const CONTINUATION_KEY = 'french-close-reading/continuations'
+
+    function readContinuationLinks() {
+      try {
+        const stored = JSON.parse(localStorage.getItem(CONTINUATION_KEY) ?? 'null')
+        if (!stored || typeof stored !== 'object' || Array.isArray(stored)) return {}
+        return Object.fromEntries(Object.entries(stored).filter(([parent, next]) =>
+          parent !== '__proto__' && parent !== 'constructor' && next && typeof next.id === 'string' && typeof next.title === 'string'))
+      } catch { return {} }
+    }
+
+    function nextPassageTitle(currentTitle, savedTitles = [], nextNumber = null) {
+      const current = currentTitle.trim() || '未命名段落'
+      const match = /^(.*?)\s*(?:·\s*)?段落\s*(\d+)$/u.exec(current)
+      const base = (match ? match[1] : current).trim()
+      const width = Math.max(2, match ? match[2].length : 2)
+      let number = nextNumber ?? (match ? Number(match[2]) + 1 : 2)
+      const used = new Set(savedTitles)
+      const candidate = () => {
+        const suffix = ` · 段落 ${String(number).padStart(width, '0')}`
+        return `${base.slice(0, 120 - suffix.length)}${suffix}`
+      }
+      while (used.has(candidate())) number += 1
+      return candidate()
     }
 
     function unwrap(result, t) {
@@ -2664,11 +2770,17 @@ window.__ModuleLoader__.load({
         setLoadingList(true)
         setError('')
         try {
-          const value = unwrap(await listPassages({ offset: nextOffset, limit: PAGE_SIZE }), t)
-          setItems(value.items ?? [])
-          setOffset(value.offset ?? nextOffset)
-          setTotal(value.total ?? 0)
-          setHasMore(value.hasMore === true)
+          const all = []
+          let nextPage = 0, value
+          do {
+            value = unwrap(await listPassages({ offset: nextPage, limit: PAGE_SIZE }), t)
+            all.push(...(value.items ?? []))
+            nextPage += (value.items ?? []).length
+          } while (value.hasMore && (value.items ?? []).length)
+          setItems(all)
+          setOffset(0)
+          setTotal(value.total ?? all.length)
+          setHasMore(false)
         } catch (cause) {
           setError(String(cause?.message ?? cause))
         } finally {
@@ -2742,13 +2854,14 @@ window.__ModuleLoader__.load({
         if (submitLock.current) return
         setError('')
         setStatus('')
+        if (draftLocation.book.trim() && (!Number.isSafeInteger(draftLocation.number) || draftLocation.number < 1 || Object.values(shelf.placements).some((loc) => loc.book === draftLocation.book.trim() && loc.chapter === (draftLocation.chapter.trim() || t('noChapter')) && loc.number === draftLocation.number))) { setError(t('locationConflict')); return }
         if (!title.trim()) { setError(t('titleRequired')); return }
         if (!sourceText.trim()) { setError(t('sourceRequired')); return }
         if (sourceText.length > 20000) { setError(t('sourceLimit')); return }
 
         // First press previews what would be stored; the confirming press
         // reuses that preview, so the text the reader saw is the text saved.
-        if (preview === null || preview.sourceText !== sourceText || preview.title !== title.trim()) {
+        if (preview === null || preview.unavailable || preview.sourceText !== sourceText || preview.title !== title.trim()) {
           submitLock.current = true
           setBusy(true)
           setError('')
@@ -2797,14 +2910,27 @@ window.__ModuleLoader__.load({
             clearPendingAttempt()
             return
           }
+          if (draftLocation.book.trim()) {
+            const loc = { book: draftLocation.book.trim(), chapter: draftLocation.chapter.trim() || t('noChapter'), number: draftLocation.number }
+            setShelf((current) => ({ ...addShelfChapter(current, loc.book, loc.chapter), placements: { ...current.placements, [value.passage.id]: loc } }))
+          }
           pendingAttempt.current = null
           clearPendingAttempt()
           setTitle('')
           setSourceText('')
           setPreview(null)
           setStatus(t(value.kind === 'already-saved' ? 'alreadySaved' : 'saved'))
-          await refreshList(0)
-          await openPassage(value.passage.id)
+          if (switcherMode === 'continue' && continuationParent !== null) {
+            setNextPassages((current) => ({ ...current, [continuationParent]: { id: value.passage.id, title: value.passage.title } }))
+            setContinuationParent(null)
+            setSwitcherOpen(false)
+            setToast(t('nextPassageSaved'))
+            await refreshList(0)
+          } else {
+            setSwitcherOpen(false)
+            await refreshList(0)
+            await openPassage(value.passage.id)
+          }
         } catch (cause) {
           // Keep the idempotency token across retries; sessionStorage holds no source text.
           setError(String(cause?.message ?? cause))
@@ -2852,7 +2978,9 @@ window.__ModuleLoader__.load({
             setError(format(t, 'saveConflict', { reason: value.reason }))
             return
           }
+          setShelf((current) => { const placements = { ...current.placements }; delete placements[item.id]; return { ...current, placements } })
           setStatus(t('archiveDone'))
+          setNextPassages((current) => Object.fromEntries(Object.entries(current).filter(([parent, next]) => parent !== item.id && next.id !== item.id)))
           await refreshList(0)
           if (activePassage !== null && activePassage.id === item.id) {
             setActivePassage(null)
@@ -2992,6 +3120,165 @@ window.__ModuleLoader__.load({
       // A generation call is bounded: a provider stream that never finishes must
       // not leave 解析中 on screen forever. The reader can always cancel earlier.
       const ANALYSIS_TIMEOUT_MS = 180000
+      const [continuationParent, setContinuationParent] = useState(null)
+      const [nextPassages, setNextPassages] = useState(readContinuationLinks())
+      const [shelf, setShelf] = useState(readShelf())
+      const [directoryOpen, setDirectoryOpen] = useState(true)
+      const [locationDialog, setLocationDialog] = useState(null)
+      const [draftLocation, setDraftLocation] = useState({ book: '', chapter: '', number: 1 })
+      const [shelfError, setShelfError] = useState('')
+      const directorySize = useRef(null)
+      useEffect(() => {
+        try { localStorage.setItem(SHELF_KEY, JSON.stringify(shelf)); setShelfError('') }
+        catch { setShelfError(t('shelfLocal') + ' · ' + t('requestFailed')) }
+      }, [shelf])
+      useEffect(() => {
+        const root = rootRef.current
+        if (!root || typeof ResizeObserver === 'undefined') return
+        const sync = () => {
+          const narrow = root.getBoundingClientRect().width < 960
+          if (directorySize.current !== narrow) { setDirectoryOpen(!narrow); directorySize.current = narrow }
+        }
+        sync()
+        const observer = new ResizeObserver(sync)
+        observer.observe(root)
+        return () => observer.disconnect()
+      }, [])
+
+      function nextChapterNumber(book, chapter, after = 0) {
+        const used = new Set(Object.values(shelf.placements).filter((loc) => loc.book === book && loc.chapter === chapter).map((loc) => loc.number))
+        let number = Math.max(1, after + 1)
+        while (used.has(number)) number += 1
+        return number
+      }
+      function beginChapterPassage(book = '', chapter = '') {
+        setDraftLocation({ book, chapter, number: nextChapterNumber(book, chapter) })
+        setTitle(book ? nextPassageTitle(`${book} · ${chapter}`, [], nextChapterNumber(book, chapter)) : '')
+        setSourceText(''); setPreview(null); setStatus(''); setError('')
+        setContinuationParent(null)
+        setSwitcherMode('new'); setSwitcherOpen(true)
+      }
+      function saveShelfLocation() {
+        const { book, chapter, number, passageId } = locationDialog
+        const bookName = book.trim(), chapterName = chapter.trim() || t('noChapter')
+        if (!bookName) { setError(t('bookRequired')); return }
+        if (passageId && (!Number.isSafeInteger(number) || number < 1 || Object.entries(shelf.placements).some(([id, loc]) => id !== passageId && loc.book === bookName && loc.chapter === chapterName && loc.number === number))) {
+          setError(t('locationConflict')); return
+        }
+        setShelf((current) => {
+          const next = addShelfChapter(current, bookName, chapterName)
+          return passageId ? { ...next, placements: { ...next.placements, [passageId]: { book: bookName, chapter: chapterName, number } } } : next
+        })
+        setLocationDialog(null); setError('')
+      }
+      function locationFields(value, update, includeNumber = true) {
+        return h('div', { className: 'locationFields' },
+          h('label', { className: 'kbField' }, h('span', null, t('bookField')),
+            h('input', { value: value.book, maxLength: 100, list: 'shelf-books', 'aria-label': t('bookField'), disabled: busy,
+              onChange: (event) => update({ ...value, book: event.target.value }) })),
+          h('datalist', { id: 'shelf-books' }, shelf.books.map((book) => h('option', { key: book.name, value: book.name }))),
+          h('label', { className: 'kbField' }, h('span', null, t('chapterField')),
+            h('input', { value: value.chapter, maxLength: 100, list: 'shelf-chapters', 'aria-label': t('chapterField'), disabled: busy,
+              onChange: (event) => update({ ...value, chapter: event.target.value }) })),
+          h('datalist', { id: 'shelf-chapters' }, (shelf.books.find((book) => book.name === value.book)?.chapters ?? []).map((chapter) => h('option', { key: chapter, value: chapter }))),
+          includeNumber ? h('label', { className: 'kbField numberField' }, h('span', null, t('numberField')),
+            h('input', { type: 'number', min: 1, step: 1, value: value.number, 'aria-label': t('numberField'), disabled: busy,
+              onChange: (event) => update({ ...value, number: Number(event.target.value) }) })) : null)
+      }
+      function locationDialogView() {
+        return h('div', { className: 'modalBackdrop' }, h('div', { className: 'modal switcher', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'location-title',
+          onKeyDown: (event) => { if (event.key === 'Escape' && !event.isComposing) setLocationDialog(null) } },
+          h('h2', { id: 'location-title' }, locationDialog.passageId ? t('organizePassage') : locationDialog.kind === 'chapter' ? t('newChapter') : t('newBook')),
+          locationFields(locationDialog, setLocationDialog, !!locationDialog.passageId),
+          error ? h('p', { className: 'error', role: 'alert' }, error) : null,
+          h('div', { className: 'modalFoot' },
+            h('button', { type: 'button', onClick: () => { setLocationDialog(null); setError('') } }, t('cancel')),
+            locationDialog.passageId && shelf.placements[locationDialog.passageId] ? h('button', { type: 'button', onClick: () => {
+              setShelf((current) => { const placements = { ...current.placements }; delete placements[locationDialog.passageId]; return { ...current, placements } }); setLocationDialog(null); setError('')
+            } }, t('unfilePassage')) : null,
+            h('button', { type: 'button', className: 'primary', onClick: saveShelfLocation }, t('saveLocation')))))
+      }
+      function bookDirectory() {
+        const rows = (book, chapter) => items.filter((item) => {
+          const loc = shelf.placements[item.id]
+          return book === null ? !loc : loc?.book === book && loc.chapter === chapter
+        }).sort((a, b) => (shelf.placements[a.id]?.number ?? 0) - (shelf.placements[b.id]?.number ?? 0))
+          .map((item) => h('div', { key: item.id, className: `shelfRow${activePassage?.id === item.id ? ' current' : ''}` },
+            h('button', { type: 'button', className: 'shelfPassage', 'aria-current': activePassage?.id === item.id ? 'page' : null,
+              onClick: () => { void openPassage(item.id); if (directorySize.current) setDirectoryOpen(false); setKnowledgeOpen(false) } },
+              h('span', { className: 'shelfNumber' }, shelf.placements[item.id] ? String(shelf.placements[item.id].number).padStart(2, '0') : '—'),
+              h('span', { className: 'shelfPassageText' }, h('span', null, item.title || t('untitled')), h('small', null, item.excerpt ?? ''))),
+            h('button', { className: 'shelfOrganize', type: 'button', title: t('organizePassage'), 'aria-label': `${t('organizePassage')} · ${item.title}`,
+              onClick: () => { setError(''); setLocationDialog({ passageId: item.id, ...(shelf.placements[item.id] ?? { book: '', chapter: '', number: 1 }) }) } }, '···')))
+        return h('aside', { className: `bookDirectory${directoryOpen ? '' : ' hiddenDirectory'}`, 'aria-label': t('shelfTitle'), id: 'book-directory' },
+          h('div', { className: 'directoryHead' }, h('strong', null, t('shelfTitle')),
+            h('button', { className: 'small', type: 'button', onClick: () => { setError(''); setLocationDialog({ book: '', chapter: '', number: 1 }) } }, t('newBook'))),
+          h('div', { className: 'directoryTree' },
+            loadingList ? h('p', { className: 'hint' }, t('loading')) : null,
+            shelf.books.map((book) => h('details', { key: book.name, className: 'shelfBook', open: true },
+              h('summary', null, book.name),
+              book.chapters.map((chapter) => h('details', { key: chapter, className: 'shelfChapter', open: true },
+                h('summary', null, chapter), rows(book.name, chapter),
+                h('button', { className: 'chapterAdd', type: 'button', onClick: () => beginChapterPassage(book.name, chapter) }, `＋ ${t('addToChapter')}`))),
+              h('button', { className: 'chapterAdd', type: 'button', onClick: () => { setError(''); setLocationDialog({ book: book.name, chapter: '', number: 1, kind: 'chapter' }) } }, `＋ ${t('newChapter')}`),
+              !Object.values(shelf.placements).some((loc) => loc.book === book.name) ? h('button', { className: 'chapterAdd', type: 'button', onClick: () => setShelf((current) => ({ ...current, books: current.books.filter((entry) => entry.name !== book.name) })) }, t('removeEmptyBook')) : null)),
+            items.some((item) => !shelf.placements[item.id]) ? h('details', { className: 'shelfBook unfiledBook', open: true },
+              h('summary', null, t('unfiled')), rows(null, null)) : null,
+            shelf.books.length === 0 && items.length === 0 ? h('p', { className: 'hint' }, t('shelfEmpty')) : null),
+          h('div', { className: 'directoryFoot' }, h('small', null, shelfError || t('shelfLocal')),
+            h('button', { type: 'button', className: 'small quiet', onClick: () => setDirectoryOpen(false) }, t('closeDirectory')),
+            h('button', { type: 'button', className: 'small quiet', disabled: exporting, onClick: exportBackup }, t('exportAll')),
+            h('button', { type: 'button', className: 'small quiet', onClick: () => { setSwitcherMode('list'); setSwitcherOpen(true) } }, t('libraryActions'))))
+      }
+      function readingSource() {
+        if (knowledgeOpen) return null
+        return h('details', { className: 'readingSource', 'aria-label': t('sourceReading') },
+          h('summary', { className: 'sourceSectionHead' }, h('strong', null, t('sourceReading')), h('span', null, t('sourceSelectHint'))),
+          segmentation === null ? h('p', { className: 'quote' }, activePassage.sourceText) : (segmentation.paragraphs ?? []).map((paragraph) => h('p', { className: 'sourceParagraph quote', key: paragraph.id },
+            paragraph.sentences.map((sentence) => h('span', { key: sentence.id, className: `readingSentence${anchorId === sentence.id ? ' selected' : ''}`, role: 'button', tabIndex: 0,
+              'aria-label': sentence.text,
+              onClick: () => { if (!window.getSelection?.()?.toString().trim()) selectSentence(sentence.id) },
+              onKeyDown: (event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); selectSentence(sentence.id) } } }, sentence.text, ' ')))))
+      }
+
+      useEffect(() => {
+        try { localStorage.setItem(CONTINUATION_KEY, JSON.stringify(nextPassages)) } catch { /* Links remain available in this panel. */ }
+      }, [nextPassages])
+
+      async function composeNextPassage() {
+        if (activePassage === null || busy) return
+        const parentId = activePassage.id
+        setError('')
+        if (continuationParent !== parentId) {
+          setBusy(true)
+          try {
+            // Read all pages, so numbering does not depend on the visible library page.
+            const titles = []
+            let pageOffset = 0
+            while (true) {
+              const page = unwrap(await listPassages({ offset: pageOffset, limit: PAGE_SIZE }), t)
+              titles.push(...(page.items ?? []).map((item) => item.title))
+              if (!page.hasMore || !(page.items ?? []).length) break
+              pageOffset += page.items.length
+            }
+            const location = shelf.placements[parentId]
+            const nextTitle = nextPassageTitle(activePassage.title, titles, location ? nextChapterNumber(location.book, location.chapter, location.number) : null)
+            const number = Number(/段落\s*(\d+)$/u.exec(nextTitle)?.[1] ?? 1)
+            setDraftLocation(location ? { ...location, number } : { book: '', chapter: '', number })
+            setTitle(nextTitle)
+            setSourceText('')
+            setPreview(null)
+            setStatus('')
+            setContinuationParent(parentId)
+          } catch (cause) {
+            setError(String(cause?.message ?? cause))
+            return
+          } finally { setBusy(false) }
+        }
+        setSwitcherMode('continue')
+        setSwitcherOpen(true)
+      }
+
 
       /**
        * `toggleNavigation(force)`: remembers the reader's choice in the wide layout, and in the
@@ -3285,7 +3572,7 @@ window.__ModuleLoader__.load({
           ])
           setSegmentation(segments.segmentation ?? null)
           setAnalysis(stored.analysis ?? null)
-          setAnchorId('passage')
+          setAnchorId(segments.segmentation?.paragraphs?.[0]?.sentences?.[0]?.id ?? 'passage')
           setDrafts({})
         } catch (cause) {
           setSegmentation(null)
@@ -3666,20 +3953,30 @@ window.__ModuleLoader__.load({
         return h('div', { className: 'modalBackdrop' },
           h('div', {
             className: 'modal switcher', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'switchTitle',
+            onKeyDown: (event) => {
+              if (event.key === 'Escape' && !busy && !event.isComposing) { event.stopPropagation(); setSwitcherOpen(false) }
+              if (event.key !== 'Tab') return
+              const fields = Array.from(event.currentTarget.querySelectorAll('input:not(:disabled), textarea:not(:disabled), button:not(:disabled)'))
+              const first = fields[0], last = fields[fields.length - 1]
+              if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus() }
+              if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus() }
+            },
           },
-            h('div', { className: 'kbBar' },
+            switcherMode === 'continue' ? null : h('div', { className: 'kbBar' },
               h('button', {
                 className: 'kbReturn', type: 'button',
                 onClick: () => setSwitcherMode(switcherMode === 'new' ? 'list' : 'new'),
               }, switcherMode === 'new' ? t('passageList') : t('newPassage')),
             ),
-            h('h2', { id: 'switchTitle' }, switcherMode === 'new' ? t('newPassage') : t('switchPassage')),
-            switcherMode === 'new' ? passageComposer([
+            h('h2', { id: 'switchTitle' }, switcherMode === 'continue' ? t('nextPassage') : switcherMode === 'new' ? t('newPassage') : t('switchPassage')),
+            switcherMode === 'continue' ? h('p', { className: 'hint' }, t('nextPassageHint')) : null,
+            switcherMode !== 'list' ? passageComposer([
               h('button', {
-                key: 'cancel', type: 'button', onClick: () => setSwitcherMode('list'),
-              }, t('cancel')),
+                key: 'cancel', type: 'button', disabled: busy,
+                onClick: () => switcherMode === 'continue' ? setSwitcherOpen(false) : setSwitcherMode('list'),
+              }, switcherMode === 'continue' ? t('resumeReading') : t('cancel')),
             ]) : passageRows(),
-            switcherMode === 'new'
+            switcherMode !== 'list'
               ? null
               : h('div', { className: 'modalFoot' },
                 h('button', {
@@ -3700,29 +3997,31 @@ window.__ModuleLoader__.load({
        */
       function passageComposer(extraButtons = []) {
         return h('form', { onSubmit: submit },
+          locationFields(draftLocation, setDraftLocation),
           h('label', { className: 'kbField' },
             h('span', null, t('titleField')),
             h('input', {
-              value: title, maxLength: 120, 'aria-label': t('titleField'),
+              value: title, maxLength: 120, disabled: busy, 'aria-label': t('titleField'),
               placeholder: t('titlePlaceholder'),
               onChange: (event) => setTitle(event.target.value),
             })),
           h('label', { className: 'kbField' },
             h('span', null, t('source')),
             h('textarea', {
-              rows: 8, value: sourceText, 'aria-label': t('source'),
+              rows: 8, value: sourceText, disabled: busy, autoFocus: switcherOpen, 'aria-label': t('source'),
               placeholder: t('sourcePlaceholder'),
               onChange: (event) => setSourceText(event.target.value),
             })),
           preview === null ? null : h('p', { className: 'policyNote' }, format(t, 'previewSummary', {
-            paragraphs: (preview.paragraphs ?? []).length,
-            sentences: (preview.sentences ?? []).length,
+            paragraphs: Array.isArray(preview.paragraphs) ? preview.paragraphs.length : (preview.paragraphs ?? 0),
+            sentences: Array.isArray(preview.sentences) ? preview.sentences.length : (preview.sentences ?? 0),
           })),
+          error === '' ? null : h('p', { className: 'error', role: 'alert' }, error),
           status === '' ? null : h('p', { className: 'status', role: 'status' }, status),
           h('div', { className: 'modalFoot' },
             h('button', {
               className: 'primary', type: 'submit', disabled: busy,
-            }, busy ? t('saving') : preview === null ? t('preview') : t('confirmSave')),
+            }, busy ? t('saving') : preview?.unavailable ? t('preview') : preview === null ? t('preview') : switcherMode === 'continue' ? t('saveNextPassage') : t('confirmSave')),
             ...extraButtons))
       }
 
@@ -4640,7 +4939,7 @@ window.__ModuleLoader__.load({
           const sIndex = paragraph.sentences.findIndex((sentence) => sentence.id === anchorId)
           if (sIndex === -1) continue
           const title = sentenceAnalysis?.kind === 'found' ? t('analysisTitle') : t('notAnalysed')
-          return `${format(t, 'chapterLabel', { index: 1 })} / ${format(t, 'paragraphLabel', { index: pIndex + 1 })} / ${sIndex + 1} · ${title}`
+          return `${format(t, 'sentenceMark', { index: sentenceList().findIndex((sentence) => sentence.id === anchorId) + 1 })} · ${title}`
         }
         return `${anchorLabel(anchorId)} · ${t('notAnalysed')}`
       }
@@ -4658,7 +4957,7 @@ window.__ModuleLoader__.load({
         // put at the very start).
         const next = at === -1 ? (step > 0 ? all[0] : undefined) : all[at + step]
         if (next === undefined) return
-        setAnchorId(next.id)
+        selectSentence(next.id)
       }
 
       /** `focusNavigation()`: bring the focused sentence into view on the canvas. */
@@ -4892,23 +5191,12 @@ window.__ModuleLoader__.load({
        * puts it.
        */
       function detailReading() {
-        return h('div', null, syntaxLegend(), detailReadingBody())
+        return h('div', null, sentenceAnalysis?.kind === 'found' ? syntaxLegend() : null, detailReadingBody())
       }
 
       function detailReadingBody() {
         const found = sentenceAnalysis?.kind === 'found' ? sentenceAnalysis.analysis : null
         const isSentence = isSentenceAnchorId(anchorId)
-        const actions = h('div', { className: 'answerActions' },
-          h('button', {
-            className: 'primary', type: 'button',
-            disabled: analysisBusy || backend === '' || model === '' || !isSentence,
-            onClick: analyseCurrent,
-          }, analysisBusy ? t('analyzing') : found === null ? t('analyseTop') : t('reanalyseSentence')),
-          h('button', {
-            className: 'small', type: 'button',
-            onClick: () => openBranchDialog(null, null),
-          }, t('addBranchShort')),
-        )
         if (found === null) {
           // A sentence anchor always shows the sentence itself; "select a sentence"
           // as the message while a sentence IS selected told the reader to do the
@@ -4920,7 +5208,6 @@ window.__ModuleLoader__.load({
             isSentence
               ? h('p', { className: 'hint' }, t('notAnalysed'))
               : null,
-            actions,
           )
         }
         return h('div', { className: 'analysisView' },
@@ -4934,7 +5221,6 @@ window.__ModuleLoader__.load({
           h('div', { className: 'backbone' }, found.backbone),
           h('div', { className: 'sectionLabel' }, t('partStructure')),
           h('div', { className: 'answer' }, structureAnswer(found)),
-          actions,
         )
       }
 
@@ -4988,23 +5274,20 @@ window.__ModuleLoader__.load({
         const feedbackVisible = analysisFeedbackFor !== null
           && analysisFeedbackFor.passageId === passage.id
           && (analysisFeedbackFor.anchorId === 'passage' || analysisFeedbackFor.anchorId === anchorId)
-        return h('div', { className: 'fr-root', ref: rootRef },
+        return h('div', { className: 'fr-root bookLayout', ref: rootRef, 'data-directory': directoryOpen ? 'open' : 'closed' },
           h('header', { className: 'top compactTop' },
             h('div', { className: 'topLeft' },
               h('div', { className: 'brand', title: t('panel') },
                 h('div', { className: 'logo' }, 'f.'),
-                // The reader's decision: the title is the passage switcher. It looks like
-                // the prototype's plain title and opens the library when clicked.
-                h('button', {
-                  className: 'title', type: 'button', title: t('switchPassage'),
-                    onClick: () => { setSwitcherMode('list'); setSwitcherOpen(true) },
-                }, t('panel')),
+                h('span', { className: 'title' }, t('panel')),
               ),
+              h('button', { type: 'button', 'aria-expanded': directoryOpen, 'aria-controls': 'book-directory', onClick: () => setDirectoryOpen((open) => !open) }, t('shelfToggle')),
+              h('button', { type: 'button', onClick: () => { setActivePassage(null); setKnowledgeOpen(false); setDirectoryOpen(true) } }, t('shelfHome')),
               h('button', {
                 className: 'navToggle', type: 'button', ref: navToggleRef,
-                'aria-expanded': navOpen ? 'true' : 'false',
+                'aria-expanded': navOpen ? 'true' : 'false', 'aria-controls': 'reading-route',
                 onClick: () => toggleNavigation(),
-              }, t('navToggle')),
+              }, navOpen ? t('navCollapse') : t('navToggle')),
             ),
             h('div', { className: 'topActions' },
               h('span', { className: 'progressWrap' },
@@ -5019,11 +5302,6 @@ window.__ModuleLoader__.load({
                   openKnowledge()
                 },
               }, t('tabKnowledge')),
-              h('button', {
-                id: 'start', className: 'primary', type: 'button',
-                disabled: analysisBusy || backend === '' || model === '' || !isSentenceAnchorId(anchorId),
-                onClick: analyseCurrent,
-              }, t('analyseTop')),
               closeButton(),
             ),
           ),
@@ -5031,6 +5309,8 @@ window.__ModuleLoader__.load({
             className: `toast${toast === '' ? ' hidden' : ''}`,
             role: 'status', 'aria-live': 'polite',
           }, toast),
+          bookDirectory(),
+          locationDialog ? locationDialogView() : null,
           switcherOpen ? passageSwitcher() : null,
           branchDialog === null ? null : branchDialogView(),
           lookupOpen ? lookupDialogView() : null,
@@ -5039,7 +5319,7 @@ window.__ModuleLoader__.load({
             className: 'workspace', 'data-view': 'focus', 'data-navigation': navOpen ? 'open' : 'closed',
           },
             h('aside', {
-              className: `navigation${navOpen ? '' : ' closed'}`,
+              className: `navigation${navOpen ? '' : ' closed'}`, id: 'reading-route',
               'aria-label': t('navTitle'),
               // In the compact drawer the canvas is a modal surface over an inert pane.
               role: compact && navOpen ? 'dialog' : null,
@@ -5051,14 +5331,14 @@ window.__ModuleLoader__.load({
                 h('div', { className: 'controls' },
                   h('button', {
                     type: 'button', 'aria-label': t('navZoomOut'), onClick: () => zoomNavBy(0.8),
-                  }, '−'),
-                  h('span', { id: 'navScale' }, `${Math.round(nav.scale * 100)}%`),
+                  }, `− ${t('navZoomOut')}`),
+                  h('span', { id: 'navScale', role: 'status', 'aria-live': 'polite' }, `${Math.round(nav.scale * 100)}%`),
                   h('button', {
                     type: 'button', 'aria-label': t('navZoomIn'), onClick: () => zoomNavBy(1.25),
-                  }, '＋'),
+                  }, `＋ ${t('navZoomIn')}`),
                   h('button', {
                     type: 'button', 'aria-label': t('navCollapse'), onClick: () => toggleNavigation(false),
-                  }, '↗'),
+                  }, t('navCollapse')),
                 ),
               ),
               h('div', {
@@ -5089,15 +5369,38 @@ window.__ModuleLoader__.load({
               onKeyUp: captureReadingSelection,
               'aria-label': knowledgeOpen ? t('tabKnowledge') : t('benchTitle'),
             },
+              h('div', { className: 'continuationBar' },
+                h('div', { className: 'passageHeading' },
+                  h('div', { className: 'bookBreadcrumb' }, shelf.placements[passage.id] ? `${shelf.placements[passage.id].book} / ${shelf.placements[passage.id].chapter} / ${format(t, 'paragraphLabel', { index: shelf.placements[passage.id].number })}` : t('unfiled')),
+                  h('strong', { className: 'currentPassageTitle', title: passage.title }, passage.title)),
+                h('button', { type: 'button', className: 'small quiet', onClick: () => { setError(''); setLocationDialog({ passageId: passage.id, ...(shelf.placements[passage.id] ?? { book: '', chapter: '', number: 1 }) }) } }, t('organizePassage')),
+                nextPassages[passage.id] ? h('button', {
+                  className: 'primary small', type: 'button', disabled: busy || loadingPassage,
+                  title: nextPassages[passage.id].title,
+                  onClick: () => { void openPassage(nextPassages[passage.id].id) },
+                }, t('startNextPassage')) : h('button', {
+                  className: 'small', type: 'button', disabled: busy,
+                  onClick: () => { void composeNextPassage() },
+                }, t('nextPassage')),
+              ),
+              h('div', { className: 'crumb', id: 'crumb' }, crumbText()),
+              // Generation feedback was previously set into state and rendered
+              // nowhere: a refused or failed analysis was invisible. These lines
+              // are where the reader learns what the run did — and, while one is
+              // on, what stage it is at, how long it has been going, and that it
+              // can be cancelled.
+              h('div', { className: 'detailScroll', ref: detailScrollRef },
+                readingSource(),
+                knowledgeOpen ? null : h('div', { className: 'sentenceWorkspace' },
               h('div', { className: 'paneHead' },
                 h('div', { className: 'sentenceControls' },
                   h('button', {
-                    className: 'small quiet', type: 'button', 'aria-label': t('previousSentence'),
+                    className: 'small quiet', type: 'button', 'aria-label': t('previousSentence'), disabled: sentenceList().findIndex((sentence) => sentence.id === anchorId) <= 0,
                     onClick: () => selectSentenceBy(-1),
                   }, '←'),
                   h('span', { id: 'focusIndex' }, sentenceOrdinalText()),
                   h('button', {
-                    className: 'small quiet', type: 'button', 'aria-label': t('nextSentence'),
+                    className: 'small quiet', type: 'button', 'aria-label': t('nextSentence'), disabled: sentenceList().length === 0 || sentenceList().findIndex((sentence) => sentence.id === anchorId) === sentenceList().length - 1,
                     onClick: () => selectSentenceBy(1),
                   }, '→'),
                 ),
@@ -5107,19 +5410,8 @@ window.__ModuleLoader__.load({
                   }, t('locateNavigation')),
                 ),
               ),
-              h('div', { className: 'crumb', id: 'crumb' }, crumbText()),
-              h('div', { className: 'branchStrip', id: 'branchStrip' },
-                (discussion?.branches ?? [])
-                  .filter((branch) => branch.anchorId === anchorId)
-                  .map((branch) => h('button', {
-                    key: branch.branchId, className: 'small', type: 'button',
-                    onClick: () => startBranch(anchorId),
-                  }, branch.title)),
-                anchorId === '' ? null : h('button', {
-                  className: 'small', type: 'button', onClick: () => openBranchDialog(null, null),
-                }, t('addBranchShort')),
-              ),
               h('div', { className: 'readingActions', id: 'readingActions' },
+                h('button', { id: 'start', className: 'primary small', type: 'button', disabled: analysisBusy || backend === '' || model === '' || !isSentenceAnchorId(anchorId), onClick: analyseCurrent }, analysisBusy ? t('analyzing') : sentenceAnalysis?.kind === 'found' ? t('reanalyseSentence') : t('analyseTop')),
                 h('span', { className: 'selectedWord' }, selectedWord),
                 h('button', {
                   className: 'small', type: 'button',
@@ -5149,24 +5441,20 @@ window.__ModuleLoader__.load({
                 }, models.length === 0
                   ? [h('option', { key: 'no-model', value: '' }, t('noModels'))]
                   : models.map((entry) => h('option', { key: entry.id, value: entry.id }, entry.name))),
-                h('span', { className: 'audioGroup' },
-                  h('button', {
-                    type: 'button', title: t('audioNotWired'),
-                    onClick: () => requestSentenceAudio(anchorId, 'generate'),
-                  }, t('audioGenerate')),
-                  h('button', {
-                    type: 'button', title: t('audioNotWired'),
-                    onClick: () => requestSentenceAudio(anchorId, 'regenerate'),
-                  }, t('audioRegenerate')),
-                  h('span', { className: 'audioUnavailable' }, t('audioUnavailable')),
-                ),
+                h('button', { type: 'button', className: 'small', disabled: true, title: t('audioNotWired') }, t('audioGenerate')),
               ),
-              // Generation feedback was previously set into state and rendered
-              // nowhere: a refused or failed analysis was invisible. These lines
-              // are where the reader learns what the run did — and, while one is
-              // on, what stage it is at, how long it has been going, and that it
-              // can be cancelled.
-              h('div', { className: 'detailScroll', ref: detailScrollRef },
+              h('div', { className: 'branchStrip', id: 'branchStrip' },
+                (discussion?.branches ?? [])
+                  .filter((branch) => branch.anchorId === anchorId)
+                  .map((branch) => h('button', {
+                    key: branch.branchId, className: 'small', type: 'button',
+                    onClick: () => startBranch(anchorId),
+                  }, branch.title)),
+                anchorId === '' ? null : h('button', {
+                  className: 'small', type: 'button', onClick: () => openBranchDialog(null, null),
+                }, t('addBranchShort')),
+              ),
+                ),
                 analysisRun === null ? null : h('div', { className: 'runStatus', role: 'status' },
                   h('span', null, format(t, 'analysisStageElapsed', {
                     stage: t('analysisStage'),
@@ -5201,41 +5489,23 @@ window.__ModuleLoader__.load({
        */
       function frontDoor() {
         if (activePassage !== null) return readingShell(activePassage)
-        return h('div', { className: 'fr-root', ref: rootRef },
+        return h('div', { className: 'fr-root bookLayout', ref: rootRef, 'data-directory': directoryOpen ? 'open' : 'closed' },
           h('header', { className: 'top compactTop' },
-            h('div', { className: 'topLeft' },
-              h('div', { className: 'brand', title: t('panel') },
-                h('div', { className: 'logo' }, 'f.'),
-                // No switcher button here: this page *is* the list.
-                h('span', { className: 'title' }, t('panel')),
-              ),
-            ),
-            h('div', { className: 'topActions' }, closeButton()),
-          ),
-          h('main', { className: 'frontDoor' },
-            h('div', { className: 'frontDoorInner' },
-              h('div', { className: 'eyebrow' }, t('brandSub')),
-              h('h2', { className: 'frontDoorTitle' }, t('startTitle')),
-              h('p', { className: 'frontDoorHint' }, t('composeHint')),
-              h('div', { className: 'frontCompose' }, passageComposer()),
-              h('div', { className: 'frontListHead' },
-                h('span', { className: 'frontListTitle' }, t('listTitle')),
-                h('span', { className: 'frontListCount' }, format(t, 'count', { count: total }))),
-              passageRows(),
-              h('div', { className: 'frontFoot' },
-                h('button', {
-                  className: 'quiet', type: 'button', disabled: exporting, onClick: exportBackup,
-                }, exporting ? t('exporting') : t('exportAll')),
-                h('button', {
-                  className: 'quiet', type: 'button', disabled: exporting, onClick: exportSources,
-                }, t('exportSources')),
-              ),
-            )),
-          h('div', {
-            className: `toast${toast === '' ? ' hidden' : ''}`, role: 'status', 'aria-live': 'polite',
-          }, toast),
-          error === '' ? null : h('p', { className: 'error', role: 'alert' }, error),
-        )
+            h('div', { className: 'topLeft' }, h('div', { className: 'brand' }, h('div', { className: 'logo' }, 'f.'), h('span', { className: 'title' }, t('panel'))),
+              h('button', { type: 'button', onClick: () => setDirectoryOpen((open) => !open), 'aria-expanded': directoryOpen, 'aria-controls': 'book-directory' }, t('shelfToggle'))),
+            h('div', { className: 'topActions' }, h('button', { type: 'button', onClick: () => beginChapterPassage() }, t('newPassage')), closeButton())),
+          bookDirectory(),
+          h('main', { className: 'frontDoor shelfWelcome' },
+            h('div', { className: 'frontDoorInner' }, h('div', { className: 'eyebrow' }, t('brandSub')),
+              h('h2', { className: 'frontDoorTitle' }, t('shelfWelcome')),
+              h('p', { className: 'frontDoorHint' }, t('shelfWelcomeHint')),
+              h('div', { className: 'shelfWelcomeActions' },
+                h('button', { className: 'primary', type: 'button', onClick: () => { setError(''); setLocationDialog({ book: '', chapter: '', number: 1 }) } }, t('newBook')),
+                h('button', { type: 'button', onClick: () => beginChapterPassage() }, t('newPassage'))),
+              h('p', { className: 'hint' }, format(t, 'count', { count: total })))),
+          switcherOpen ? passageSwitcher() : null,
+          locationDialog ? locationDialogView() : null,
+          error ? h('p', { className: 'error', role: 'alert' }, error) : null)
       }
 
       return h('div', { className: 'fr-page' },

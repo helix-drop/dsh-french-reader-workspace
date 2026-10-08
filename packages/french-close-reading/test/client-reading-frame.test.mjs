@@ -245,10 +245,10 @@ test('the entry field grid renders what the Host has, and says what it has not',
   assert.match(source, /position === 0 && entry !== null/u)
 })
 
-test('every detail branch opens with the syntax legend, as renderDetail does', () => {
-  // The prototype prefixes `syntaxLegend()` in all four branches; a branch without it was a
-  // real regression, so the wrapper is pinned rather than the intent.
-  assert.match(source, /function detailReading\(\) \{\n\s*return h\('div', null, syntaxLegend\(\), detailReadingBody\(\)\)/u)
+test('reading shows the syntax legend with an analysis; other detail branches retain it', () => {
+  // Empty reading states have no syntax colors to explain. Keep the legend beside
+  // an available analysis without spending reading space before generation.
+  assert.match(source, /function detailReading\(\) \{\n\s*return h\('div', null, sentenceAnalysis\?\.kind === 'found' \? syntaxLegend\(\) : null, detailReadingBody\(\)\)/u)
   const content = source.slice(source.indexOf('function detailContent()'), source.indexOf('function detailReading()'))
   assert.match(content, /return h\('div', null, syntaxLegend\(\), discussionNode\(node\)\)/u, 'the discussion branch')
   assert.match(content, /syntaxLegend\(\),\n\s*h\('div', \{ className: 'sectionLabel' \}/u, 'the knowledge branch')

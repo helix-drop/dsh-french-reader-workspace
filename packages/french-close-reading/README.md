@@ -1,5 +1,7 @@
 # French Close Reading · Milestone 0
 
+2026-10-08 前端更新见 [前端改动与后端接线说明](../../FRONTEND_CHANGES.md)，涵盖书籍目录、阅读页布局、段落接续、路线控制及本地元数据的持久化范围。
+
 A DSH Host/Client plugin for reading French passages. The first vertical slice is deliberately small: create a passage, retrieve it through a generated Typert Remote API, and export the saved originals. Source text is immutable after creation; later stages will add paragraph/sentence segmentation, translations, grammar analysis, branches, and knowledge records without merging sibling discussion branches.
 
 ## Verified runtime contracts
