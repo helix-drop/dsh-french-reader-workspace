@@ -5215,6 +5215,14 @@ window.__ModuleLoader__.load({
         const node = selectedNode
         if (node === null) return detailReading()
         if (node.kind === 'analysis') return detailReading()
+        if (node.kind === 'knowledge' && node.id?.startsWith('lookup-')) {
+          return h('div', { className: 'lookupResult' },
+            h('h2', null, node.title),
+            h('p', { className: 'hint' }, node.status),
+            h('div', { className: 'answer' }, node.body ?? ''),
+            h('button', { className: 'small', type: 'button', onClick: () => setSelectedNode(null) }, t('backToAnalysis')),
+          )
+        }
         if (node.kind === 'knowledge') {
           return h('div', null,
             syntaxLegend(),

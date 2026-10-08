@@ -408,3 +408,18 @@ test('cancelling invalid next-paragraph input clears its error from the reading 
     assert.equal(all(p.render(), (node) => node.props?.role === 'dialog').length, 0)
   }
 })
+
+test('lookup results show the word and return to analysis without claiming a confirmed conclusion', async () => {
+  const p = await panel({ lookupMot: async () => ok({ found: true, entries: [{ senses: [{ definition: '心；情感与直觉的所在。' }] }], candidates: [] }) })
+  button(p.render(), '查词').props.onClick()
+  all(p.render(), (node) => node.props?.id === 'lookupInput')[0].props.onChange({ target: { value: 'cœur' } })
+  button(p.render(), '查阅').props.onClick()
+  await new Promise((resolve) => setImmediate(resolve))
+  const result = all(p.render(), (node) => node.props?.className === 'lookupResult')[0]
+  assert.ok(result)
+  assert.match(text(result), /cœur/u)
+  assert.match(text(result), /心；情感与直觉的所在/u)
+  assert.doesNotMatch(text(result), /已确认的学习结论|返回来源讨论/u)
+  button(p.render(), '← 返回解析').props.onClick()
+  assert.equal(all(p.render(), (node) => node.props?.className === 'lookupResult').length, 0)
+})
