@@ -2918,7 +2918,7 @@ window.__ModuleLoader__.load({
             setNextPassages((current) => ({ ...current, [continuationParent]: { id: value.passage.id, title: value.passage.title } }))
             setContinuationParent(null)
             setSwitcherOpen(false)
-            setToast(t('nextPassageSaved'))
+            showToast(t('nextPassageSaved'))
             await refreshList(0)
           } else {
             setSwitcherOpen(false)

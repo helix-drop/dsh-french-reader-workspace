@@ -579,3 +579,63 @@ test('chapter entry preserves a parked continuation including its preview and ma
   assert.equal(all(tree, (node) => node.type === 'textarea')[0].props.value, 'Nous continuons.')
   assert.ok(button(tree, '保存，继续当前段'))
 })
+
+
+test('saving an independent passage leaves the parked continuation attached to its original parent', async () => {
+  const records = new Map([['parent', passage]])
+  const requests = []
+  const p = await panel({
+    listPassages: async () => ok({ items: [...records.values()], hasMore: false }),
+    previewImport: async () => ok({ paragraphs: 1, sentences: 1 }),
+    createPassage: async (request) => {
+      requests.push(request)
+      const saved = { id: request.id, title: request.title, sourceText: request.sourceText, sourceRevision: 1 }
+      records.set(saved.id, saved)
+      return ok({ kind: 'saved', passage: saved })
+    },
+    getPassage: async ({ id }) => ok({ passage: records.get(id) }),
+  })
+  await openNext(p)
+  all(p.render(), (node) => node.type === 'textarea')[0].props.onChange({ target: { value: 'Nous continuons.' } })
+  button(p.render(), '返回当前段').props.onClick()
+  button(p.render(), '段落管理').props.onClick()
+  button(p.render(), '新建段落').props.onClick()
+  enter(p.render(), '标题', 'Independent passage')
+  all(p.render(), (node) => node.type === 'textarea')[0].props.onChange({ target: { value: 'Je lis un autre livre.' } })
+  const save = () => all(p.render(), (node) => node.type === 'form')[0].props.onSubmit(submit)
+  await save(); await save()
+  assert.equal(p.values.get(10).title, 'Independent passage')
+  const selectParent = all(p.render(), (node) => node.type === 'button' && node.props.className?.includes('shelfPassage') && text(node).includes('第 3 章'))[0]
+  selectParent.props.onClick()
+  await new Promise((resolve) => setImmediate(resolve))
+  let tree = await openNext(p)
+  assert.equal(all(tree, (node) => node.type === 'textarea')[0].props.value, 'Nous continuons.')
+  await save(); await save()
+  assert.equal(requests.length, 2)
+  assert.equal(requests[0].sourceText, 'Je lis un autre livre.')
+  assert.equal(requests[1].sourceText, 'Nous continuons.')
+  assert.equal(p.values.get(10).id, 'parent')
+  const links = [...p.values.values()].find((value) => value?.parent?.id === requests[1].id)
+  assert.deepEqual(Object.keys(links), ['parent'])
+  assert.ok(button(p.render(), '开始下一段'))
+})
+
+
+test('continuation saved notification expires rather than persisting into later reading', async () => {
+  let timer
+  const p = await panel({
+    listPassages: async () => ok({ items: [], hasMore: false }),
+    previewImport: async () => ok({ paragraphs: 1, sentences: 1 }),
+    createPassage: async (request) => ok({ kind: 'saved', passage: { id: request.id, title: request.title } }),
+  }, { setTimeout: (callback, delay) => { timer = { callback, delay }; return 1 }, clearTimeout() {} })
+  await openNext(p)
+  all(p.render(), (node) => node.type === 'textarea')[0].props.onChange({ target: { value: 'Nous continuons.' } })
+  const save = () => all(p.render(), (node) => node.type === 'form')[0].props.onSubmit(submit)
+  await save(); await save()
+  const statuses = () => all(p.render(), (node) => node.props?.role === 'status').map(text)
+  assert.ok(statuses().includes('下一段已保存，准备好后即可开始。'))
+  assert.equal(timer.delay, 2600)
+  timer.callback()
+  assert.ok(!statuses().includes('下一段已保存，准备好后即可开始。'))
+  assert.ok(button(p.render(), '开始下一段'))
+})
