@@ -639,3 +639,70 @@ test('continuation saved notification expires rather than persisting into later 
   assert.ok(!statuses().includes('下一段已保存，准备好后即可开始。'))
   assert.ok(button(p.render(), '开始下一段'))
 })
+
+
+test('failed previews do not display a successful zero-paragraph split summary', async () => {
+  const p = await panel({
+    listPassages: async () => ok({ items: [], hasMore: false }),
+    previewImport: async () => { throw new Error('offline') },
+  })
+  await openNext(p)
+  all(p.render(), (node) => node.type === 'textarea')[0].props.onChange({ target: { value: 'Je lis.' } })
+  await all(p.render(), (node) => node.type === 'form')[0].props.onSubmit(submit)
+  const dialog = all(p.render(), (node) => node.props?.role === 'dialog')[0]
+  assert.match(text(dialog), /offline/u)
+  assert.doesNotMatch(text(dialog), /将切分为|直接保存/u)
+  assert.match(text(dialog), /重试预览/u)
+  assert.ok(button(dialog, '预览切分'))
+})
+
+test('directory loads every page and keeps the previous complete list if a later page fails', async () => {
+  const entries = Array.from({ length: 27 }, (_, index) => ({ ...passage, id: `item-${index}`, title: `Passage ${index}` }))
+  const calls = []
+  let fail = false
+  const p = await panel({ listPassages: async ({ offset, limit }) => {
+    calls.push([offset, limit])
+    if (fail && offset > 0) throw new Error('page unavailable')
+    return ok({ items: entries.slice(offset, offset + limit), total: entries.length, hasMore: offset + limit < entries.length })
+  } })
+  p.render()
+  const refresh = p.effects.find((factory) => factory.toString().includes('refreshList(0)'))
+  refresh()
+  await new Promise((resolve) => setImmediate(resolve))
+  assert.equal(p.values.get(0).length, 27)
+  assert.equal(p.values.get(0)[26].title, 'Passage 26')
+  assert.deepEqual(calls, [[0, 25], [25, 25]])
+  fail = true
+  refresh()
+  await new Promise((resolve) => setImmediate(resolve))
+  assert.equal(p.values.get(0).length, 27)
+  assert.match(text(p.render()), /page unavailable/u)
+})
+
+test('empty input and source length boundaries do not reach save or invalid preview requests', async () => {
+  let previews = 0, saves = 0
+  const p = await panel({
+    listPassages: async () => ok({ items: [], hasMore: false }),
+    previewImport: async () => { previews++; return ok({ paragraphs: 1, sentences: 1 }) },
+    createPassage: async () => { saves++; return ok({}) },
+  })
+  await openNext(p)
+  const sourceField = () => all(p.render(), (node) => node.type === 'textarea')[0]
+  const submitForm = () => all(p.render(), (node) => node.type === 'form')[0].props.onSubmit(submit)
+  enter(p.render(), '标题', '   ')
+  sourceField().props.onChange({ target: { value: 'Je lis.' } })
+  await submitForm()
+  assert.match(text(p.render()), /请填写标题/u)
+  enter(p.render(), '标题', 'Boundary')
+  sourceField().props.onChange({ target: { value: '   ' } })
+  await submitForm()
+  assert.match(text(p.render()), /请粘贴法语原文/u)
+  sourceField().props.onChange({ target: { value: 'a'.repeat(20001) } })
+  await submitForm()
+  assert.match(text(p.render()), /20,000/u)
+  assert.equal(previews, 0)
+  sourceField().props.onChange({ target: { value: 'a'.repeat(20000) } })
+  await submitForm()
+  assert.equal(previews, 1)
+  assert.equal(saves, 0)
+})

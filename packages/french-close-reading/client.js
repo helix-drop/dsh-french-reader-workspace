@@ -1126,7 +1126,7 @@ window.__ModuleLoader__.load({
       alreadySaved: '这次保存已在先前请求中完成，已恢复原记录。',
       previewTitle: '切分预览（尚未保存）', previewClean: '未发现编码或排版问题。',
       previewReady: '预览已生成：确认分段与标记后再保存。',
-      previewUnavailable: '预览不可用：{reason}。再次点击将直接保存（宿主可能需要重启以提供预览端点）。',
+      previewUnavailable: '预览不可用：{reason}。原文已保留，请重试预览。',
       saveWithoutPreview: '无预览直接保存',
       previewCounts: '{paragraphs} 段 · {sentences} 句 · {characters} 字符',
       previewSentences: '{count} 句',
@@ -1323,7 +1323,7 @@ window.__ModuleLoader__.load({
       alreadySaved: 'This save had already completed; the original record was restored.',
       previewTitle: 'Split preview (nothing saved yet)', previewClean: 'No encoding or typography problems found.',
       previewReady: 'Preview ready: check the boundaries and flags, then save.',
-      previewUnavailable: 'Preview unavailable: {reason}. Press again to save without it (the Host may need a restart for the preview endpoint).',
+      previewUnavailable: 'Preview unavailable: {reason}. Your source text is retained. Retry the preview.',
       saveWithoutPreview: 'Save without preview',
       previewCounts: '{paragraphs} paragraphs · {sentences} sentences · {characters} characters',
       previewSentences: '{count} sentence(s)',
@@ -4184,7 +4184,7 @@ window.__ModuleLoader__.load({
               placeholder: t('sourcePlaceholder'),
               onChange: (event) => { setSourceText(event.target.value); setPreview(null); setStatus('') },
             })),
-          preview === null ? null : h('p', { className: 'policyNote' }, format(t, 'previewSummary', {
+          preview === null || preview.unavailable ? null : h('p', { className: 'policyNote' }, format(t, 'previewSummary', {
             paragraphs: Array.isArray(preview.paragraphs) ? preview.paragraphs.length : (preview.paragraphs ?? 0),
             sentences: Array.isArray(preview.sentences) ? preview.sentences.length : (preview.sentences ?? 0),
           })),
