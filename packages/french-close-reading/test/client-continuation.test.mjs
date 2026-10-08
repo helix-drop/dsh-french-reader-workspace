@@ -306,3 +306,90 @@ test('the discussion dialog ignores composing Escape and closes on normal Escape
   dialog.props.onKeyDown(event)
   assert.equal(all(p.render(), (node) => node.props?.role === 'dialog' && node.props['aria-labelledby'] === 'modalTitle').length, 0)
 })
+
+test('lookup dialog supports composing Escape and ordinary Escape', async () => {
+  const p = await panel()
+  button(p.render(), '查词').props.onClick()
+  const dialog = all(p.render(), (node) => node.props?.role === 'dialog' && node.props['aria-labelledby'] === 'lookupTitle')[0]
+  const event = { key: 'Escape', isComposing: true, preventDefault() {}, stopPropagation() {} }
+  dialog.props.onKeyDown(event)
+  assert.equal(all(p.render(), (node) => node.props?.role === 'dialog' && node.props['aria-labelledby'] === 'lookupTitle').length, 1)
+  event.isComposing = false
+  dialog.props.onKeyDown(event)
+  assert.equal(all(p.render(), (node) => node.props?.role === 'dialog' && node.props['aria-labelledby'] === 'lookupTitle').length, 0)
+})
+
+test('a lookup result from the previous passage cannot replace the current node', async () => {
+  let resolveLookup
+  const fast = { ...passage, id: 'fast', title: 'Fast passage' }
+  const p = await panel({ lookupMot: () => new Promise((resolve) => { resolveLookup = resolve }), getPassage: async () => ok({ passage: fast }) })
+  p.values.set(0, [fast])
+  button(p.render(), '查词').props.onClick()
+  all(p.render(), (node) => node.props?.id === 'lookupInput')[0].props.onChange({ target: { value: 'ancien' } })
+  button(p.render(), '查阅').props.onClick()
+  all(p.render(), (node) => node.type === 'button' && node.props.className?.includes('shelfPassage'))[0].props.onClick()
+  await new Promise((resolve) => setImmediate(resolve))
+  resolveLookup(ok({ found: true, entries: [{ senses: [{ definition: 'Obsolete definition' }] }], candidates: [] }))
+  await new Promise((resolve) => setImmediate(resolve))
+  assert.equal([...p.values.values()].some((value) => value?.id === 'lookup-ancien'), false)
+})
+
+test('next-paragraph preparation does not open its dialog after switching passages', async () => {
+  let resolveList
+  const fast = { ...passage, id: 'fast', title: 'Fast passage' }
+  const p = await panel({ listPassages: () => new Promise((resolve) => { resolveList = resolve }), getPassage: async () => ok({ passage: fast }) })
+  p.values.set(0, [fast])
+  const preparing = button(p.render(), '录入下一段').props.onClick()
+  all(p.render(), (node) => node.type === 'button' && node.props.className?.includes('shelfPassage'))[0].props.onClick()
+  await new Promise((resolve) => setImmediate(resolve))
+  resolveList(ok({ items: [], hasMore: false }))
+  await preparing
+  await new Promise((resolve) => setImmediate(resolve))
+  assert.equal(all(p.render(), (node) => node.props?.role === 'dialog' && node.props['aria-labelledby'] === 'switchTitle').length, 0)
+  assert.equal(p.values.get(10).id, 'fast')
+})
+
+test('two overlapping lookups keep the newer word result', async () => {
+  const responses = []
+  const p = await panel({ lookupMot: () => new Promise((resolve) => responses.push(resolve)) })
+  const lookup = (word) => {
+    button(p.render(), '查词').props.onClick()
+    all(p.render(), (node) => node.props?.id === 'lookupInput')[0].props.onChange({ target: { value: word } })
+    button(p.render(), '查阅').props.onClick()
+  }
+  lookup('ancien'); lookup('nouveau')
+  const result = (definition) => ok({ found: true, entries: [{ senses: [{ definition }] }], candidates: [] })
+  responses[1](result('New definition'))
+  await new Promise((resolve) => setImmediate(resolve))
+  responses[0](result('Old definition'))
+  await new Promise((resolve) => setImmediate(resolve))
+  assert.equal([...p.values.values()].some((value) => value?.id === 'lookup-nouveau'), true)
+  assert.equal([...p.values.values()].some((value) => value?.id === 'lookup-ancien'), false)
+})
+
+test('a lookup result does not replace the view after changing sentence', async () => {
+  let resolveLookup
+  const p = await panel({ lookupMot: () => new Promise((resolve) => { resolveLookup = resolve }) })
+  button(p.render(), '查词').props.onClick()
+  all(p.render(), (node) => node.props?.id === 'lookupInput')[0].props.onChange({ target: { value: 'ancien' } })
+  button(p.render(), '查阅').props.onClick()
+  p.values.set(18, 'p1.s2')
+  p.render()
+  resolveLookup(ok({ found: false, entries: [], candidates: [] }))
+  await new Promise((resolve) => setImmediate(resolve))
+  assert.equal([...p.values.values()].some((value) => value?.id === 'lookup-ancien'), false)
+})
+
+test('editing previewed text returns the composer to preview before saving', async () => {
+  let created = 0
+  const p = await panel({ listPassages: async () => ok({ items: [], hasMore: false }), previewImport: async () => ok({ paragraphs: 1, sentences: 1 }), createPassage: async () => { created++; return ok({ passage }) } })
+  await openNext(p)
+  all(p.render(), (node) => node.type === 'textarea' && node.props['aria-label'] === '法语原文')[0].props.onChange({ target: { value: 'Je lis.' } })
+  await all(p.render(), (node) => node.type === 'form')[0].props.onSubmit({ preventDefault() {} })
+  await new Promise((resolve) => setImmediate(resolve))
+  assert.ok(button(p.render(), '保存，继续当前段'))
+  all(p.render(), (node) => node.type === 'textarea' && node.props['aria-label'] === '法语原文')[0].props.onChange({ target: { value: 'Je continue.' } })
+  assert.ok(button(p.render(), '预览切分'))
+  assert.equal(button(p.render(), '保存，继续当前段'), undefined)
+  assert.equal(created, 0)
+})

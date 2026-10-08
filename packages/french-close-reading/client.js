@@ -2839,27 +2839,6 @@ window.__ModuleLoader__.load({
         return () => query.removeEventListener('change', onChange)
       }, [])
 
-      // `gesture*` has no React synthetic event, so the stage binds it directly; the same
-      // effect keeps the world centred when the stage is resized.
-      useEffect(() => {
-        const stage = navStage.current
-        if (stage === null || stage === undefined) return undefined
-        const start = (event) => onGestureStart({ ...event, currentTarget: stage, preventDefault: () => event.preventDefault() })
-        const change = (event) => onGestureChange({ ...event, currentTarget: stage, preventDefault: () => event.preventDefault() })
-        const end = (event) => onGestureEnd({ ...event, currentTarget: stage, preventDefault: () => event.preventDefault() })
-        stage.addEventListener('gesturestart', start)
-        stage.addEventListener('gesturechange', change)
-        stage.addEventListener('gestureend', end)
-        const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(() => syncStageSize())
-        observer?.observe(stage)
-        return () => {
-          stage.removeEventListener('gesturestart', start)
-          stage.removeEventListener('gesturechange', change)
-          stage.removeEventListener('gestureend', end)
-          observer?.disconnect()
-        }
-      }, [])
-
       async function submit(event) {
         event.preventDefault()
         if (submitLock.current) return
@@ -3144,6 +3123,9 @@ window.__ModuleLoader__.load({
       // Discard reads from an earlier selection, including A -> B -> A.
       const passageRequest = useRef(0)
       const displayedPassage = useRef(activePassage?.id ?? null)
+      const lookupRequest = useRef(0)
+      const focusedAnchor = useRef(anchorId)
+      focusedAnchor.current = anchorId
       function currentRead(passageId, request) {
         return passageRequest.current === request && displayedPassage.current === passageId
       }
@@ -3246,6 +3228,54 @@ window.__ModuleLoader__.load({
         rootRef.current?.querySelector('#branchInput')?.focus({ preventScroll: true })
         return () => { if (opener?.isConnected) opener.focus?.({ preventScroll: true }) }
       }, [branchDialog !== null])
+      // `gesture*` has no React synthetic event, so the stage binds it directly; the same
+      // effect keeps the world centred when the stage is resized.
+      useEffect(() => {
+        const stage = navStage.current
+        if (stage === null || stage === undefined) return undefined
+        const start = (event) => onGestureStart({ ...event, currentTarget: stage, preventDefault: () => event.preventDefault() })
+        const change = (event) => onGestureChange({ ...event, currentTarget: stage, preventDefault: () => event.preventDefault() })
+        const end = (event) => onGestureEnd({ ...event, currentTarget: stage, preventDefault: () => event.preventDefault() })
+        stage.addEventListener('gesturestart', start)
+        stage.addEventListener('gesturechange', change)
+        stage.addEventListener('gestureend', end)
+        const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(() => syncStageSize())
+        observer?.observe(stage)
+        return () => {
+          stage.removeEventListener('gesturestart', start)
+          stage.removeEventListener('gesturechange', change)
+          stage.removeEventListener('gestureend', end)
+          observer?.disconnect()
+        }
+      }, [activePassage, navOpen])
+
+      function modalKeys(event, close) {
+        if (event.key === 'Escape' && !event.isComposing) { event.preventDefault(); event.stopPropagation(); close(); return }
+        if (event.key !== 'Tab') return
+        const fields = Array.from(event.currentTarget.querySelectorAll('input:not(:disabled), textarea:not(:disabled), select:not(:disabled), button:not(:disabled)'))
+        const first = fields[0], last = fields[fields.length - 1]
+        if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus() }
+        if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus() }
+      }
+      function useModalFocus(open, selector) {
+        useEffect(() => {
+          if (!open || typeof document === 'undefined') return
+          const opener = document.activeElement
+          rootRef.current?.querySelector(selector)?.querySelector('input:not(:disabled), textarea:not(:disabled), button:not(:disabled)')?.focus({ preventScroll: true })
+          return () => { if (opener?.isConnected) opener.focus?.({ preventScroll: true }) }
+        }, [open])
+        useEffect(() => {
+          if (!open || busy || typeof document === 'undefined') return
+          const dialog = rootRef.current?.querySelector(selector)
+          // Disabling the active field during preview can move focus to the host.
+          if (dialog && !dialog.contains(document.activeElement)) {
+            dialog.querySelector('input:not(:disabled), textarea:not(:disabled), button:not(:disabled)')?.focus({ preventScroll: true })
+          }
+        }, [open, busy])
+      }
+      useModalFocus(lookupOpen, '[aria-labelledby="lookupTitle"]')
+      useModalFocus(actionDialog !== null, '[aria-labelledby="actionDialogTitle"]')
+      useModalFocus(switcherOpen, '[aria-labelledby="switchTitle"]')
       function bookDirectory() {
         const rows = (book, chapter) => items.filter((item) => {
           const loc = shelf.placements[item.id]
@@ -3296,6 +3326,7 @@ window.__ModuleLoader__.load({
       async function composeNextPassage() {
         if (activePassage === null || busy) return
         const parentId = activePassage.id
+        const request = passageRequest.current
         setError('')
         if (continuationParent !== parentId) {
           setBusy(true)
@@ -3309,6 +3340,7 @@ window.__ModuleLoader__.load({
               if (!page.hasMore || !(page.items ?? []).length) break
               pageOffset += page.items.length
             }
+            if (!currentRead(parentId, request)) return
             const location = shelf.placements[parentId]
             const nextTitle = nextPassageTitle(activePassage.title, titles, location ? nextChapterNumber(location.book, location.chapter, location.number) : null)
             const number = Number(/段落\s*(\d+)$/u.exec(nextTitle)?.[1] ?? 1)
@@ -3319,10 +3351,12 @@ window.__ModuleLoader__.load({
             setStatus('')
             setContinuationParent(parentId)
           } catch (cause) {
+            if (!currentRead(parentId, request)) return
             setError(String(cause?.message ?? cause))
             return
           } finally { setBusy(false) }
         }
+        if (!currentRead(parentId, request)) return
         setSwitcherMode('continue')
         setSwitcherOpen(true)
       }
@@ -3660,6 +3694,9 @@ window.__ModuleLoader__.load({
       useEffect(() => {
         setSelectedNode(null)
         setBranchDialog(null)
+        setLookupOpen(false)
+        setSelectedWord('')
+        setActionDialog(null)
         setAnchorId('passage')
         setDrafts({})
         setSentenceAnalysis(null)
@@ -4097,14 +4134,14 @@ window.__ModuleLoader__.load({
             h('input', {
               value: title, maxLength: 120, disabled: busy, 'aria-label': t('titleField'),
               placeholder: t('titlePlaceholder'),
-              onChange: (event) => setTitle(event.target.value),
+              onChange: (event) => { setTitle(event.target.value); setPreview(null); setStatus('') },
             })),
           h('label', { className: 'kbField' },
             h('span', null, t('source')),
             h('textarea', {
               rows: 8, value: sourceText, disabled: busy, autoFocus: switcherOpen, 'aria-label': t('source'),
               placeholder: t('sourcePlaceholder'),
-              onChange: (event) => setSourceText(event.target.value),
+              onChange: (event) => { setSourceText(event.target.value); setPreview(null); setStatus('') },
             })),
           preview === null ? null : h('p', { className: 'policyNote' }, format(t, 'previewSummary', {
             paragraphs: Array.isArray(preview.paragraphs) ? preview.paragraphs.length : (preview.paragraphs ?? 0),
@@ -4861,8 +4898,13 @@ window.__ModuleLoader__.load({
 
       /** `lookupWord(mot)`: exact-Mot lookup — a hit is the stored entry, a miss is a miss. */
       async function lookupWord(mot) {
+        const lookupAnchor = anchorId
+        const passageId = displayedPassage.current
+        const request = passageRequest.current
+        const lookup = ++lookupRequest.current
         try {
           const value = unwrap(await lookupMot({ mot, partOfSpeech: null }), t)
+          if (!currentRead(passageId, request) || lookup !== lookupRequest.current || focusedAnchor.current !== lookupAnchor) return
           setSelectedNode({
             id: `lookup-${mot}`, anchorId, kind: 'knowledge', title: mot,
             status: value.found ? t('entryStored') : t('entryNotStored'),
@@ -4872,6 +4914,7 @@ window.__ModuleLoader__.load({
             parentTitle: mot,
           })
         } catch (cause) {
+          if (!currentRead(passageId, request) || lookup !== lookupRequest.current || focusedAnchor.current !== lookupAnchor) return
           setError(format(t, 'generationUnavailable', { reason: String(cause?.message ?? cause) }))
         }
       }
@@ -4963,6 +5006,7 @@ window.__ModuleLoader__.load({
         return h('div', { className: 'modalBackdrop' },
           h('div', {
             className: 'modal kbModal', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'lookupTitle',
+            onKeyDown: (event) => modalKeys(event, () => setLookupOpen(false)),
           },
             h('h2', { id: 'lookupTitle' }, t('lookupWord')),
             h('input', {
@@ -4987,6 +5031,7 @@ window.__ModuleLoader__.load({
           h('div', {
             className: 'modal actionDialog', role: 'dialog', 'aria-modal': 'true',
             'aria-labelledby': 'actionDialogTitle', 'aria-describedby': 'actionDialogDescription',
+            onKeyDown: (event) => modalKeys(event, () => closeActionDialog()),
           },
             h('h2', { id: 'actionDialogTitle' }, dialog.title),
             h('p', { id: 'actionDialogDescription', className: 'hint' }, dialog.description),
