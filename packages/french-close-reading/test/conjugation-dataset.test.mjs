@@ -142,6 +142,29 @@ test('a second fetch merges tenses instead of discarding the first', () => {
   assert.equal(missingPersons(merged, { mood: 'ind', tense: 'fut' }).length, 6, 'an unfetched tense is entirely missing')
 })
 
+test('missing persons follow the mood: the imperative has three, non-finite moods none', () => {
+  const dataset = datasetFor('venir')
+  const imperative = dataset.tenses.find((tense) => tense.mood === 'imp' && tense.tense === 'pre')
+  assert.notEqual(imperative, undefined, 'the fixture really has an imperative present')
+  // The imperative exists for 2s/1p/2p only: 1s, 3s and 3p are not "missing",
+  // they are persons this mood does not have.
+  const missing = missingPersons(dataset, { mood: 'imp', tense: 'pre' })
+  assert.equal(missing.includes('1s'), false)
+  assert.equal(missing.includes('3s'), false)
+  assert.equal(missing.includes('3p'), false)
+  for (const person of ['2s', '1p', '2p']) {
+    assert.equal(missing.includes(person), imperative.forms.every((form) => form.person !== person),
+      'a finite imperative person is missing only when the data lacks it')
+  }
+  // An imperative tense absent from the dataset reports its own three persons,
+  // never six.
+  const empty = { lemma: 'venir', source: dataset.source, tenses: [] }
+  assert.deepEqual(missingPersons(empty, { mood: 'imp', tense: 'pre' }), ['2s', '1p', '2p'])
+  // Infinitive and participle are non-finite: no persons exist to be missing.
+  assert.deepEqual(missingPersons(dataset, { mood: 'inf', tense: 'pre' }), [])
+  assert.deepEqual(missingPersons(dataset, { mood: 'par', tense: 'pre' }), [])
+})
+
 test('the store validates through the domain schema', async () => {
   // The write path goes through the real record union, so a dataset that would fail
   // the next open fails here instead.

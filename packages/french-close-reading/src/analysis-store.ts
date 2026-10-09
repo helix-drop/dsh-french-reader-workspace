@@ -54,7 +54,10 @@ export async function writeAnalysisVersions(table: RecordTable, value: StoredAna
  * The analysis must pass the gate first: an analysis with errors is refused here
  * rather than stored and shown as if it were usable. Re-analysing a sentence
  * replaces that sentence's row and leaves every other sentence untouched, so a
- * batch can be completed one sentence at a time.
+ * batch can be completed one sentence at a time. The revision belongs to the
+ * store, not to the draft: the first analysis of a sentence is revision 1 and
+ * each replacement increments it, so two analyses of one sentence can be told
+ * apart by more than their timestamps.
  */
 export async function putSentenceAnalysis(table: RecordTable, analysis: StoredSentenceAnalysis, sentenceText: string):
 Promise<{ stored: boolean; errors?: string[]; hints?: string[]; replaced?: boolean }> {
@@ -64,9 +67,10 @@ Promise<{ stored: boolean; errors?: string[]; hints?: string[]; replaced?: boole
   }
   const store = readSentenceAnalyses(table, analysis.passageId)
   const existing = store.sentences.find((entry) => entry.anchorId === analysis.anchorId)
+  const versioned = existing === undefined ? analysis : { ...analysis, revision: existing.revision + 1 }
   const sentences = existing === undefined
-    ? [...store.sentences, analysis]
-    : store.sentences.map((entry) => (entry.anchorId === analysis.anchorId ? analysis : entry))
+    ? [...store.sentences, versioned]
+    : store.sentences.map((entry) => (entry.anchorId === analysis.anchorId ? versioned : entry))
   await writeSentenceAnalyses(table, { passageId: analysis.passageId, sentences })
   return { stored: true, hints: report.hints, replaced: existing !== undefined }
 }
@@ -196,6 +200,9 @@ export interface AnalysisDraftInput {
  * Index references (`parentIndex`, `clauseIndex`) are how a model can point at
  * another item without inventing an id; they are resolved here into real ids, and
  * an index that names nothing is a refusal rather than a dropped parent.
+ * Character offsets obey the same rule: they must be non-negative integers
+ * exactly as the contract states them — a reply that breaks the contract is
+ * refused, never repaired into something that merely looks valid.
  */
 export function parseAnalysisReply(
   reply: string,
@@ -216,30 +223,61 @@ export function parseAnalysisReply(
   })
   if (clauses.length === 0) return { ok: false, reason: 'analysis-incomplete', detail: '没有从句结构' }
 
-  const built = clauses.map(({ id, entry }) => {
+  // Contract violations are collected and then refused together, so the report
+  // names everything the reply got wrong rather than one field at a time.
+  const problems: string[] = []
+
+  /** One character offset, exactly as the contract states it. */
+  const offsetOf = (value: unknown, what: string): number => {
+    if (typeof value === 'number' && Number.isSafeInteger(value) && value >= 0) return value
+    problems.push(`${what} 的字符下标不是非负整数（${JSON.stringify(value) ?? '缺失'}）`)
+    return 0
+  }
+
+  /** One clause index reference: null, or a position that actually exists. */
+  const clauseIndexOf = (value: unknown, what: string): number | null => {
+    if (value === null || value === undefined) return null
+    if (typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 && value < clauses.length) {
+      return value
+    }
+    problems.push(`${what} 引用了不存在的从句下标（${JSON.stringify(value) ?? '缺失'}）`)
+    return null
+  }
+
+  /** One optional offset (explanations may legitimately have no range). */
+  const optionalOffsetOf = (value: unknown, what: string): number | null => {
+    if (value === null || value === undefined) return null
+    if (typeof value === 'number' && Number.isSafeInteger(value) && value >= 0) return value
+    problems.push(`${what} 的字符下标不是非负整数（${JSON.stringify(value) ?? '缺失'}）`)
+    return null
+  }
+
+  const built = clauses.map(({ id, entry }, index) => {
     const item = asRecord(entry)
-    const parentIndex = typeof item.parentIndex === 'number' ? item.parentIndex : null
+    const start = offsetOf(item.start, `第 ${String(index + 1)} 个从句`)
+    const end = offsetOf(item.end, `第 ${String(index + 1)} 个从句`)
+    const parentIndex = clauseIndexOf(item.parentIndex, `第 ${String(index + 1)} 个从句`)
     return {
       id,
       role: stringOf(item.role, '从句'),
-      start: numberField(item.start),
-      end: numberField(item.end),
-      text: stringOf(item.text, input.text.slice(numberField(item.start), numberField(item.end))),
-      // An index that names nothing is refused: a lost parent would silently turn
-      // a subordinate clause into a main one.
+      start,
+      end,
+      text: stringOf(item.text, input.text.slice(start, end)),
       parentId: parentIndex === null ? null : (clauseIds.get(parentIndex) ?? null),
     }
   })
 
-  const constituents = (Array.isArray(json.constituents) ? json.constituents : []).map((entry) => {
+  const constituents = (Array.isArray(json.constituents) ? json.constituents : []).map((entry, index) => {
     const item = asRecord(entry)
-    const clauseIndex = typeof item.clauseIndex === 'number' ? item.clauseIndex : null
+    const start = offsetOf(item.start, `第 ${String(index + 1)} 个成分`)
+    const end = offsetOf(item.end, `第 ${String(index + 1)} 个成分`)
+    const clauseIndex = clauseIndexOf(item.clauseIndex, `第 ${String(index + 1)} 个成分`)
     return {
       id: globalThis.crypto.randomUUID(),
       role: stringOf(item.role, '成分'),
-      start: numberField(item.start),
-      end: numberField(item.end),
-      text: stringOf(item.text, input.text.slice(numberField(item.start), numberField(item.end))),
+      start,
+      end,
+      text: stringOf(item.text, input.text.slice(start, end)),
       clauseId: clauseIndex === null ? null : (clauseIds.get(clauseIndex) ?? null),
       partOfSpeech: typeof item.partOfSpeech === 'string' && item.partOfSpeech !== '' ? item.partOfSpeech : null,
     }
@@ -262,7 +300,7 @@ export function parseAnalysisReply(
     }
   })
 
-  const explanations = (Array.isArray(json.explanations) ? json.explanations : []).map((entry) => {
+  const explanations = (Array.isArray(json.explanations) ? json.explanations : []).map((entry, index) => {
     const item = asRecord(entry)
     const kind = item.kind
     return {
@@ -272,10 +310,16 @@ export function parseAnalysisReply(
       kind: (kind === 'syntax' || kind === 'context' || kind === 'rhetoric' ? kind : 'unverified') as
         'syntax' | 'context' | 'rhetoric' | 'unverified',
       text: stringOf(item.text, '（空解释）'),
-      start: typeof item.start === 'number' ? item.start : null,
-      end: typeof item.end === 'number' ? item.end : null,
+      start: optionalOffsetOf(item.start, `第 ${String(index + 1)} 条解释`),
+      end: optionalOffsetOf(item.end, `第 ${String(index + 1)} 条解释`),
     }
   })
+
+  // A reply that broke the offset or index contract is refused as a whole:
+  // storing a repaired version would claim the model said something it did not.
+  if (problems.length > 0) {
+    return { ok: false, reason: 'analysis-invalid', detail: problems.join('；') }
+  }
 
   const now = new Date().toISOString()
   return {
@@ -322,10 +366,6 @@ function asRecord(value: unknown): Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
     ? value as Record<string, unknown>
     : {}
-}
-
-function numberField(value: unknown): number {
-  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? Math.floor(value) : 0
 }
 
 function stringOf(value: unknown, fallback: string): string {

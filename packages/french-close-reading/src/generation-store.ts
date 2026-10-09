@@ -18,6 +18,17 @@
  */
 import type { StoredGenerationJob } from './domain.ts'
 import type { RecordTable } from './lexicon-store.ts'
+import { MAX_TRANSLATION_CHARACTERS } from './limits.ts'
+
+/**
+ * `partialText` is diagnostic evidence bounded by its schema field, never a
+ * second copy of the answer: the business result is parsed from the full reply,
+ * while the record keeps the head of it. Truncating here — at the store
+ * boundary — means no caller can fail a write by handing over a long reply.
+ */
+function truncatePartial(text: string): string {
+  return text.length <= MAX_TRANSLATION_CHARACTERS ? text : text.slice(0, MAX_TRANSLATION_CHARACTERS)
+}
 
 /** The key of one job: kind plus operation id, both path-safe. */
 export const generationJobKey = (kind: StoredGenerationJob['kind'], operationId: string): string =>
@@ -107,7 +118,7 @@ export async function recordGenerationProgress(
 ): Promise<StoredGenerationJob> {
   const next: StoredGenerationJob = {
     ...job,
-    partialText,
+    partialText: truncatePartial(partialText),
     updatedAt: new Date().toISOString(),
   }
   await writeGenerationJob(table, next)
@@ -160,7 +171,7 @@ export async function finishGenerationJob(
     usage: patch.usage === undefined ? job.usage : patch.usage,
     messageId: patch.messageId === undefined ? job.messageId : patch.messageId,
     contextId: patch.contextId === undefined ? job.contextId : patch.contextId,
-    partialText: patch.partialText ?? job.partialText,
+    partialText: patch.partialText === undefined ? job.partialText : truncatePartial(patch.partialText),
     updatedAt: now,
     finishedAt: now,
   }

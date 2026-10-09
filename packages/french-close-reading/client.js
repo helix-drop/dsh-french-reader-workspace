@@ -570,6 +570,8 @@ window.__ModuleLoader__.load({
               }),
               errors: S.arr(S.str), hints: S.arr(S.str),
             }),
+            // An analysis of text that is no longer the sentence: never coloured from.
+            S.obj({ kind: S.lit('stale') }),
             S.obj({ kind: S.lit('missing') }),
           )),
         },
@@ -1146,8 +1148,8 @@ window.__ModuleLoader__.load({
       benchHint: '点击左侧的句子或段落，这里即切换到对应锚点的译文与讨论。',
       analysisSection: '逐句解析', analysisNeedsSentence: '选中一句话再生成解析；段落与整篇不逐句解析。',
       analysisStage: '等待模型返回', analysisStageElapsed: '{stage} · 已用时 {seconds} 秒',
-      analysisCancelled: '已停止等待这次解析。后台运行若自行完成，重新选中本句即可读到。',
-      analysisTimedOut: '等待 {seconds} 秒未返回，已停止等待。可重新点击解析重试。',
+      analysisCancelled: '已取消这次解析：即使模型稍后返回，其结果也不会写入。需要这句的解析时请重新点击解析。',
+      analysisTimedOut: '等待 {seconds} 秒未返回，已停止等待。超时结果不会写入，可重新点击解析重试。',
       analyseSentence: '生成这句的解析', reanalyseSentence: '重新生成解析', analyzing: '解析中…',
       // The prototype's reading-pane wording, which differs by location from the
       // detail pane's button: 解析这句 in the text, 查看解析 once it exists.
@@ -1203,6 +1205,7 @@ window.__ModuleLoader__.load({
       modelFallback: '记住的模型 {model} 已不可用，已回退到默认模型。',
       newBranch: '新分支', newPassage: '新建段落', archivePassage: '归档', archiveDone: '已归档。', passageList: '段落列表', noPassageYet: '还没有段落。',
       previewSummary: '将切分为 {paragraphs} 段、{sentences} 句。',
+      previewBlockMeta: '{id} · {sentences} 句', previewFlagClean: '没有发现编码或排版标记。',
       titleField: '标题',
       branchFrom: '来源：', branchFromSentence: '第 {index} 句',
       branchTitleRequired: '请输入分支标题', branchNamePlaceholder: '分支标题', lookupRequired: '请输入原文词形或短语',
@@ -1212,6 +1215,9 @@ window.__ModuleLoader__.load({
       conclusionDialogDescription: '编辑后确认，生成独立结论，不改写原回答。Ctrl / ⌘ + Enter 确认。',
       conclusionSaved: '结论已保存', dialogTooLong: '最多输入 {max} 个字符',
       entryStored: '已有词条', entryNotStored: '未收藏', lookupMiss: '未收藏 · 相关原形 {count} 条（不自动合并）',
+      lookupCandidates: '相关词条（逐条点开确认）',
+      lookupMissAdvice: '查词只读本地词库，没有联网词典：词库随查词命中与讨论收录增长。可以打开知识库浏览已有词条；动词词条的卡片里有按原形抓取的变位读音数据。',
+      lookupOpenLibrary: '打开知识库',
       analyseParagraph: '生成本段缺的 {count} 句解析（每句一次模型调用）',
       paragraphComplete: '本段解析已齐', paragraphNothingMissing: '这一段没有缺解析的句子。',
       paragraphDone: '本段完成：{stored}/{asked} 句写入成功，{failed} 句被门禁拒绝。',
@@ -1235,6 +1241,7 @@ window.__ModuleLoader__.load({
       questionLabel: '问题', questionPlaceholder: '针对这段原文提问，例如：这里的否定范围到哪里？',
       previewContext: '查看本次上下文', sendTurn: '发送', asking: '生成中…',
       contextTitle: '本次上下文（预览即发送内容）', contextSize: '约 {characters} 字符 · {count} 份材料',
+      contextMaterialLine: '{refId} · {characters} 字符', contextPromptLabel: '将要发送的完整提示词（逐字）',
       contextChars: '{characters} 字符',
       branchFirst: '先在这个锚点建立一个讨论分支。',
       previewRefused: '本次上下文无法发送：{reason}',
@@ -1343,8 +1350,8 @@ window.__ModuleLoader__.load({
       benchHint: 'Click a sentence or paragraph on the left; its translation and discussion appear here.',
       analysisSection: 'Sentence analysis', analysisNeedsSentence: 'Select a sentence to analyse; paragraphs and the whole passage are not analysed sentence by sentence.',
       analysisStage: 'Waiting for the model', analysisStageElapsed: '{stage} · {seconds}s elapsed',
-      analysisCancelled: 'Stopped waiting for this analysis. If the run finishes anyway, reselect the sentence to read it.',
-      analysisTimedOut: 'No reply after {seconds}s; stopped waiting. Press Analyse to retry.',
+      analysisCancelled: 'Cancelled: even if the model answers later, nothing from this run will be stored. Press Analyse again when you want it.',
+      analysisTimedOut: 'No reply after {seconds}s; the run was cancelled and nothing was stored. Press Analyse to retry.',
       analyseSentence: 'Analyse this sentence', reanalyseSentence: 'Re-analyse', analyzing: 'Analysing…',
       analyseThisSentence: 'Analyse this sentence', viewAnalysis: 'View analysis',
       paragraphLabel: 'Paragraph {index}', sentenceMark: 'Current · sentence {index}',
@@ -1402,6 +1409,7 @@ window.__ModuleLoader__.load({
       newBranch: 'New branch', newPassage: 'New passage', archivePassage: 'Archive', archiveDone: 'Archived.', passageList: 'Passage list',
       noPassageYet: 'No passage yet.', sourceTextLabel: 'French source',
       previewSummary: 'Will be split into {paragraphs} paragraph(s) and {sentences} sentence(s).',
+      previewBlockMeta: '{id} · {sentences} sentence(s)', previewFlagClean: 'No encoding or typography flags.',
       titleField: 'Title',
       branchFrom: 'From: ', branchFromSentence: 'Sentence {index}',
       branchTitleRequired: 'Enter a branch title', branchNamePlaceholder: 'Branch title', lookupRequired: 'Enter the word or phrase from the text',
@@ -1412,6 +1420,9 @@ window.__ModuleLoader__.load({
       conclusionSaved: 'Conclusion saved', dialogTooLong: 'At most {max} characters',
       entryStored: 'entry on file', entryNotStored: 'not collected',
       lookupMiss: 'not collected · {count} related forms (never merged automatically)',
+      lookupCandidates: 'Related entries (open each to confirm)',
+      lookupMissAdvice: 'Lookup reads the local lexicon only — no network dictionary. The lexicon grows through hits and discussion. Open the library to browse stored entries; a verb entry’s card carries pronunciation data fetched by lemma.',
+      lookupOpenLibrary: 'Open the library',
       analyseParagraph: 'Analyse the {count} sentences this paragraph is missing (one model call each)',
       paragraphComplete: 'This paragraph is complete', paragraphNothingMissing: 'Nothing is missing in this paragraph.',
       paragraphDone: 'Paragraph done: {stored}/{asked} stored, {failed} refused by the gate.',
@@ -1435,6 +1446,7 @@ window.__ModuleLoader__.load({
       questionLabel: 'Question', questionPlaceholder: 'Ask about this passage, e.g. how far does the negation reach?',
       previewContext: 'Show this context', sendTurn: 'Send', asking: 'Generating…',
       contextTitle: 'This turn\'s context (the preview is what is sent)', contextSize: '~{characters} characters · {count} materials',
+      contextMaterialLine: '{refId} · {characters} characters', contextPromptLabel: 'The full prompt about to be sent (verbatim)',
       contextChars: '{characters} characters',
       branchFirst: 'Open a discussion branch on this anchor first.',
       previewRefused: 'This context cannot be sent: {reason}',
@@ -1809,6 +1821,8 @@ window.__ModuleLoader__.load({
       @container (max-width:959px){.fr-root.bookLayout[data-directory='open'] .workspace{margin-left:0;width:100%}.fr-root.bookLayout[data-directory='open'] .shelfWelcome{margin-left:0}.fr-root.bookLayout .bookDirectory{width:min(310px,calc(100% - 30px));box-shadow:12px 0 25px var(--fr-c71);z-index:10}.fr-root.bookLayout .workspace[data-view='focus']>.detailPane{width:100%}.fr-root.bookLayout .compactTop{height:auto;min-height:62px;max-height:none;flex-wrap:wrap;padding:8px 12px;gap:8px}.fr-root.bookLayout .compactTop .topLeft{flex-wrap:wrap;gap:6px}.fr-root.bookLayout .workspace{height:calc(100% - 62px)}.fr-root.bookLayout .continuationBar{padding:15px 20px;flex-wrap:wrap}.fr-root.bookLayout .continuationBar .quiet{padding-left:0}.fr-root.bookLayout .bookDirectory{top:62px}}
       @container (max-width:560px){.fr-root.bookLayout .continuationBar .passageHeading{flex-basis:100%}.fr-root .shelfWelcome .frontDoorInner{padding:50px 22px}.fr-root.bookLayout .detailScroll{padding:20px}.fr-root .sourceParagraph.quote{font-size:18px}.fr-root .locationFields{grid-template-columns:minmax(0,1fr) 80px}.fr-root .locationFields .kbField:first-child{grid-column:1/-1}.fr-root .sentenceWorkspace .readingActions select{margin-left:0;max-width:100%}.fr-root.bookLayout .compactTop .title{display:none}.fr-root.bookLayout .compactTop button{padding:5px 6px;font-size:10px}.fr-root.bookLayout .compactTop .topActions{gap:4px}.fr-root.bookLayout .continuationBar .currentPassageTitle{font-size:16px}}
       .fr-root .readingSource>summary.sourceSectionHead{display:list-item;cursor:pointer;padding:4px 0;font-size:11px}.fr-root .readingSource>summary span{margin-left:15px}.fr-root .sentenceWorkspace .readingActions button.primary{background:var(--green);color:var(--paper);border:1px solid var(--green);padding:5px 12px}.fr-root .sentenceWorkspace .readingActions button.primary:disabled{opacity:.45}
+      .fr-root .previewDetail{margin:10px 0 4px;border-top:1px solid var(--line)}.fr-root .previewBlock{padding:8px 0;border-bottom:1px solid var(--line)}.fr-root .previewExcerpt{margin-top:4px;white-space:pre-wrap;overflow-wrap:anywhere;font:13px/1.7 Georgia,serif}.fr-root .previewFlagClean{margin:8px 0 0}
+      .fr-root .previewPrompt{max-height:240px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;line-height:1.7;padding:10px;border:1px solid var(--line);border-radius:6px;margin:6px 0 0}
     `
 
     function format(t, key, values = {}) {
@@ -1954,7 +1968,7 @@ window.__ModuleLoader__.load({
      * Opening an entry keeps the panel's existing card renderer for now — the card's own
      * restyle is the rest of this milestone — but the list itself is the prototype's.
      */
-    function KnowledgeLibrary({ t, listLexicon, listGrammar, onReturn, onOpenEntry }) {
+    function KnowledgeLibrary({ t, listLexicon, listGrammar, resolveGrammarCandidate, onReturn, onOpenEntry }) {
       const [tab, setTab] = useState('vocab')
       const [lexicon, setLexicon] = useState(null)
       const [grammar, setGrammar] = useState(null)
@@ -1962,6 +1976,7 @@ window.__ModuleLoader__.load({
       const [mastery, setMastery] = useState('all')
       const [scope, setScope] = useState('all')
       const [error, setError] = useState('')
+      const [reloadTick, setReloadTick] = useState(0)
 
       useEffect(() => {
         let cancelled = false
@@ -1977,7 +1992,7 @@ window.__ModuleLoader__.load({
           setGrammar(rules)
         })
         return () => { cancelled = true }
-      }, [listLexicon, listGrammar, t])
+      }, [listLexicon, listGrammar, t, reloadTick])
 
       const entries = tab === 'vocab'
         ? (lexicon?.entries ?? []).map((entry) => ({
@@ -2046,6 +2061,12 @@ window.__ModuleLoader__.load({
                 h('div', { className: 'subline' }, entry.subline)),
               h('span', { className: 'kbStatus' }, format(t, 'exampleCount', { count: entry.examples })),
               h('span', { className: 'kbStatus' }, entry.mastery === '' ? t('masteryUnknown') : entry.mastery)))),
+        // The undecided grammar proposals are library-scope management: they live
+        // here under the grammar list, with their own title, never on one entry's page.
+        tab !== 'grammar' ? null : h(GrammarPendingPanel, {
+          t, pending: grammar?.pending ?? [], resolveGrammarCandidate,
+          onChanged: async () => setReloadTick((tick) => tick + 1),
+        }),
         error === '' ? null : h('p', { className: 'error', role: 'alert' }, t('knowledgeUnavailable')),
         h('p', { className: 'policyNote' }, t('knowledgePolicyNote')),
       )
@@ -2405,21 +2426,27 @@ window.__ModuleLoader__.load({
 
     function KnowledgeSection({ t, listLexicon, listGrammar, renderLexicon, resolveGrammarCandidate, entry, extraForSection, tab = 'lexicon',
       listLexiconSources, fetchLexiconSource, setGrammarMastery, readConjugation, fetchConjugation }) {
-      // `tab` arrives from the entry (词汇 / 语法): the library list owns that choice now.
+      // `tab` arrives from the library as `vocab`/`grammar`; this component's
+      // branches speak `lexicon`/`grammar`. Normalise once — comparing the raw
+      // tab with 'lexicon' used to send a vocabulary entry down the grammar
+      // branch, where nothing loaded and the page showed 语法库还是空的.
+      const kind = tab === 'grammar' ? 'grammar' : tab === 'conjugation' ? 'conjugation' : 'lexicon'
+      // An entry is open: this component then renders that entry's card and
+      // nothing else. The whole-library list and the pending candidates are
+      // library-scope content — on one entry's page they read as if they were
+      // the entry's own, which is exactly the confusion reported from the
+      // detail view.
+      const detail = entry !== null && entry !== undefined
       const [lexicon, setLexicon] = useState(null)
       const [grammar, setGrammar] = useState(null)
       const [busy, setBusy] = useState(false)
       const [error, setError] = useState('')
       const [status, setStatus] = useState('')
       const [card, setCard] = useState(null)
-      const [drafts, setDrafts] = useState({})
       const [sources, setSources] = useState([])
       const [sourcePick, setSourcePick] = useState('')
       const [sourceSection, setSourceSection] = useState('')
       const [sourceState, setSourceState] = useState(null)
-      const [conjugationLemma, setConjugationLemma] = useState('')
-      const [conjugation, setConjugation] = useState(null)
-      const [conjugationBusy, setConjugationBusy] = useState(false)
 
       const load = async (which) => {
         setBusy(true)
@@ -2434,62 +2461,14 @@ window.__ModuleLoader__.load({
         }
       }
 
-      /**
-       * Read the stored pronunciation data for one verb.
-       *
-       * Reading never fetches: the three states the Host reports (`dataset`,
-       * `pending`, `no-data`) are shown as themselves, because a card that showed an
-       * empty paradigm for "not fetched yet" would be claiming the verb has no forms.
-       */
-      const loadConjugation = async (lemma) => {
-        const wanted = lemma.trim()
-        if (wanted === '') { setConjugation(null); return }
-        setConjugationBusy(true)
-        setError('')
-        try {
-          setConjugation(unwrap(await readConjugation({ lemma: wanted }), t))
-        } catch (cause) {
-          setError(format(t, 'knowledgeUnavailable', { reason: String(cause?.message ?? cause) }))
-        } finally {
-          setConjugationBusy(false)
-        }
-      }
+      useEffect(() => { if (!detail) void load(kind) }, [kind, detail])
 
-      /**
-       * Fetch one verb's paradigm — the reader's own act.
-       *
-       * Nothing fetches on its own: the button is the only trigger, and the outcome
-       * (complete, partial, rate-limited, no table) is reported before the stored
-       * record is read back.
-       */
-      const runConjugationFetch = async () => {
-        const wanted = conjugationLemma.trim()
-        if (wanted === '') return
-        setConjugationBusy(true)
-        setError('')
-        setStatus('')
-        try {
-          const value = unwrap(await fetchConjugation({ lemma: wanted }), t)
-          if (value.fetched !== true) {
-            setError(format(t, 'conjugationRefused', { reason: String(value.reason ?? '') }))
-            return
-          }
-          setStatus(format(t, 'conjugationFetched', {
-            status: String(value.status ?? ''),
-            tenses: value.tenses ?? 0,
-            bases: value.bases ?? 0,
-            requests: value.requests ?? 0,
-            missing: value.missingForms ?? 0,
-          }))
-          await loadConjugation(wanted)
-        } catch (cause) {
-          setError(format(t, 'knowledgeUnavailable', { reason: String(cause?.message ?? cause) }))
-        } finally {
-          setConjugationBusy(false)
-        }
-      }
-
-      useEffect(() => { load(tab) }, [tab])
+      // Detail mode opens the entry's card at once: the page is the card.
+      useEffect(() => {
+        if (!detail || kind !== 'lexicon') return
+        if (card !== null && card.entryId === entry.entryId) return
+        void openCard(entry, false)
+      }, [detail, kind, entry?.entryId])
 
       // The declared sources are a property of the Host, not of one entry.
       useEffect(() => {
@@ -2553,10 +2532,6 @@ window.__ModuleLoader__.load({
         }
       }
 
-      const draftOf = (pendingId) => drafts[pendingId] ?? { target: '', rule: '' }
-      const setDraft = (pendingId, patch) =>
-        setDrafts((current) => ({ ...current, [pendingId]: { ...draftOf(pendingId), ...patch } }))
-
       const openCard = async (entry, wantsEtymology) => {
         setBusy(true)
         setError('')
@@ -2570,68 +2545,34 @@ window.__ModuleLoader__.load({
         }
       }
 
-      const decide = async (item, decision, entryId, rule) => {
-        setBusy(true)
-        setError('')
-        setStatus('')
-        try {
-          const value = unwrap(await resolveGrammarCandidate({
-            pendingId: item.pendingId,
-            decision,
-            entryId: entryId ?? null,
-            // Naming new wording is the only path that rewrites a rule.
-            keyPoints: rule === undefined || rule.trim() === '' ? null : rule,
-            operationId: createUuid(),
-          }), t)
-          if (value.kind === 'conflict') setError(format(t, 'saveConflict', { reason: value.reason }))
-          else setStatus(format(t, 'decisionDone', { outcome: value.kind }))
-          await load('grammar')
-        } catch (cause) {
-          setError(format(t, 'knowledgeUnavailable', { reason: String(cause?.message ?? cause) }))
-        } finally {
-          setBusy(false)
-        }
-      }
+      // The pending grammar candidates live on the library's grammar tab now
+      // (GrammarPendingPanel): they are library-scope, never one entry's.
 
-      /**
-       * The conjugation tab: one verb's phonetic bases, or the reason there are none.
-       *
-       * The reader picks the verb and presses the button; nothing here fetches by
-       * itself, and the three states are rendered as themselves. A base is shown with
-       * the persons that share it, because that — how many stems a tense is pronounced
-       * with, and who shares each — is the reading the card exists to support.
-       */
-      // The persons a French paradigm has, so a gap can be shown where its row would be.
-      const personLabels = {
-        '1s': 'je', '2s': 'tu', '3s': 'il / elle', '1p': 'nous', '2p': 'vous', '3p': 'ils / elles',
-      }
-
-      const entries = tab === 'lexicon' ? (lexicon?.entries ?? []) : (grammar?.entries ?? [])
-      const pending = tab === 'lexicon' ? [] : (grammar?.pending ?? [])
+      const entries = kind === 'lexicon' ? (lexicon?.entries ?? []) : (grammar?.entries ?? [])
 
       return h('div', { className: 'fr-knowledge' },
         error === '' ? null : h('p', { className: 'fr-error', role: 'alert' }, error),
         status === '' ? null : h('p', { className: 'fr-status', role: 'status' }, status),
-        tab === 'conjugation' ? null : (entries.length === 0 && !busy
-          ? h('div', { className: 'fr-empty' }, tab === 'lexicon' ? t('noLexicon') : t('noGrammar'))
+        detail || kind === 'conjugation' ? null : (entries.length === 0 && !busy
+          ? h('div', { className: 'fr-empty' }, kind === 'lexicon' ? t('noLexicon') : t('noGrammar'))
           : h('ul', { className: 'fr-entryList' }, entries.map((entry) => h('li', {
             key: entry.entryId, className: 'fr-entry',
           },
             h('div', { className: 'fr-entryHead' },
-              h('span', { className: 'fr-entryName' }, tab === 'lexicon' ? entry.mot : entry.topic),
+              h('span', { className: 'fr-entryName' }, kind === 'lexicon' ? entry.mot : entry.topic),
               h('span', { className: 'fr-branchKind' },
-                tab === 'lexicon' ? entry.partOfSpeech : entry.mastery),
-              h('span', { className: 'fr-help' }, tab === 'lexicon'
+                kind === 'lexicon' ? entry.partOfSpeech : entry.mastery),
+              h('span', { className: 'fr-help' }, kind === 'lexicon'
                 ? format(t, 'lexiconMeta', { forms: entry.forms.length, senses: entry.senses.length })
                 : format(t, 'grammarMeta', { count: entry.askCount, status: entry.contentStatus })),
-              tab === 'grammar' ? h('span', { className: 'fr-anchorRowActions', style: { marginLeft: 'auto', display: 'flex', gap: '6px' } },
+              kind === 'grammar' ? h('span', { className: 'fr-anchorRowActions', style: { marginLeft: 'auto', display: 'flex', gap: '6px' } },
                 ['learning', 'reviewing', 'known'].map((mastery) => h('button', {
                   key: mastery, className: 'fr-button fr-buttonQuiet', type: 'button',
                   disabled: busy || entry.mastery === mastery,
                   onClick: () => moveMastery(entry, mastery),
                 }, t(`mastery_${mastery}`))),
               ) : null,
-              tab === 'lexicon' ? h('span', { className: 'fr-anchorRowActions', style: { marginLeft: 'auto', display: 'flex', gap: '6px' } },
+              kind === 'lexicon' ? h('span', { className: 'fr-anchorRowActions', style: { marginLeft: 'auto', display: 'flex', gap: '6px' } },
                 h('button', {
                   className: 'fr-button fr-buttonQuiet', type: 'button', disabled: busy,
                   onClick: () => openCard(entry, false),
@@ -2642,7 +2583,7 @@ window.__ModuleLoader__.load({
                 }, t('openCardEtymology')),
               ) : null,
             ),
-            h('p', { className: 'fr-branchBody' }, tab === 'lexicon'
+            h('p', { className: 'fr-branchBody' }, kind === 'lexicon'
               ? (entry.senses[0]?.definition ?? '')
               : entry.keyPoints),
           )))),
@@ -2652,7 +2593,7 @@ window.__ModuleLoader__.load({
             h('span', { className: 'fr-help' }, card.value.kind === 'card'
               ? card.value.sections.map((section) => section.number).join(' ')
               : t('cardMissing')),
-            h('button', {
+            detail ? null : h('button', {
               className: 'fr-button fr-buttonQuiet', type: 'button', onClick: () => setCard(null),
             }, t('closeCard')),
           ),
@@ -2702,54 +2643,100 @@ window.__ModuleLoader__.load({
             role: sourceState.ok ? 'status' : 'alert',
           }, sourceState.text),
         ),
-        pending.length === 0 ? null : h('div', { className: 'fr-knowledge' },
-          h('div', { className: 'fr-anchorRow' },
-            h('span', { className: 'fr-label' }, t('pendingTitle')),
-            h('span', { className: 'fr-help' }, t('pendingHelp')),
-          ),
-          h('ul', { className: 'fr-entryList' }, pending.map((item) => {
-            const draft = draftOf(item.pendingId)
-            const target = draft.target === '' ? (item.candidates[0]?.entryId ?? '') : draft.target
-            return h('li', { key: item.pendingId, className: 'fr-entry' },
-              h('div', { className: 'fr-entryHead' },
-                h('span', { className: 'fr-entryName' }, item.topic),
-                h('span', { className: 'fr-branchKind' },
-                  item.resolution === null ? t('pendingOpen') : item.resolution),
-              ),
-              h('p', { className: 'fr-branchBody' }, item.body),
-              h('p', { className: 'fr-help' }, item.candidates.map((candidate) => candidate.topic).join(' / ')),
-              item.resolution !== null ? null : h('div', { className: 'fr-decision' },
-                h('div', { className: 'fr-anchorRow fr-anchorRowActions' },
-                  h('select', {
-                    className: 'fr-select', style: { width: 'auto' }, value: target, disabled: busy,
-                    onChange: (event) => setDraft(item.pendingId, { target: event.target.value }),
-                  }, item.candidates.map((candidate) => h('option', {
-                    key: candidate.entryId, value: candidate.entryId,
-                  }, candidate.topic))),
-                  h('button', {
-                    className: 'fr-button', type: 'button', disabled: busy || target === '',
-                    onClick: () => decide(item, 'attach', target, draft.rule),
-                  }, t('attachTo')),
-                ),
-                h('input', {
-                  className: 'fr-input', type: 'text', value: draft.rule, disabled: busy,
-                  placeholder: t('ruleRewriteHint'),
-                  onChange: (event) => setDraft(item.pendingId, { rule: event.target.value }),
-                }),
-                h('div', { className: 'fr-anchorRow fr-anchorRowActions' },
-                  h('button', {
-                    className: 'fr-button fr-buttonQuiet', type: 'button', disabled: busy,
-                    onClick: () => decide(item, 'create', null, ''),
-                  }, t('createAsNew')),
-                  h('button', {
-                    className: 'fr-button fr-buttonQuiet', type: 'button', disabled: busy,
-                    onClick: () => decide(item, 'discard', null, ''),
-                  }, t('discardCandidate')),
-                ),
-              ),
-            )
-          })),
+      )
+    }
+
+    /**
+     * The pending grammar candidates, at library scope.
+     *
+     * They are the automatic path's undecided proposals for the whole grammar
+     * library — rendered on the library's grammar tab, never on one entry's page,
+     * where a global candidate would read as that entry's own limitation.
+     * `onChanged` reloads the library after a decision lands.
+     */
+    function GrammarPendingPanel({ t, pending, resolveGrammarCandidate, onChanged }) {
+      const [drafts, setDrafts] = useState({})
+      const [busy, setBusy] = useState(false)
+      const [error, setError] = useState('')
+      const [status, setStatus] = useState('')
+
+      const draftOf = (pendingId) => drafts[pendingId] ?? { target: '', rule: '' }
+      const setDraft = (pendingId, patch) =>
+        setDrafts((current) => ({ ...current, [pendingId]: { ...draftOf(pendingId), ...patch } }))
+
+      const decide = async (item, decision, entryId, rule) => {
+        setBusy(true)
+        setError('')
+        setStatus('')
+        try {
+          const value = unwrap(await resolveGrammarCandidate({
+            pendingId: item.pendingId,
+            decision,
+            entryId: entryId ?? null,
+            // Naming new wording is the only path that rewrites a rule.
+            keyPoints: rule === undefined || rule.trim() === '' ? null : rule,
+            operationId: createUuid(),
+          }), t)
+          if (value.kind === 'conflict') setError(format(t, 'saveConflict', { reason: value.reason }))
+          else setStatus(format(t, 'decisionDone', { outcome: value.kind }))
+          await onChanged()
+        } catch (cause) {
+          setError(format(t, 'knowledgeUnavailable', { reason: String(cause?.message ?? cause) }))
+        } finally {
+          setBusy(false)
+        }
+      }
+
+      if (pending.length === 0) return null
+      return h('div', { className: 'fr-knowledge' },
+        h('div', { className: 'fr-anchorRow' },
+          h('span', { className: 'fr-label' }, t('pendingTitle')),
+          h('span', { className: 'fr-help' }, t('pendingHelp')),
         ),
+        error === '' ? null : h('p', { className: 'fr-error', role: 'alert' }, error),
+        status === '' ? null : h('p', { className: 'fr-status', role: 'status' }, status),
+        h('ul', { className: 'fr-entryList' }, pending.map((item) => {
+          const draft = draftOf(item.pendingId)
+          const target = draft.target === '' ? (item.candidates[0]?.entryId ?? '') : draft.target
+          return h('li', { key: item.pendingId, className: 'fr-entry' },
+            h('div', { className: 'fr-entryHead' },
+              h('span', { className: 'fr-entryName' }, item.topic),
+              h('span', { className: 'fr-branchKind' },
+                item.resolution === null ? t('pendingOpen') : item.resolution),
+            ),
+            h('p', { className: 'fr-branchBody' }, item.body),
+            h('p', { className: 'fr-help' }, item.candidates.map((candidate) => candidate.topic).join(' / ')),
+            item.resolution !== null ? null : h('div', { className: 'fr-decision' },
+              h('div', { className: 'fr-anchorRow fr-anchorRowActions' },
+                h('select', {
+                  className: 'fr-select', style: { width: 'auto' }, value: target, disabled: busy,
+                  onChange: (event) => setDraft(item.pendingId, { target: event.target.value }),
+                }, item.candidates.map((candidate) => h('option', {
+                  key: candidate.entryId, value: candidate.entryId,
+                }, candidate.topic))),
+                h('button', {
+                  className: 'fr-button', type: 'button', disabled: busy || target === '',
+                  onClick: () => decide(item, 'attach', target, draft.rule),
+                }, t('attachTo')),
+              ),
+              h('input', {
+                className: 'fr-input', type: 'text', value: draft.rule, disabled: busy,
+                placeholder: t('ruleRewriteHint'),
+                onChange: (event) => setDraft(item.pendingId, { rule: event.target.value }),
+              }),
+              h('div', { className: 'fr-anchorRow fr-anchorRowActions' },
+                h('button', {
+                  className: 'fr-button fr-buttonQuiet', type: 'button', disabled: busy,
+                  onClick: () => decide(item, 'create', null, ''),
+                }, t('createAsNew')),
+                h('button', {
+                  className: 'fr-button fr-buttonQuiet', type: 'button', disabled: busy,
+                  onClick: () => decide(item, 'discard', null, ''),
+                }, t('discardCandidate')),
+              ),
+            ),
+          )
+        })),
       )
     }
 
@@ -3116,7 +3103,13 @@ window.__ModuleLoader__.load({
       const analysisTimedOutRef = useRef(false)
       // A generation call is bounded: a provider stream that never finishes must
       // not leave 解析中 on screen forever. The reader can always cancel earlier.
-      const ANALYSIS_TIMEOUT_MS = 180000
+      //
+      // Sized from measured runs, not from preference: on xiaomi/mimo-v2.6-flash
+      // (reasoning on), one sentence's analysis JSON is 5–8k output tokens and
+      // the recorded jobs took 162–291s end to end — the old 180s cap fired
+      // *before* a normal answer. 600s bounds a hung stream while leaving a
+      // normal slow run room to finish; cancel remains the reader's early exit.
+      const ANALYSIS_TIMEOUT_MS = 600000
       const [continuationParent, setContinuationParent] = useState(null)
       const parkedContinuation = useRef(null)
       const [nextPassages, setNextPassages] = useState(readContinuationLinks())
@@ -3243,9 +3236,20 @@ window.__ModuleLoader__.load({
       useEffect(() => {
         const stage = navStage.current
         if (stage === null || stage === undefined) return undefined
-        const start = (event) => onGestureStart({ ...event, currentTarget: stage, preventDefault: () => event.preventDefault() })
-        const change = (event) => onGestureChange({ ...event, currentTarget: stage, preventDefault: () => event.preventDefault() })
-        const end = (event) => onGestureEnd({ ...event, currentTarget: stage, preventDefault: () => event.preventDefault() })
+        // Safari's GestureEvent carries scale/clientX/clientY as prototype
+        // getters, which object spread does not copy: forwarding `{...event}`
+        // would hand the handlers undefined values. The properties the handlers
+        // read are copied explicitly instead.
+        const forward = (event) => ({
+          scale: event.scale,
+          clientX: event.clientX,
+          clientY: event.clientY,
+          currentTarget: stage,
+          preventDefault: () => event.preventDefault(),
+        })
+        const start = (event) => onGestureStart(forward(event))
+        const change = (event) => onGestureChange(forward(event))
+        const end = (event) => onGestureEnd(forward(event))
         stage.addEventListener('gesturestart', start)
         stage.addEventListener('gesturechange', change)
         stage.addEventListener('gestureend', end)
@@ -3752,6 +3756,11 @@ window.__ModuleLoader__.load({
         setAskDraft('')
         setContextPreview(null)
         setAskStatus('')
+        // An in-flight turn from the previous passage keeps running on the Host,
+        // but it no longer owns this panel's ask state: its late frames and its
+        // finally are refused there, so the busy flag is reset here instead.
+        setAskBusy(false)
+        setStreamText('')
       }, [activePassage, loadReading])
 
       // The backend list is a property of the Host, not of one passage, so it is
@@ -3843,7 +3852,15 @@ window.__ModuleLoader__.load({
           runId,
           controller,
           timeoutSeconds: Math.round(timeoutMs / 1000),
-          isCurrent: () => analysisRunSeq.current === runId,
+          // Two different questions, two different answers:
+          // - isCurrent(): may this run commit a result? A cancelled run may
+          //   not — even if the provider still answered, the reply is late,
+          //   not valid. A superseded run may not either.
+          // - isLatest(): does this run still own the busy state and the
+          //   feedback line? Ending the UI state is keyed on identity alone,
+          //   so a cancel never strands 解析中 on screen.
+          isCurrent: () => analysisRunSeq.current === runId && !controller.signal.aborted,
+          isLatest: () => analysisRunSeq.current === runId,
           finish: () => {
             clearTimeout(timer)
             if (analysisAbortRef.current === controller) analysisAbortRef.current = null
@@ -3853,6 +3870,18 @@ window.__ModuleLoader__.load({
               setAnalysisRun(null)
             }
           },
+        }
+      }
+
+      /**
+       * The receipt for a run that ended without a committable result: a cancel
+       * or a timeout still tells the reader what happened, but nothing is
+       * committed on behalf of a run that is no longer current.
+       */
+      function reportRunEnded(run, reportError, reportStatus) {
+        if (analysisCancelledRef.current) reportStatus(t('analysisCancelled'))
+        else if (analysisTimedOutRef.current) {
+          reportError(format(t, 'analysisTimedOut', { seconds: run.timeoutSeconds }))
         }
       }
 
@@ -3910,7 +3939,12 @@ window.__ModuleLoader__.load({
             passageId, paragraphId, backend, model,
             reasoningEffort: null, operationId: createUuid(),
           }, run.controller.signal), t)
-          if (!run.isCurrent()) return
+          if (!run.isCurrent()) {
+            // Cancelled or superseded mid-flight: no result is committed, but a
+            // run this panel still shows gets its receipt.
+            if (run.isLatest()) reportRunEnded(run, reportError, reportStatus)
+            return
+          }
           if (value.ok !== true) {
             reportError(format(t, 'analysisRefused', { reason: value.reason, detail: '' }))
           } else if ((value.asked ?? 0) === 0) {
@@ -3933,7 +3967,9 @@ window.__ModuleLoader__.load({
           }
           await loadCoverage(passageId)
         } catch (cause) {
-          if (run !== null && !run.isCurrent()) return
+          // A superseded run's failure belongs to the run that replaced it; a
+          // cancelled or timed-out run that is still the latest gets its receipt.
+          if (run !== null && !run.isLatest()) return
           if (analysisCancelledRef.current) reportStatus(t('analysisCancelled'))
           else if (analysisTimedOutRef.current) {
             reportError(format(t, 'analysisTimedOut', {
@@ -3974,7 +4010,13 @@ window.__ModuleLoader__.load({
             passageId, anchorId, backend, model,
             reasoningEffort: null, operationId: createUuid(),
           }, run.controller.signal), t)
-          if (!run.isCurrent()) return
+          if (!run.isCurrent()) {
+            // Cancelled or superseded mid-flight: a late success is not shown,
+            // the current analysis is not replaced, and a run this panel still
+            // shows gets its receipt.
+            if (run.isLatest()) reportRunEnded(run, reportError, reportStatus)
+            return
+          }
           if (value.ok !== true) {
             // A refused analysis is refused with the gate's own reason: the panel
             // shows what was wrong instead of displaying an unusable parse.
@@ -3989,7 +4031,9 @@ window.__ModuleLoader__.load({
           setSentenceAnalysis(stored)
           await loadCoverage(passageId)
         } catch (cause) {
-          if (run !== null && !run.isCurrent()) return
+          // A superseded run's failure belongs to the run that replaced it; a
+          // cancelled or timed-out run that is still the latest gets its receipt.
+          if (run !== null && !run.isLatest()) return
           if (analysisCancelledRef.current) reportStatus(t('analysisCancelled'))
           else if (analysisTimedOutRef.current) {
             reportError(format(t, 'analysisTimedOut', {
@@ -4001,29 +4045,9 @@ window.__ModuleLoader__.load({
         }
       }
 
-      async function publishAnalysis() {
-        if (activePassage === null) return
-        setAnalysisBusy(true)
-        reportAnalysis('error', '', activePassage.id, 'passage')
-        try {
-          const value = unwrap(await publishAnalysis({
-            passageId: activePassage.id,
-            overallTranslation: latestTranslation('passage')?.text ?? null,
-            cohesion: '',
-          }), t)
-          if (value.kind === 'conflict') reportAnalysis('error', format(t, 'saveConflict', { reason: value.reason }), activePassage.id, 'passage')
-          else reportAnalysis('status', format(t, 'publishedDone', { revision: value.revision, covered: value.coveredCount }), activePassage.id, 'passage')
-          await loadCoverage(activePassage.id)
-        } catch (cause) {
-          reportAnalysis('error', format(t, 'generationUnavailable', { reason: String(cause?.message ?? cause) }), activePassage.id, 'passage')
-        } finally {
-          setAnalysisBusy(false)
-        }
-      }
-
-      
-
-      
+      // 发布分析版本 has no panel entry yet: the Remote stays declared and
+      // wired, but the old local handler shadowed it and would have recursed
+      // into itself, so it was removed rather than kept as a trap.
 
       function branchCount(target) {
         return (analysis?.branches ?? []).filter((branch) => branch.anchorId === target).length
@@ -4184,10 +4208,25 @@ window.__ModuleLoader__.load({
               placeholder: t('sourcePlaceholder'),
               onChange: (event) => { setSourceText(event.target.value); setPreview(null); setStatus('') },
             })),
-          preview === null || preview.unavailable ? null : h('p', { className: 'policyNote' }, format(t, 'previewSummary', {
-            paragraphs: Array.isArray(preview.paragraphs) ? preview.paragraphs.length : (preview.paragraphs ?? 0),
-            sentences: Array.isArray(preview.sentences) ? preview.sentences.length : (preview.sentences ?? 0),
-          })),
+          preview === null || preview.unavailable ? null : h('div', { className: 'previewDetail' },
+            h('p', { className: 'policyNote' }, format(t, 'previewSummary', {
+              paragraphs: Array.isArray(preview.paragraphs) ? preview.paragraphs.length : (preview.paragraphs ?? 0),
+              sentences: Array.isArray(preview.sentences) ? preview.sentences.length : (preview.sentences ?? 0),
+            })),
+            // The split itself, paragraph by paragraph: a count whose boundaries
+            // the reader cannot see is not a preview. The Host sends the blocks
+            // and the damage flags; both are rendered here.
+            (preview.blocks ?? []).map((block) => h('div', { key: block.id, className: 'previewBlock' },
+              h('span', { className: 'kbLabel' }, format(t, 'previewBlockMeta', { id: block.id, sentences: block.sentences })),
+              h('div', { className: 'previewExcerpt' }, block.excerpt))),
+            (preview.flags ?? []).length === 0
+              ? h('p', { className: 'hint previewFlagClean' }, t('previewFlagClean'))
+              : (preview.flags ?? []).map((flag, index) => h('p', {
+                key: `${flag.code}-${String(index)}`,
+                className: flag.severity === 'error' ? 'error' : 'hint',
+                role: flag.severity === 'error' ? 'alert' : 'status',
+              }, flag.detail)),
+          ),
           error === '' ? null : h('p', { className: 'error', role: 'alert' }, error),
           status === '' ? null : h('p', { className: 'status', role: 'status' }, status),
           h('div', { className: 'modalFoot' },
@@ -4293,23 +4332,43 @@ window.__ModuleLoader__.load({
         }
       }
 
+      /**
+       * The branch a composer turn belongs to: the selected discussion node when
+       * there is one, else the discussion branch on this anchor — or null, which
+       * the composer reports as "open a branch first".
+       */
+      function branchFor(target) {
+        const branches = discussion?.branches ?? []
+        const selected = branches.find((entry) => entry.branchId === selectedNode?.id)
+        if (selected !== undefined) return selected.branchId
+        return branches.find((entry) => entry.anchorId === target && entry.kind === 'discussion')?.branchId ?? null
+      }
+
       async function previewTurn(target) {
         if (activePassage === null || backend === '' || model === '') return
         const branchId = branchFor(target)
         if (branchId === null) { setError(t('branchFirst')); return }
+        // The turn belongs to the passage it started on: every state write below
+        // is refused once the reader is looking at another passage, and the
+        // finally only clears the busy flag while this turn still owns it.
+        const passageId = activePassage.id
+        const requestId = passageRequest.current
+        const mine = () => currentRead(passageId, requestId)
         setAskBusy(true)
         setError('')
         try {
           const value = unwrap(await previewAsk({
-            passageId: activePassage.id, branchId, question: askDraft,
+            passageId, branchId, question: askDraft,
             backend, model, extras: [],
           }), t)
+          if (!mine()) return
           if (value.ok !== true) { setError(format(t, 'previewRefused', { reason: value.reason })); return }
           setContextPreview(value)
         } catch (cause) {
+          if (!mine()) return
           setError(format(t, 'generationUnavailable', { reason: String(cause?.message ?? cause) }))
         } finally {
-          setAskBusy(false)
+          if (mine()) setAskBusy(false)
         }
       }
 
@@ -4317,12 +4376,15 @@ window.__ModuleLoader__.load({
         if (activePassage === null || backend === '' || model === '' || askDraft.trim() === '') return
         const branchId = branchFor(target)
         if (branchId === null) { setError(t('branchFirst')); return }
+        const passageId = activePassage.id
+        const requestId = passageRequest.current
+        const mine = () => currentRead(passageId, requestId)
         setAskBusy(true)
         setError('')
         setAskStatus('')
         setStreamText('')
         const request = {
-          passageId: activePassage.id, branchId, question: askDraft.trim(),
+          passageId, branchId, question: askDraft.trim(),
           backend, model, reasoningEffort: null, extras: [],
           operationId: createUuid(),
           expectedFingerprint: contextPreview === null ? null : contextPreview.fingerprint,
@@ -4330,9 +4392,13 @@ window.__ModuleLoader__.load({
         try {
           // A streamed turn shows the answer while it is written and always ends with a
           // terminal frame; a Host that cannot stream still answers in one piece.
+          // Every frame lands only while this turn still belongs to the displayed
+          // passage: a late delta from another passage's turn never writes here.
+          const onDelta = (update) => { if (mine()) setStreamText(update) }
           const value = typeof streamAsk === 'function'
-            ? await receiveStream(streamAsk(request), t, setStreamText)
+            ? await receiveStream(streamAsk(request), t, onDelta)
             : unwrap(await ask(request), t)
+          if (!mine()) return
           if (value.ok !== true) {
             setError(format(t, 'askFailed', { reason: value.reason, failure: value.failure ?? '' }))
           } else {
@@ -4342,13 +4408,16 @@ window.__ModuleLoader__.load({
               ? format(t, 'answerDone', { model: value.resolvedModel ?? value.model })
               : format(t, 'answerPartial', { finish: value.finish }))
           }
-          await loadDiscussion(activePassage.id)
+          await loadDiscussion(passageId)
         } catch (cause) {
+          if (!mine()) return
           setError(format(t, 'generationUnavailable', { reason: String(cause?.message ?? cause) }))
         } finally {
-          setAskBusy(false)
-          // The stored message is authoritative from here on.
-          setStreamText('')
+          if (mine()) {
+            setAskBusy(false)
+            // The stored message is authoritative from here on.
+            setStreamText('')
+          }
         }
       }
 
@@ -4362,25 +4431,10 @@ window.__ModuleLoader__.load({
         return result
       }
 
-      async function startBranch(target) {
-        if (activePassage === null) return
-        setAskBusy(true)
-        setError('')
-        try {
-          const value = unwrap(await createBranch({
-            passageId: activePassage.id, anchorId: target, kind: 'discussion',
-            title: `${t('discussionTitle')} ${target}`, parentId: null, forkedFrom: null,
-            operationId: createUuid(),
-          }), t)
-          if (value.kind === 'conflict') { setError(format(t, 'saveConflict', { reason: value.reason })); return }
-          await loadDiscussion(activePassage.id)
-          setAskStatus(t('branchOpened'))
-        } catch (cause) {
-          setError(format(t, 'generationUnavailable', { reason: String(cause?.message ?? cause) }))
-        } finally {
-          setAskBusy(false)
-        }
-      }
+      // Branches are created only through the ＋讨论 dialog (createBranchWith,
+      // which asks for a title). The old startBranch() auto-titled a new branch
+      // on every click; when it was bound to an existing branch's button, each
+      // click silently spawned another branch — so it is gone, not kept.
 
       async function markBranch(branchId, status) {
         if (activePassage === null) return
@@ -4593,6 +4647,20 @@ window.__ModuleLoader__.load({
        * An analysed sentence becomes an analysis node; every discussion branch hangs under
        * its parent branch, or under the analysis node when it starts from the sentence.
        */
+
+      /** One branch as the panel's node: the nav tree and the branch strip agree on it. */
+      function branchNode(branch) {
+        return {
+          id: branch.branchId,
+          anchorId: branch.anchorId,
+          // A branch whose parent is unknown to the panel hangs off the sentence.
+          parentId: branch.parentId ?? `a-${branch.anchorId}`,
+          kind: branch.kind === 'vocabulary' || branch.kind === 'grammar' ? 'knowledge' : 'discussion',
+          title: branch.title,
+          status: branch.status === 'open' ? t('branchOpen') : t('branchSettled'),
+        }
+      }
+
       function routeNodes() {
         const all = sentenceList()
         const nodes = []
@@ -4609,15 +4677,7 @@ window.__ModuleLoader__.load({
           void index
         }
         for (const branch of discussion?.branches ?? []) {
-          nodes.push({
-            id: branch.branchId,
-            anchorId: branch.anchorId,
-            // A branch whose parent is unknown to the panel hangs off the sentence.
-            parentId: branch.parentId ?? `a-${branch.anchorId}`,
-            kind: branch.kind === 'vocabulary' || branch.kind === 'grammar' ? 'knowledge' : 'discussion',
-            title: branch.title,
-            status: branch.status === 'open' ? t('branchOpen') : t('branchSettled'),
-          })
+          nodes.push(branchNode(branch))
         }
         return nodes
       }
@@ -4952,6 +5012,13 @@ window.__ModuleLoader__.load({
             body: value.found
               ? (value.entries[0]?.senses?.[0]?.definition ?? '')
               : format(t, 'lookupMiss', { count: value.candidates.length }),
+            // A miss keeps its candidates on the node: "N 条相关原形" without
+            // names was a dead end — each candidate is a button that looks it up.
+            miss: value.found !== true,
+            candidates: (value.candidates ?? []).map((entry) => ({
+              entryId: entry.entryId, mot: entry.mot, lemma: entry.lemma,
+              label: entry.senses?.[0]?.label ?? '',
+            })),
             parentTitle: mot,
           })
         } catch (cause) {
@@ -5201,7 +5268,7 @@ window.__ModuleLoader__.load({
           // `kbUI.mode`: the library lists, then an entry opens on top of it.
           if (knowledgeEntryId === null) {
             return h(KnowledgeLibrary, {
-              t, listLexicon, listGrammar,
+              t, listLexicon, listGrammar, resolveGrammarCandidate,
               onReturn: returnToAnalysis,
               onOpenEntry: (id, tab) => { setKnowledgeEntryId(id); setKnowledgeTab(tab) },
             })
@@ -5224,7 +5291,10 @@ window.__ModuleLoader__.load({
               entry !== null && entry !== undefined && knowledgeTab === 'grammar' && entry.topic !== undefined
                 ? h(GrammarDetail, { t, entry })
                 : null,
-              h(KnowledgeSection, {
+              // A grammar entry's page is its header and rule; a word's page is
+              // its card. Neither renders the whole library underneath — that
+              // scope confusion is what the old single component caused.
+              knowledgeTab === 'grammar' ? null : h(KnowledgeSection, {
               t, listLexicon, listGrammar, renderLexicon, resolveGrammarCandidate,
               setGrammarMastery, listLexiconSources, fetchLexiconSource,
               readConjugation, fetchConjugation, entry, tab: knowledgeTab,
@@ -5247,11 +5317,30 @@ window.__ModuleLoader__.load({
         if (node === null) return detailReading()
         if (node.kind === 'analysis') return detailReading()
         if (node.kind === 'knowledge' && node.id?.startsWith('lookup-')) {
+          const candidates = node.candidates ?? []
           return h('div', { className: 'lookupResult' },
             h('h2', null, node.title),
             h('p', { className: 'hint' }, node.status),
             h('div', { className: 'answer' }, node.body ?? ''),
-            h('button', { className: 'small', type: 'button', onClick: () => setSelectedNode(null) }, t('backToAnalysis')),
+            // Every candidate the lookup returned is named and clickable: the
+            // exact-Mot rule never merges them, so the reader opens each one.
+            candidates.length === 0 ? null : h('div', null,
+              h('div', { className: 'sectionLabel' }, t('lookupCandidates')),
+              candidates.map((entry) => h('button', {
+                key: entry.entryId, className: 'small', type: 'button',
+                onClick: () => lookupWord(entry.mot),
+              }, `${entry.mot}${entry.lemma === null || entry.lemma === '' ? '' : `（${entry.lemma}）`}${entry.label === '' ? '' : ` · ${entry.label}`}`)),
+            ),
+            // A miss is stated honestly: the lookup reads the local lexicon only,
+            // and the panel's real next steps are named rather than implied.
+            node.miss === true ? h('p', { className: 'hint' }, t('lookupMissAdvice')) : null,
+            h('div', { className: 'inlineActions' },
+              node.miss === true ? h('button', {
+                className: 'small', type: 'button',
+                onClick: () => openKnowledge(),
+              }, t('lookupOpenLibrary')) : null,
+              h('button', { className: 'small', type: 'button', onClick: () => setSelectedNode(null) }, t('backToAnalysis')),
+            ),
           )
         }
         if (node.kind === 'knowledge') {
@@ -5310,11 +5399,28 @@ window.__ModuleLoader__.load({
             h('summary', null, t('contextTitle')),
             h('div', null, contextPreview === null
               ? t('contextNotCompiled')
-              : format(t, 'contextSize', {
-                characters: contextPreview.characters,
-                count: contextPreview.materials.length,
-              })),
-          ),
+              : h('div', null,
+                // The promise is 预览即发送内容, so the preview shows content, not
+                // just a size: every material with its reason and its head, then
+                // the exact prompt text the Host will send, verbatim.
+                h('p', { className: 'hint' }, format(t, 'contextSize', {
+                  characters: contextPreview.characters,
+                  count: contextPreview.materials.length,
+                })),
+                (contextPreview.materials ?? []).map((material, index) => h('div', {
+                  key: `${material.kind ?? ''}-${material.refId ?? ''}-${String(index)}`,
+                  className: 'previewBlock',
+                },
+                  h('span', { className: 'kbLabel' }, format(t, 'contextMaterialLine', {
+                    refId: material.refId ?? '', characters: material.characters ?? 0,
+                  })),
+                  material.reason === undefined || material.reason === '' ? null
+                    : h('p', { className: 'hint' }, material.reason),
+                  (material.excerpt ?? '') === '' ? null
+                    : h('div', { className: 'previewExcerpt' }, material.excerpt))),
+                h('div', { className: 'kbLabel' }, t('contextPromptLabel')),
+                h('pre', { className: 'previewPrompt' }, contextPreview.prompt ?? ''),
+              ))),
           h('textarea', {
             className: 'draft',
             value: askDraft,
@@ -5653,8 +5759,13 @@ window.__ModuleLoader__.load({
                 (discussion?.branches ?? [])
                   .filter((branch) => branch.anchorId === anchorId)
                   .map((branch) => h('button', {
-                    key: branch.branchId, className: 'small', type: 'button',
-                    onClick: () => startBranch(anchorId),
+                    key: branch.branchId,
+                    className: `small${selectedNode?.id === branch.branchId ? ' active' : ''}`,
+                    type: 'button',
+                    // Clicking a branch selects it: its messages and composer
+                    // appear in the detail pane. Creating branches is the
+                    // ＋讨论 dialog's job — this button must never create one.
+                    onClick: () => pickNode(branchNode(branch)),
                   }, branch.title)),
                 anchorId === '' ? null : h('button', {
                   className: 'small', type: 'button', onClick: () => openBranchDialog(null, null),

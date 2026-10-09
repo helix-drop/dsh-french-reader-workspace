@@ -380,6 +380,10 @@ export type ReadSentenceAnalysisValue = {
     };
     errors: string[];
     hints: string[];
+}
+/** An analysis exists but describes text that is no longer the sentence. */
+ | {
+    kind: 'stale';
 } | {
     kind: 'missing';
 };

@@ -515,9 +515,17 @@ export declare class FrenchReaderController extends TypertRemoteService {
      * sentence is analysed" is a number rather than a claim.
      */
     readAnalysisCoverage(passageId: string, signal: AbortSignal): AnalysisCoverageValue;
-    /** One sentence's stored analysis, as the panel renders it. */
+    /**
+     * One sentence's stored analysis, as the panel renders it.
+     *
+     * The analysis is read against the *current* sentence, never against the text
+     * it remembers: a source correction moves the sentence, and then the stored
+     * analysis is stale — reported as such, with the same text comparison
+     * `analysisCoverage` uses, rather than returned as a usable analysis.
+     */
     readSentenceAnalysis(passageId: string, anchorId: string, signal: AbortSignal): {
         found: boolean;
+        stale?: boolean;
         analysis?: StoredSentenceAnalysis;
         errors?: string[];
         hints?: string[];

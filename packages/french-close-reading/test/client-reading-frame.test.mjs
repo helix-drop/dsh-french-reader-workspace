@@ -105,6 +105,14 @@ test('the canvas follows the prototype\'s gesture and resize semantics', () => {
   }
   assert.match(source, /ResizeObserver/u)
 
+  // Safari's GestureEvent carries scale/clientX/clientY as prototype getters:
+  // object spread copies none of them, so the binding must name each property.
+  const binding = source.slice(source.indexOf("addEventListener('gesturestart'") - 700, source.indexOf("addEventListener('gesturestart'"))
+  assert.equal(binding.includes('{ ...event'), false, 'spreading the event loses scale and the coordinates')
+  assert.match(binding, /scale: event\.scale/u)
+  assert.match(binding, /clientX: event\.clientX/u)
+  assert.match(binding, /clientY: event\.clientY/u)
+
   // `syncStageSize()` moves the world by half the difference, so the centre holds.
   // `syncStageSize` is defined after the wheel handler, so read forward from it.
   const syncAt = source.indexOf('function syncStageSize(')

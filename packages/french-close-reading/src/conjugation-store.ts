@@ -15,7 +15,8 @@
  * A 429 from the source is its own state, because "try again later" is not the same
  * as "this verb has no forms".
  */
-import type { ConjugationDataset } from './conjugation-data.ts'
+import type { ConjugationDataset, Person } from './conjugation-data.ts'
+import { PERSONS } from './conjugation-data.ts'
 import type { StoredConjugationRecord } from './domain.ts'
 import type { RecordTable } from './lexicon-store.ts'
 
@@ -119,10 +120,25 @@ export function mergeDataset(
   return { ...fetched, tenses: merged }
 }
 
+/**
+ * The persons a tense of one mood is expected to have.
+ *
+ * A finite indicative/subjunctive/conditional tense conjugates for all six;
+ * the imperative present only exists for `2s`, `1p`, `2p`, and non-finite
+ * moods (infinitive, participle) have no persons at all — reporting those as
+ * "missing" would claim a gap the grammar itself does not have.
+ */
+const EXPECTED_PERSONS: Record<string, readonly Person[]> = {
+  imp: ['2s', '1p', '2p'],
+  inf: [],
+  par: [],
+}
+
 /** The persons a dataset is still missing for one tense, so a card can say what is absent. */
 export function missingPersons(dataset: ConjugationDataset, slot: { mood: string; tense: string }): string[] {
+  const expected = EXPECTED_PERSONS[slot.mood] ?? PERSONS
   const tense = dataset.tenses.find((entry) => entry.mood === slot.mood && entry.tense === slot.tense)
-  if (tense === undefined) return ['1s', '2s', '3s', '1p', '2p', '3p']
+  if (tense === undefined) return [...expected]
   const present = new Set(tense.forms.map((form) => form.person))
-  return (['1s', '2s', '3s', '1p', '2p', '3p'] as const).filter((person) => !present.has(person))
+  return expected.filter((person) => !present.has(person))
 }

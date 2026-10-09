@@ -200,3 +200,32 @@ test('the request URLs stay inside the declared endpoint and respect the title l
   assert.match(formTitlesUrl(many), /titles=form0%7Cform1/u)
   assert.equal(MAX_TITLES_PER_REQUEST, 50, 'the API limit this walk batches against')
 })
+
+test('a failed re-fetch keeps the dataset an earlier fetch proved', async () => {
+  // First the walk succeeds and stores real data; then the network dies. The
+  // refresh records its own failure, but the proved dataset must survive it.
+  const { createBacking, openController } = await import('./support/harness.mjs')
+  const { FRENCH_READER_DOMAIN } = await import('../lib/domain.js')
+  const stub = stubFetcher()
+  let fail = false
+  const web = {
+    fetch: ({ url }) => fail
+      ? Promise.resolve({ statusCode: 500, body: { kind: 'text', content: '' }, truncated: false })
+      : stub.fetchPage(url),
+  }
+  const { controller } = await openController(createBacking(), FRENCH_READER_DOMAIN, { services: { web } })
+
+  const first = await controller.fetchConjugation({ lemma: 'venir' }, signal())
+  assert.equal(first.status, 'partial', 'the stub serves four of the forms')
+  assert.equal(first.bases > 0, true)
+
+  fail = true
+  const second = await controller.fetchConjugation({ lemma: 'venir' }, signal())
+  assert.equal(second.status, 'failed')
+  assert.equal(second.bases, 0, 'the failed run itself derived nothing')
+
+  const read = controller.readConjugation({ lemma: 'venir' }, signal())
+  assert.equal(read.state, 'dataset', 'the proved data is still what the card reads')
+  assert.equal(read.tenses.length > 0, true)
+  assert.equal(read.fetchStatus, 'failed', 'the failed refresh is still recorded as failed')
+})

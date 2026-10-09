@@ -706,3 +706,287 @@ test('empty input and source length boundaries do not reach save or invalid prev
   assert.equal(previews, 1)
   assert.equal(saves, 0)
 })
+
+/**
+ * Discussion turns belong to the passage they started on (M4-02): a preview, a
+ * stream delta, a terminal frame or a `finally` that arrives after the reader
+ * moved to another passage must not touch that passage's composer.
+ *
+ * State indices are the component's useState order: 27 backend, 29 model,
+ * 30 discussion, 31 askDraft, 32 contextPreview, 33 askBusy, 34 askStatus,
+ * 35 streamText, 50 selectedNode.
+ */
+const discussionBranch = (branchId, anchorId = 'p1.s1') => ({
+  branchId, anchorId, kind: 'discussion', title: `分支 ${anchorId}`, parentId: null,
+  forkedFrom: null, status: 'open', messages: [], historyCount: 0,
+  createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z',
+})
+
+/** Put the composer on screen for one branch, with a draft question typed. */
+function openComposer(p, branch, { preview = null, draft = '这一句怎么读？' } = {}) {
+  p.values.set(27, 'stub')
+  p.values.set(29, 'stub-model')
+  p.values.set(30, { branches: [branch], conclusions: [] })
+  p.values.set(31, draft)
+  p.values.set(32, preview)
+  p.values.set(50, { id: branch.branchId, anchorId: branch.anchorId, kind: 'discussion', title: branch.title })
+}
+
+const flush = async (times = 3) => {
+  for (let index = 0; index < times; index += 1) await new Promise((resolve) => setImmediate(resolve))
+}
+
+/** Select another passage from the shelf and run the passage-switch reset effect. */
+async function switchTo(p, title) {
+  all(p.render(), (node) => node.type === 'button' && node.props.className?.includes('shelfPassage') && text(node).includes(title))[0].props.onClick()
+  await flush()
+  p.effects.filter((factory) => factory.toString().includes('loadDiscussion(activePassage.id)')).pop()()
+  await flush()
+}
+
+/** A manually driven async iterable for streamAsk: frames arrive when pushed. */
+function manualStream() {
+  const frames = []
+  let waiter = null
+  const pump = () => {
+    while (waiter !== null && frames.length > 0) {
+      const resolve = waiter
+      waiter = null
+      resolve(frames.shift())
+    }
+  }
+  return {
+    push(frame) { frames.push({ value: frame, done: false }); pump() },
+    close() { frames.push({ value: undefined, done: true }); pump() },
+    [Symbol.asyncIterator]() {
+      return {
+        next() {
+          if (frames.length > 0) return Promise.resolve(frames.shift())
+          return new Promise((resolve) => { waiter = resolve })
+        },
+      }
+    },
+  }
+}
+
+test('a preview that answers after the reader switched passages changes nothing there', async () => {
+  const slow = { ...passage, id: 'slow', title: 'Slow passage' }
+  const fast = { ...passage, id: 'fast', title: 'Fast passage' }
+  let resolvePreview
+  const p = await panel({
+    previewAsk: () => new Promise((resolve) => { resolvePreview = resolve }),
+    getPassage: async ({ id }) => ok({ passage: id === 'fast' ? fast : slow }),
+  })
+  p.values.set(0, [slow, fast])
+  p.values.set(10, slow)
+  openComposer(p, discussionBranch('b1'))
+  button(p.render(), '查看本次上下文').props.onClick()
+  await flush()
+  assert.equal(p.values.get(33), true, 'the preview is in flight')
+
+  await switchTo(p, 'Fast passage')
+  resolvePreview(ok({ ok: true, characters: 12, materials: [{ refId: 'p1' }], fingerprint: 'f1' }))
+  await flush()
+
+  assert.equal(p.values.get(10).id, 'fast')
+  assert.equal(p.values.get(32), null, 'the late preview is not shown on the new passage')
+  assert.equal(p.values.get(14), '', 'and no error from it either')
+  assert.equal(p.values.get(33), false, 'the switch reset the busy flag; the late finally left it alone')
+})
+
+test('stream deltas from the previous passage never reach the new passage', async () => {
+  const slow = { ...passage, id: 'slow', title: 'Slow passage' }
+  const fast = { ...passage, id: 'fast', title: 'Fast passage' }
+  const stream = manualStream()
+  const p = await panel({
+    streamAsk: () => stream,
+    getPassage: async ({ id }) => ok({ passage: id === 'fast' ? fast : slow }),
+  })
+  p.values.set(0, [slow, fast])
+  p.values.set(10, slow)
+  openComposer(p, discussionBranch('b1'), { preview: { fingerprint: 'f1', characters: 12, materials: [{}] } })
+  button(p.render(), '发送').props.onClick()
+  stream.push({ kind: 'delta', text: '前半句' })
+  await flush()
+  assert.equal(p.values.get(35), '前半句', 'the delta arrives while the turn is current')
+
+  await switchTo(p, 'Fast passage')
+  p.values.set(31, '给 B 的问题')
+  p.values.set(32, { fingerprint: 'f2', characters: 9, materials: [{}] })
+  stream.push({ kind: 'delta', text: '后半句' })
+  stream.push({ kind: 'done', result: { ok: true, finish: 'stop', model: 'stub-model', resolvedModel: 'stub-model' } })
+  stream.close()
+  await flush()
+
+  assert.equal(p.values.get(35), '', 'a late delta from the old passage is refused')
+  assert.equal(p.values.get(31), '给 B 的问题', 'the new passage’s draft is untouched')
+  assert.deepEqual(p.values.get(32), { fingerprint: 'f2', characters: 9, materials: [{}] }, 'its context preview too')
+  assert.equal(p.values.get(34), '', 'and the old turn’s success is not reported here')
+})
+
+test('an old turn’s finally does not clear the new passage’s busy state', async () => {
+  const slow = { ...passage, id: 'slow', title: 'Slow passage' }
+  const fast = { ...passage, id: 'fast', title: 'Fast passage' }
+  const streams = new Map([['b1', manualStream()], ['b2', manualStream()]])
+  const p = await panel({
+    streamAsk: (request) => streams.get(request.branchId),
+    getPassage: async ({ id }) => ok({ passage: id === 'fast' ? fast : slow }),
+  })
+  p.values.set(0, [slow, fast])
+  p.values.set(10, slow)
+  openComposer(p, discussionBranch('b1'), { preview: { fingerprint: 'f1', characters: 12, materials: [{}] } })
+  button(p.render(), '发送').props.onClick()
+  await flush()
+  assert.equal(p.values.get(33), true)
+
+  await switchTo(p, 'Fast passage')
+  assert.equal(p.values.get(33), false, 'the switch hands the busy state to the new passage')
+  openComposer(p, discussionBranch('b2'), { preview: { fingerprint: 'f2', characters: 9, materials: [{}] }, draft: 'B 的问题' })
+  button(p.render(), '发送').props.onClick()
+  await flush()
+  assert.equal(p.values.get(33), true, 'the new passage’s turn is busy')
+
+  // The old turn only now finishes: its finally must not touch the new turn.
+  streams.get('b1').push({ kind: 'done', result: { ok: true, finish: 'stop', model: 'stub-model', resolvedModel: 'stub-model' } })
+  streams.get('b1').close()
+  await flush()
+  assert.equal(p.values.get(33), true, 'the new turn is still busy')
+  assert.equal(p.values.get(35), '', 'and no stream text leaked across')
+  streams.get('b2').push({ kind: 'done', result: { ok: true, finish: 'stop', model: 'stub-model', resolvedModel: 'stub-model' } })
+  streams.get('b2').close()
+  await flush()
+  assert.equal(p.values.get(33), false, 'the new turn settles its own state')
+})
+
+test('a preview failure from the previous passage shows no error on the new one', async () => {
+  const slow = { ...passage, id: 'slow', title: 'Slow passage' }
+  const fast = { ...passage, id: 'fast', title: 'Fast passage' }
+  let rejectPreview
+  const p = await panel({
+    previewAsk: () => new Promise((resolve, reject) => { rejectPreview = reject }),
+    getPassage: async ({ id }) => ok({ passage: id === 'fast' ? fast : slow }),
+  })
+  p.values.set(0, [slow, fast])
+  p.values.set(10, slow)
+  openComposer(p, discussionBranch('b1'))
+  button(p.render(), '查看本次上下文').props.onClick()
+  await flush()
+
+  await switchTo(p, 'Fast passage')
+  rejectPreview(new Error('old preview failed'))
+  await flush()
+  assert.equal(p.values.get(14), '', 'the old failure is not the new passage’s error')
+})
+
+/**
+ * The branch strip (P1 regression, 2026-10-09 acceptance): a branch button used
+ * to be bound to the auto-titled creation path, so clicking an existing branch
+ * spawned another one. Clicking must select the branch — messages and composer
+ * appear — and never call createBranch.
+ *
+ * State indices: 18 anchorId, 30 discussion, 50 selectedNode, 51 branchDialog.
+ */
+test('clicking a branch in the strip selects it and never creates a branch', async () => {
+  let created = 0
+  const p = await panel({ createBranch: async () => { created += 1; return ok({ kind: 'created', branchId: 'new' }) } })
+  const branch = discussionBranch('b1')
+  p.values.set(18, 'p1.s1')
+  p.values.set(30, { branches: [branch], conclusions: [] })
+
+  const strip = () => all(p.render(), (node) => node.props?.id === 'branchStrip')[0]
+  const branchButton = all(strip(), (node) => node.type === 'button' && text(node) === branch.title)[0]
+  assert.ok(branchButton, 'the branch appears in the strip under its own title')
+  branchButton.props.onClick()
+  await flush()
+
+  assert.equal(created, 0, 'selecting a branch never creates one')
+  const selected = p.values.get(50)
+  assert.equal(selected?.id, 'b1', 'the branch node is selected')
+  assert.equal(selected?.kind, 'discussion')
+  const tree = p.render()
+  assert.ok(all(tree, (node) => node.props?.className === 'composer').length > 0, 'the composer appears for the selected branch')
+  assert.ok(button(tree, '查看本次上下文'), 'the composer offers the context preview')
+  const buttons = all(strip(), (node) => node.type === 'button')
+  assert.equal(buttons.length, 2, 'the strip is unchanged: the one branch plus ＋ 讨论')
+  assert.equal(buttons[0].props.className.includes('active'), true, 'the selected branch reads as active')
+
+  // Clicking it again keeps the selection and still creates nothing.
+  buttons[0].props.onClick()
+  await flush()
+  assert.equal(created, 0)
+  assert.equal(all(strip(), (node) => node.type === 'button').length, 2)
+})
+
+test('the ＋讨论 button opens the title dialog and creates nothing by itself', async () => {
+  let created = 0
+  const p = await panel({ createBranch: async () => { created += 1; return ok({ kind: 'created', branchId: 'new' }) } })
+  p.values.set(18, 'p1.s1')
+  p.values.set(30, { branches: [], conclusions: [] })
+  const strip = all(p.render(), (node) => node.props?.id === 'branchStrip')[0]
+  button(strip, '＋ 讨论').props.onClick()
+  await flush()
+  assert.equal(created, 0, 'opening the dialog is not a creation')
+  assert.notEqual(p.values.get(51), null, 'the branch dialog opened')
+})
+
+test('the preview dialog shows the actual split: paragraph blocks and flags', async () => {
+  const p = await panel({
+    listPassages: async () => ok({ items: [], hasMore: false }),
+    previewImport: async () => ok({
+      title: '段落 02', characters: 41, paragraphs: 1, sentences: 2,
+      blocks: [{ id: 'p1', sentences: 2, excerpt: 'Il vient de Paris. Nous lisons un livre.' }],
+      flags: [{ code: 'double-space', severity: 'hint', detail: '有 1 处连续空格' }],
+      head: 'Il vient de Paris. Nous lisons un livre.', tail: '',
+    }),
+  })
+  await openNext(p)
+  all(p.render(), (node) => node.type === 'textarea')[0].props.onChange({ target: { value: 'Il vient de Paris. Nous lisons un livre.' } })
+  await all(p.render(), (node) => node.type === 'form')[0].props.onSubmit(submit)
+  const tree = p.render()
+  assert.match(text(tree), /将切分为 1 段、2 句/u)
+  assert.match(text(tree), /p1 · 2 句/u, 'the paragraph boundary is shown, not just counted')
+  assert.match(text(tree), /Il vient de Paris/u, 'with its excerpt')
+  assert.match(text(tree), /连续空格/u, 'and the damage flags are shown')
+})
+
+test('a lookup miss says the lexicon is local and offers the library', async () => {
+  const p = await panel({ lookupMot: async () => ok({ found: false, entries: [], candidates: [] }) })
+  button(p.render(), '查词').props.onClick()
+  all(p.render(), (node) => node.props?.id === 'lookupInput')[0].props.onChange({ target: { value: 'connaît' } })
+  button(p.render(), '查阅').props.onClick()
+  await flush()
+  const result = all(p.render(), (node) => node.props?.className === 'lookupResult')[0]
+  assert.ok(result, 'the miss view is shown')
+  assert.match(text(result), /未收藏/u)
+  assert.match(text(result), /只读本地词库/u, 'the miss says what the lookup actually read')
+  assert.ok(button(result, '打开知识库'), 'and offers the real next step')
+  assert.ok(button(result, '← 返回解析'))
+})
+
+test('a lookup miss names each candidate and opens it with one click', async () => {
+  const lookups = []
+  const p = await panel({
+    lookupMot: async ({ mot }) => {
+      lookups.push(mot)
+      if (mot === 'connaît') {
+        return ok({
+          found: false, entries: [],
+          candidates: [{ entryId: 'e1', mot: 'connaître', lemma: 'connaître', senses: [{ id: 's1', label: '动词', definition: '知道；认得。' }] }],
+        })
+      }
+      return ok({ found: true, entries: [{ senses: [{ id: 's2', label: '动词', definition: '知道；认得。' }] }], candidates: [] })
+    },
+  })
+  button(p.render(), '查词').props.onClick()
+  all(p.render(), (node) => node.props?.id === 'lookupInput')[0].props.onChange({ target: { value: 'connaît' } })
+  button(p.render(), '查阅').props.onClick()
+  await flush()
+  const result = all(p.render(), (node) => node.props?.className === 'lookupResult')[0]
+  const candidate = all(result, (node) => node.type === 'button' && text(node).includes('connaître'))[0]
+  assert.ok(candidate, 'the candidate is named, not just counted')
+  candidate.props.onClick()
+  await flush()
+  assert.deepEqual(lookups, ['connaît', 'connaître'], 'clicking looks up the candidate itself')
+  const opened = all(p.render(), (node) => node.props?.className === 'lookupResult')[0]
+  assert.match(text(opened), /知道；认得。/u, 'the candidate’s entry is shown')
+})

@@ -154,14 +154,21 @@ export function validateSentenceAnalysis(analysis, sentenceText) {
         errors.push('没有从句结构：至少要有主句');
     // Every range must fit the sentence it claims to describe.
     const ranged = [
-        ...analysis.clauses.map((clause) => ({ what: `从句「${clause.role}」`, start: clause.start, end: clause.end })),
-        ...analysis.constituents.map((item) => ({ what: `成分「${item.role}」`, start: item.start, end: item.end })),
+        ...analysis.clauses.map((clause) => ({ what: `从句「${clause.role}」`, start: clause.start, end: clause.end, text: clause.text })),
+        ...analysis.constituents.map((item) => ({ what: `成分「${item.role}」`, start: item.start, end: item.end, text: item.text })),
     ];
     for (const item of ranged) {
         if (item.end <= item.start)
             errors.push(`${item.what} 的区间为空或反向（${String(item.start)}–${String(item.end)}）`);
         else if (item.end > sentenceText.length) {
             errors.push(`${item.what} 的区间超出句子长度（${String(item.end)} > ${String(sentenceText.length)}）`);
+        }
+        else if (sentenceText.slice(item.start, item.end) !== item.text) {
+            // Colour is rendered from the range, so the recorded text must be exactly
+            // what the range cuts out: a mismatch would highlight words the analysis
+            // never described.
+            errors.push(`${item.what} 的文本与区间不一致（${String(item.start)}–${String(item.end)} 截得`
+                + `「${sentenceText.slice(item.start, item.end).slice(0, 40)}」，记录为「${item.text.slice(0, 40)}」）`);
         }
     }
     // The sentence must be covered, and a single constituent spanning everything is
@@ -195,14 +202,28 @@ export function validateSentenceAnalysis(analysis, sentenceText) {
         }
     }
     // A clause structure that does not nest properly is not a structure.
-    const ids = new Set(analysis.clauses.map((clause) => clause.id));
+    const byId = new Map(analysis.clauses.map((clause) => [clause.id, clause]));
     for (const clause of analysis.clauses) {
         if (clause.parentId === null)
             continue;
-        if (!ids.has(clause.parentId))
+        if (!byId.has(clause.parentId))
             errors.push(`从句「${clause.role}」的父从句不存在`);
-        if (clause.parentId === clause.id)
+        if (clause.parentId === clause.id) {
             errors.push(`从句「${clause.role}」把自己当作父从句`);
+            continue;
+        }
+        // Follow the parent chain: a clause that reaches itself through any number
+        // of steps (A→B→A, A→B→C→A) is a cycle, and no nesting contains a cycle.
+        const seen = new Set([clause.id]);
+        let cursor = clause.parentId;
+        while (cursor !== null && byId.has(cursor)) {
+            if (seen.has(cursor)) {
+                errors.push(`从句「${clause.role}」的父从句链形成循环`);
+                break;
+            }
+            seen.add(cursor);
+            cursor = byId.get(cursor)?.parentId ?? null;
+        }
     }
     // Certainty must be visible: an interpretation is not a fact.
     if (analysis.explanations.length === 0) {

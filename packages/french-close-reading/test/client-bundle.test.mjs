@@ -249,12 +249,14 @@ test('every panel capability is defined and actually rendered', () => {
     ['mastery is the reader\'s act', 'await setGrammarMastery({'],
     ['mastery controls are rendered per entry', 'onClick: () => moveMastery(entry, mastery)'],
     // The six-part analysis: generated through the chosen backend, refused with a
-    // reason, rendered from structure, and published as a version.
+    // reason, and rendered from structure. Version publishing stays a Host
+    // capability (the Remote is declared and wired); the panel entry was removed
+    // because its handler shadowed the Remote name and recursed into itself, so
+    // there is no call site left to pin.
     ['the analysis is read, not generated, on focus', 'await readSentenceAnalysis({ passageId: activePassage.id, anchorId })'],
     ['coverage is measured', 'await readAnalysisCoverage({ passageId })'],
     ['the analysis is generated on demand', 'await analyseSentence({'],
     ['a refused analysis shows the gate reason', "format(t, 'analysisRefused', { reason: value.reason, detail: value.failure ?? '' })"],
-    ['a version is published explicitly', 'await publishAnalysis({'],
     ['the colour comes from the role token', 'color: tokenForRole(piece.role)'],
     ['explanations carry their certainty', 't(`certainty_${explanation.kind}`)'],
     ['clauses are drawn with their nesting', 'clauseRows(found.clauses)'],

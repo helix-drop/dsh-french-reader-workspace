@@ -82,9 +82,11 @@ export function createBacking({ failWrites = false, schema = null } = {}) {
  * Open one domain generation and build a controller over it.
  * @param backing - Result of {@link createBacking}.
  * @param domain - Domain spec to open.
+ * @param options.services - Host services to provide on the controller's
+ *   context (e.g. `{ web: { fetch } }`), when the code under test needs one.
  * @returns The open domain, its controller, and the change events it emitted.
  */
-export async function openController(backing, domain, { backends = null, validateWrites = true } = {}) {
+export async function openController(backing, domain, { backends = null, validateWrites = true, services = {} } = {}) {
   // The schema is the real record union, so the medium refuses anything a real
   // backend would refuse on the next open.
   if (validateWrites) backing.schema = domain.tables.records.valueSchema
@@ -92,7 +94,9 @@ export async function openController(backing, domain, { backends = null, validat
   const handle = await generation.facility.open(domain)
   // `backends` is the generation test seam: production builds the real DSH and
   // agy backends, a test injects one that answers inline and records its prompt.
-  const controller = new FrenchReaderController(new Context(), handle, backends)
+  const ctx = new Context()
+  for (const [name, service] of Object.entries(services)) ctx.provide(name, service)
+  const controller = new FrenchReaderController(ctx, handle, backends)
   return { domain: handle, controller, events: generation.events }
 }
 

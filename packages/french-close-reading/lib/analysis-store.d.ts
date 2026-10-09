@@ -28,7 +28,10 @@ export declare function writeAnalysisVersions(table: RecordTable, value: StoredA
  * The analysis must pass the gate first: an analysis with errors is refused here
  * rather than stored and shown as if it were usable. Re-analysing a sentence
  * replaces that sentence's row and leaves every other sentence untouched, so a
- * batch can be completed one sentence at a time.
+ * batch can be completed one sentence at a time. The revision belongs to the
+ * store, not to the draft: the first analysis of a sentence is revision 1 and
+ * each replacement increments it, so two analyses of one sentence can be told
+ * apart by more than their timestamps.
  */
 export declare function putSentenceAnalysis(table: RecordTable, analysis: StoredSentenceAnalysis, sentenceText: string): Promise<{
     stored: boolean;
@@ -148,6 +151,9 @@ export interface AnalysisDraftInput {
  * Index references (`parentIndex`, `clauseIndex`) are how a model can point at
  * another item without inventing an id; they are resolved here into real ids, and
  * an index that names nothing is a refusal rather than a dropped parent.
+ * Character offsets obey the same rule: they must be non-negative integers
+ * exactly as the contract states them — a reply that breaks the contract is
+ * refused, never repaired into something that merely looks valid.
  */
 export declare function parseAnalysisReply(reply: string, input: AnalysisDraftInput): {
     ok: true;

@@ -159,6 +159,12 @@ export class DshLlmBackend {
                 failure: 'stream-ended-without-finish',
             };
         }
+        // A provider may ignore the cancel and still end its stream with `stop`:
+        // the turn was revoked, and a late "success" must never be handed back as a
+        // usable result — downstream stores whatever this returns.
+        if (request.signal.aborted) {
+            return { text, resolvedModel: target.model, usage, finish: 'cancelled', failure };
+        }
         // A route that answered is named by the request's own route; the backend does
         // not pretend to know a different one after the fact.
         return { text, resolvedModel: target.model, usage, finish, failure };

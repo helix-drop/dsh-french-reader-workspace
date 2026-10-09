@@ -151,6 +151,49 @@ test('a clause pointing at a parent that does not exist is refused', () => {
   assert.equal(report.errors.some((error) => error.includes('父从句不存在')), true)
 })
 
+test('a text that disagrees with its own range is refused, with both sides named', () => {
+  // The range cuts one string out of the sentence; the stored text is another.
+  // Colour is painted from the range, so this analysis would highlight words it
+  // never described.
+  const analysis = goodAnalysis()
+  analysis.constituents[1] = { ...analysis.constituents[1], text: 'notre jardin' }
+  const report = validateSentenceAnalysis(analysis, SENTENCE)
+  const mismatch = report.errors.find((error) => error.includes('文本与区间不一致'))
+  assert.ok(mismatch !== undefined, 'the mismatch is an error, not a shrug')
+  assert.match(mismatch, /谓语/u, 'the offending constituent is named')
+  assert.match(mismatch, /faut cultiver/u, 'what the range actually cuts is quoted')
+  const clause = goodAnalysis()
+  clause.clauses[0] = { ...clause.clauses[0], start: 0, end: 2, text: 'Il faut' }
+  const clauseReport = validateSentenceAnalysis(clause, SENTENCE)
+  assert.equal(clauseReport.errors.some((error) => error.includes('文本与区间不一致')), true,
+    'clauses are checked the same way')
+})
+
+test('a cycle through the parent chain is refused, however many steps it takes', () => {
+  const two = goodAnalysis()
+  // A → B and B → A: no direct self-reference, still no structure.
+  two.clauses[0] = { ...two.clauses[0], parentId: two.clauses[1].id }
+  two.clauses[1] = { ...two.clauses[1], parentId: two.clauses[0].id }
+  assert.equal(
+    validateSentenceAnalysis(two, SENTENCE).errors.some((error) => error.includes('循环')), true,
+    'A→B→A is a cycle',
+  )
+
+  const three = goodAnalysis()
+  const extra = { ...clause('补语从句', 'hérité', three.clauses[1].id), id: uuid() }
+  // A → B → C → A: the cycle only closes after two hops.
+  three.clauses[0] = { ...three.clauses[0], parentId: three.clauses[1].id }
+  three.clauses[1] = { ...three.clauses[1], parentId: extra.id }
+  three.clauses.push({ ...extra, parentId: three.clauses[0].id })
+  assert.equal(
+    validateSentenceAnalysis(three, SENTENCE).errors.some((error) => error.includes('循环')), true,
+    'A→B→C→A is a cycle',
+  )
+
+  // A proper chain is not a cycle: main ← relative is exactly what nesting means.
+  assert.deepEqual(validateSentenceAnalysis(goodAnalysis(), SENTENCE).errors, [])
+})
+
 test('an interpretation written as a syntactic fact is flagged', () => {
   const analysis = goodAnalysis()
   analysis.explanations = [

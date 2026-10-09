@@ -170,17 +170,43 @@ export function renderPrompt(manifest) {
         manifest.question,
     ].join('\n');
 }
-/** The system instruction for one compiled turn. */
+/** The discipline every reader-facing system instruction shares. */
+const SYSTEM_BASE = [
+    '你是一位法语精读助手，帮助读者逐句读懂法语原文。',
+    '纪律：',
+    '- 分开陈述句法事实、语境解释与修辞／思想解读，不要把推测写成作者必然的意图。',
+    '- 不确定的内容标注「待查证」，不要编造。',
+    '- 不要改写原文，不要假设你看到了未提供的段落。',
+    '- 回答用中文，保留法语原句与术语。',
+];
+/**
+ * The system instruction for one compiled discussion turn.
+ *
+ * Only this turn asks for the machine-readable grammar block: a sentence
+ * analysis must never see this instruction, because its own contract is "one
+ * JSON object and nothing else" — the two instructions answer with different
+ * shapes and cannot share one system prompt.
+ */
 export function renderSystem() {
     return [
-        '你是一位法语精读助手，帮助读者逐句读懂法语原文。',
-        '纪律：',
-        '- 分开陈述句法事实、语境解释与修辞／思想解读，不要把推测写成作者必然的意图。',
-        '- 不确定的内容标注「待查证」，不要编造。',
-        '- 不要改写原文，不要假设你看到了未提供的段落。',
-        '- 回答用中文，保留法语原句与术语。',
+        ...SYSTEM_BASE,
         '',
         renderExtractionInstruction(),
+    ].join('\n');
+}
+/**
+ * The system instruction for one sentence analysis.
+ *
+ * The reply is one JSON object and nothing else: no prose around it, no code
+ * fence, and above all no grammar block — that block belongs to discussion
+ * turns, and asking for it here would produce a reply the analysis parser
+ * rightly refuses.
+ */
+export function renderAnalysisSystem() {
+    return [
+        ...SYSTEM_BASE,
+        '',
+        '- 本次任务只输出一个 JSON 对象：不输出解释文字、代码块标记或任何附加的机器可读块。',
     ].join('\n');
 }
 export function materialLabel(material) {

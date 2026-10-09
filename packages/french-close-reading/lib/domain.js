@@ -261,8 +261,12 @@ export const GrammarExampleSchema = z.object({
      * The real question this example came from. Counting dedupes on this, not on
      * the intent: one question that yields two intents about the same point is
      * still one question, and a retried write keeps its original id.
+     *
+     * Empty string is the recorded "no question" marker — the writer emits it and
+     * the readers test `!== ''` — so the schema must accept it: a `min(1)` here
+     * contradicted this field's own default and rejected real stored rows on open.
      */
-    questionId: z.string().min(1).max(120).default(''),
+    questionId: z.string().max(120).default(''),
     createdAt: z.string().datetime(),
 }).strict();
 export const GrammarPitfallSchema = z.object({
@@ -302,8 +306,8 @@ export const GrammarPendingSchema = z.object({
     anchorId: AnchorIdSchema.nullable().default(null),
     question: z.string().max(MAX_SOURCE_CHARACTERS).default(''),
     intentId: z.string().uuid(),
-    /** The real question this candidate came from; see {@link GrammarExampleSchema}. */
-    questionId: z.string().min(1).max(120).default(''),
+    /** The real question this candidate came from; empty when none — see {@link GrammarExampleSchema}. */
+    questionId: z.string().max(120).default(''),
     createdAt: z.string().datetime(),
     /** Set once a human decision closes the candidate; the row is kept as a trace. */
     resolution: z.enum(['attached', 'created', 'discarded']).nullable().default(null),

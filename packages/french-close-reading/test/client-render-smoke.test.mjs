@@ -69,9 +69,14 @@ async function mountPanel(overrides, byName = new Map()) {
   const api = new Proxy({}, { get: () => ok({}) })
   let captured = null
   let declaration = null
+  // The real dictionaries, so text assertions read what the reader reads.
+  let dictionaries = { zh: {}, en: {} }
   const ctx = {
     effect: (factory) => factory(),
-    locale: { register: () => {}, bind: () => (key) => key },
+    locale: {
+      register: (_ns, value) => { dictionaries = value },
+      bind: () => (key) => dictionaries.zh?.[key] ?? key,
+    },
     plugin: (child) => {
       const disposer = child?.apply?.(ctx)
       return { dispose: async () => { if (typeof disposer === 'function') await disposer() } }
@@ -103,9 +108,8 @@ function deepRender(node, react, depth = 0) {
   if (Array.isArray(node)) return node.map((child) => deepRender(child, react, depth))
   const { type, props } = node
   if (typeof type === 'function') {
-    const seeded = react.__named(type.name ?? '')
     react.__enter(false)
-    void seeded
+    react.__named(type.name ?? '')
     const out = type(props ?? {})
     react.__enter(depth === 0)
     return deepRender(out, react, depth + 1)
@@ -115,6 +119,39 @@ function deepRender(node, react, depth = 0) {
   }
   return node
 }
+
+/**
+ * The same walk, collecting text and node matchers for assertions.
+ *
+ * The seeding order matters: `__enter(false)` restarts the index count, and
+ * `__named` then points the count at the component's own seed map — doing them
+ * the other way round cleared the seeds before the component ran, which is why
+ * the old walk never actually rendered with them.
+ */
+function collect(node, react, found = { texts: [], nodes: [] }, depth = 0) {
+  if (node === null || node === undefined || typeof node === 'boolean') return found
+  if (Array.isArray(node)) {
+    for (const child of node) collect(child, react, found, depth)
+    return found
+  }
+  if (typeof node !== 'object') {
+    found.texts.push(String(node))
+    return found
+  }
+  const { type, props } = node
+  if (typeof type === 'function') {
+    react.__enter(false)
+    react.__named(type.name ?? '')
+    collect(type(props ?? {}), react, found, depth + 1)
+    react.__enter(depth === 0)
+    return found
+  }
+  found.nodes.push(node)
+  if (props !== undefined && props.children !== undefined) collect(props.children, react, found, depth + 1)
+  return found
+}
+const collectText = (node, react) => collect(node, react).texts.join(' ')
+const collectNodes = (node, react, predicate) => collect(node, react).nodes.filter(predicate)
 
 const passage = {
   id: 'p', title: 'Test', sourceText: 'Le lecteur n’écarte pas une interprétation.',
@@ -179,12 +216,8 @@ test('an open word entry renders without throwing', async () => {
 })
 
 test('the entry path can be walked, seeding what its effects would have loaded', async () => {
-  // What this does **not** do yet, stated plainly: it does not reach the line that renders a
-  // loaded card. Proof: with that line deliberately broken (`LexiconCardX`), this test still
-  // passes. The `extraForSection` bug in `KnowledgeSection`'s destructuring was found by the
-  // **preview harness**, not by the suite, and the suite still does not guard it.
-  // Kept because it does walk the entry path (header, bar, grammar slot) — but not sold as
-  // more than that.
+  // The seed map now lands on the real state indices: 5 is KnowledgeSection's
+  // open card, so this walk reaches the card render itself.
   const entry = {
     entryId: 'entry-1', mot: 'écarter', lemma: 'écarter', partOfSpeech: '动词',
     forms: ['écarte'], provenance: 'user', status: 'draft', revision: 1,
@@ -203,8 +236,94 @@ test('the entry path can be walked, seeding what its effects would have loaded',
     [10, passage], [16, segmentation], [18, 'p1.s1'], [43, true], [44, 'entry-1'], [45, 'vocab'],
   ]), new Map([
     ['KnowledgeEntry', new Map([[0, entry]])],
-    ['KnowledgeSection', new Map([[1, { entries: [entry], total: 1 }], [2, { entries: [], total: 0 }], [6, card]])],
+    ['KnowledgeSection', new Map([[1, { entries: [entry], total: 1 }], [2, { entries: [], total: 0 }], [5, card]])],
   ]))
   react.__enter(true)
   deepRender(component(props), react)
+})
+
+/**
+ * The knowledge detail page is entry-scoped (2026-10-09 acceptance):
+ * a word's page is its card, and a grammar entry's page is its rule — the
+ * whole-library list and the pending candidates belong to the library tab.
+ */
+test('a word entry page renders its card, never the grammar empty state nor the library list', async () => {
+  const entry = {
+    entryId: 'entry-1', mot: 'cœur', lemma: 'cœur', partOfSpeech: '名词',
+    forms: [], provenance: 'user', status: 'draft', revision: 1,
+    senses: [{ id: 's1', label: '名词', definition: '心；情感与直觉的所在。' }], sections: {}, sources: [], occurrences: [],
+  }
+  const card = {
+    mot: 'cœur', entryId: 'entry-1',
+    value: {
+      kind: 'card',
+      rendered: '§1 词条总览\n词形 cœur\n§2 释义\n心；情感与直觉的所在。',
+      sections: [
+        { number: '§1', title: '词条总览', required: true },
+        { number: '§2', title: '释义', required: true },
+      ],
+      errors: [], hints: [],
+    },
+  }
+  const { component, props, react } = await mountPanel(new Map([
+    [10, passage], [16, segmentation], [18, 'p1.s1'], [43, true], [44, 'entry-1'], [45, 'vocab'],
+  ]), new Map([
+    ['KnowledgeEntry', new Map([[0, entry]])],
+    ['KnowledgeSection', new Map([[5, card]])],
+  ]))
+  react.__enter(true)
+  const tree = component(props)
+  const text = collectText(tree, react)
+  assert.match(text, /词形 cœur/u, 'the card body is on the page')
+  assert.match(text, /心；情感与直觉的所在/u, 'the definition is on the page')
+  assert.equal(text.includes('语法库还是空的'), false, 'no wrong empty state on a word page')
+  assert.equal(
+    collectNodes(tree, react, (node) => node.props?.className === 'fr-entryList').length, 0,
+    'the whole-library list is not part of one entry’s page',
+  )
+})
+
+test('a grammar entry page renders its own rule, not the whole library', async () => {
+  const entry = {
+    entryId: 'g1', topic: 'Étant donné que 引导原因从句', keyPoints: 'étant donné que + 从句表原因。',
+    module: '状语从句', mastery: 'learning', askCount: 1, level: 'B1', contentStatus: 'ai-unverified',
+    pitfalls: 0,
+  }
+  const { component, props, react } = await mountPanel(new Map([
+    [10, passage], [16, segmentation], [18, 'p1.s1'], [43, true], [44, 'g1'], [45, 'grammar'],
+  ]), new Map([
+    ['KnowledgeEntry', new Map([[0, entry]])],
+  ]))
+  react.__enter(true)
+  const tree = component(props)
+  const text = collectText(tree, react)
+  assert.match(text, /étant donné que \+ 从句表原因。/u, 'the entry’s own rule is on the page')
+  assert.equal(text.includes('待审候选'), false, 'global pending candidates are not the entry’s content')
+  assert.equal(
+    collectNodes(tree, react, (node) => node.props?.className === 'fr-entryList').length, 0,
+    'no library list below the rule',
+  )
+})
+
+test('the library grammar tab carries the pending candidates, clearly sectioned', async () => {
+  const grammar = {
+    entries: [{
+      entryId: 'g1', topic: 'Étant donné que 引导原因从句', keyPoints: '…', module: '状语从句',
+      mastery: 'learning', askCount: 1, level: 'B1', contentStatus: 'ai-unverified', pitfalls: 0,
+    }],
+    pending: [{
+      pendingId: 'pd1', topic: 'que 作关系代词', body: '…', resolution: null,
+      candidates: [{ entryId: 'g1', topic: 'Étant donné que 引导原因从句' }],
+    }],
+  }
+  const { component, props, react } = await mountPanel(new Map([
+    [10, passage], [16, segmentation], [18, 'p1.s1'], [43, true], [44, null],
+  ]), new Map([
+    ['KnowledgeLibrary', new Map([[0, 'grammar'], [2, grammar]])],
+  ]))
+  react.__enter(true)
+  const tree = component(props)
+  const text = collectText(tree, react)
+  assert.match(text, /待审候选/u, 'the pending section is titled as itself')
+  assert.match(text, /que 作关系代词/u, 'and the candidate is listed in it')
 })

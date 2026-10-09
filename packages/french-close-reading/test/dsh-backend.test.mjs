@@ -162,6 +162,21 @@ test('an aborted signal is reported as cancelled before any call', async () => {
   assert.equal(calls.length, 0, 'nothing is prepared for an aborted turn')
 })
 
+test('a provider that ignores the cancel and still finishes stop is a cancelled turn', async () => {
+  // The abort lands mid-stream; the provider's stream runs to a normal finish
+  // frame anyway. The ending the caller revoked must not come back as success,
+  // because downstream stores whatever finish this outcome claims.
+  const { service } = strictLlm({ chunks: textChunks })
+  const backend = new DshLlmBackend(contextWith(service))
+  const controller = new AbortController()
+  const outcome = await backend.generate(
+    { backend: 'dsh', model: 'prov/model' },
+    { system: 's', prompt: 'p', signal: controller.signal, onDelta: () => controller.abort() },
+  )
+  assert.equal(outcome.finish, 'cancelled')
+  assert.equal(outcome.text, '这是回答。', 'what arrived is still reported, but the ending is the cancel')
+})
+
 test('a malformed model route is refused instead of being guessed at', async () => {
   const { service } = strictLlm({ chunks: textChunks })
   const backend = new DshLlmBackend(contextWith(service))

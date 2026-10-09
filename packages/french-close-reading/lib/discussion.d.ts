@@ -43,11 +43,11 @@ export declare const DiscussionMessageSchema: z.ZodObject<{
         resolvedModel: z.ZodDefault<z.ZodNullable<z.ZodString>>;
         attempt: z.ZodDefault<z.ZodNumber>;
         status: z.ZodEnum<{
-            failed: "failed";
+            cancelled: "cancelled";
             draft: "draft";
+            failed: "failed";
             complete: "complete";
             partial: "partial";
-            cancelled: "cancelled";
         }>;
         failure: z.ZodDefault<z.ZodNullable<z.ZodString>>;
         usage: z.ZodDefault<z.ZodNullable<z.ZodObject<{
@@ -117,11 +117,11 @@ export declare const DiscussionBranchSchema: z.ZodObject<{
             resolvedModel: z.ZodDefault<z.ZodNullable<z.ZodString>>;
             attempt: z.ZodDefault<z.ZodNumber>;
             status: z.ZodEnum<{
-                failed: "failed";
+                cancelled: "cancelled";
                 draft: "draft";
+                failed: "failed";
                 complete: "complete";
                 partial: "partial";
-                cancelled: "cancelled";
             }>;
             failure: z.ZodDefault<z.ZodNullable<z.ZodString>>;
             usage: z.ZodDefault<z.ZodNullable<z.ZodObject<{
@@ -309,11 +309,11 @@ export declare const DiscussionSchema: z.ZodObject<{
                 resolvedModel: z.ZodDefault<z.ZodNullable<z.ZodString>>;
                 attempt: z.ZodDefault<z.ZodNumber>;
                 status: z.ZodEnum<{
-                    failed: "failed";
+                    cancelled: "cancelled";
                     draft: "draft";
+                    failed: "failed";
                     complete: "complete";
                     partial: "partial";
-                    cancelled: "cancelled";
                 }>;
                 failure: z.ZodDefault<z.ZodNullable<z.ZodString>>;
                 usage: z.ZodDefault<z.ZodNullable<z.ZodObject<{

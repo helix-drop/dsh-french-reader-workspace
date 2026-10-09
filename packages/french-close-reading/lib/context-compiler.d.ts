@@ -100,8 +100,24 @@ export declare function compileContext(input: CompileInput): CompileResult;
  * allowed to see.
  */
 export declare function renderPrompt(manifest: StoredContextManifest): string;
-/** The system instruction for one compiled turn. */
+/**
+ * The system instruction for one compiled discussion turn.
+ *
+ * Only this turn asks for the machine-readable grammar block: a sentence
+ * analysis must never see this instruction, because its own contract is "one
+ * JSON object and nothing else" — the two instructions answer with different
+ * shapes and cannot share one system prompt.
+ */
 export declare function renderSystem(): string;
+/**
+ * The system instruction for one sentence analysis.
+ *
+ * The reply is one JSON object and nothing else: no prose around it, no code
+ * fence, and above all no grammar block — that block belongs to discussion
+ * turns, and asking for it here would produce a reply the analysis parser
+ * rightly refuses.
+ */
+export declare function renderAnalysisSystem(): string;
 export declare function materialLabel(material: StoredContextMaterial): string;
 /**
  * A stable fingerprint of everything that decides what a request contains.

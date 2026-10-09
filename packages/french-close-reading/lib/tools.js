@@ -781,8 +781,11 @@ export function buildFrenchReaderTool(controller) {
         /** One sentence's stored analysis, with the gate's verdict attached. */
         async sentence(args) {
             const value = controller.readSentenceAnalysis(requireString(args.passageId, 'passageId'), requireString(args.anchorId, 'anchorId'), signal());
-            if (value.found !== true || value.analysis === undefined)
-                return { found: false };
+            if (value.found !== true || value.analysis === undefined) {
+                // A stale analysis exists but describes text that is no longer the
+                // sentence: say so, so the caller re-analyses instead of reading it.
+                return value.stale === true ? { found: false, stale: true } : { found: false };
+            }
             return {
                 found: true,
                 translation: value.analysis.translation,

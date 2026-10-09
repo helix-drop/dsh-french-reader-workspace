@@ -139,8 +139,8 @@ export declare const SentenceAnalysisSchema: z.ZodObject<{
         end: z.ZodDefault<z.ZodNullable<z.ZodNumber>>;
     }, z.core.$strict>>;
     provenance: z.ZodEnum<{
-        ai: "ai";
         user: "user";
+        ai: "ai";
         mixed: "mixed";
     }>;
     status: z.ZodEnum<{
@@ -220,8 +220,8 @@ export declare const SentenceAnalysesSchema: z.ZodObject<{
             end: z.ZodDefault<z.ZodNullable<z.ZodNumber>>;
         }, z.core.$strict>>;
         provenance: z.ZodEnum<{
-            ai: "ai";
             user: "user";
+            ai: "ai";
             mixed: "mixed";
         }>;
         status: z.ZodEnum<{

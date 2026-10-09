@@ -1,3 +1,4 @@
+import { PERSONS } from "./conjugation-data.js";
 /** A record key is path-safe: the lemma is normalised and hex-encoded. */
 export const conjugationKey = (lemma) => `conj_${[...lemma.trim().toLowerCase().normalize('NFC')]
     .map((character) => character.codePointAt(0).toString(16))
@@ -74,11 +75,25 @@ export function mergeDataset(existing, fetched) {
     }
     return { ...fetched, tenses: merged };
 }
+/**
+ * The persons a tense of one mood is expected to have.
+ *
+ * A finite indicative/subjunctive/conditional tense conjugates for all six;
+ * the imperative present only exists for `2s`, `1p`, `2p`, and non-finite
+ * moods (infinitive, participle) have no persons at all — reporting those as
+ * "missing" would claim a gap the grammar itself does not have.
+ */
+const EXPECTED_PERSONS = {
+    imp: ['2s', '1p', '2p'],
+    inf: [],
+    par: [],
+};
 /** The persons a dataset is still missing for one tense, so a card can say what is absent. */
 export function missingPersons(dataset, slot) {
+    const expected = EXPECTED_PERSONS[slot.mood] ?? PERSONS;
     const tense = dataset.tenses.find((entry) => entry.mood === slot.mood && entry.tense === slot.tense);
     if (tense === undefined)
-        return ['1s', '2s', '3s', '1p', '2p', '3p'];
+        return [...expected];
     const present = new Set(tense.forms.map((form) => form.person));
-    return ['1s', '2s', '3s', '1p', '2p', '3p'].filter((person) => !present.has(person));
+    return expected.filter((person) => !present.has(person));
 }

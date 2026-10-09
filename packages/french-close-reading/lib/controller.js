@@ -41,9 +41,9 @@ import { addConclusion, addContextManifest, appendMessage, branchHistory, create
 import { analysisPrompt, coverageOf, parseAnalysisReply, publishAnalysisVersion, putSentenceAnalysis, readAnalysisVersions, readSentenceAnalyses, } from "./analysis-store.js";
 import { validateSentenceAnalysis } from "./analysis.js";
 import { fetchLexiconSource, listLexiconSources, } from "./source-fetch.js";
-import { compileContext, renderPrompt, renderSystem, } from "./context-compiler.js";
+import { compileContext, renderAnalysisSystem, renderPrompt, renderSystem, } from "./context-compiler.js";
 import { extractGrammarPoints, } from "./answer-extraction.js";
-import { answerForLemma, missingPersons, readConjugationRecord, writeConjugationDataset, } from "./conjugation-store.js";
+import { answerForLemma, mergeDataset, missingPersons, readConjugationRecord, writeConjugationDataset, } from "./conjugation-store.js";
 import { fetchConjugationDataset } from "./conjugation-fetch.js";
 import { beginGenerationJob, finishGenerationJob, listGenerationJobs as listStoredGenerationJobs, readGenerationJob, reconcileGenerationJobs, recordGenerationPhase, recordGenerationProgress, } from "./generation-store.js";
 import { DshLlmBackend, } from "./generation.js";
@@ -527,8 +527,11 @@ let FrenchReaderController = (() => {
                 throw badRequest('Invalid analysis request', parsed.error.issues);
             signal.throwIfAborted();
             const value = this.readSentenceAnalysis(parsed.data.passageId, parsed.data.anchorId, signal);
-            if (value.found !== true || value.analysis === undefined)
-                return { kind: 'missing' };
+            if (value.found !== true || value.analysis === undefined) {
+                // A stale analysis exists but describes text that is no longer the
+                // sentence: it is named as stale rather than served as usable or as gone.
+                return value.stale === true ? { kind: 'stale' } : { kind: 'missing' };
+            }
             const analysis = value.analysis;
             return {
                 kind: 'found',
@@ -2134,18 +2137,31 @@ let FrenchReaderController = (() => {
                 return { statusCode: response.statusCode, body: response.body, truncated: response.truncated };
             };
             const outcome = await fetchConjugationDataset({ lemma, fetchPage, signal });
-            await this.serialize(() => writeConjugationDataset(this.table(), {
-                lemma,
-                dataset: outcome.dataset,
-                source: 'fr-wiktionary',
-                sourceVersion: 'api',
-                fetchStatus: outcome.status === 'ok' ? 'ok'
-                    : outcome.status === 'partial' ? 'partial'
-                        : outcome.status === 'rate-limited' ? 'rate-limited'
-                            : outcome.status === 'no-forms' ? 'no-forms' : 'failed',
-                failure: outcome.failure,
-                missingForms: outcome.missingForms,
-            }));
+            await this.serialize(async () => {
+                // A failed or empty re-fetch reports its failure on the record, but it
+                // must not destroy the data an earlier fetch proved: the old dataset
+                // stays. A fetch that did produce forms merges tense by tense, so tenses
+                // this run did not reach are kept rather than discarded.
+                const existing = readConjugationRecord(this.table(), lemma);
+                await writeConjugationDataset(this.table(), {
+                    lemma,
+                    dataset: outcome.dataset === null
+                        ? (existing?.dataset ?? null)
+                        : mergeDataset(existing?.dataset ?? null, outcome.dataset),
+                    source: 'fr-wiktionary',
+                    sourceVersion: 'api',
+                    fetchStatus: outcome.status === 'ok' ? 'ok'
+                        : outcome.status === 'partial' ? 'partial'
+                            : outcome.status === 'rate-limited' ? 'rate-limited'
+                                : outcome.status === 'no-forms' ? 'no-forms' : 'failed',
+                    failure: outcome.failure,
+                    // When nothing new was derived, the paradigm's gaps are still what the
+                    // previous fetch found — not this run's "everything is missing".
+                    missingForms: outcome.dataset === null && existing?.dataset != null
+                        ? existing.missingForms
+                        : outcome.missingForms,
+                });
+            });
             return {
                 fetched: true,
                 status: outcome.status,
@@ -2301,7 +2317,14 @@ let FrenchReaderController = (() => {
                 versionCount: versions.versions.length,
             };
         }
-        /** One sentence's stored analysis, as the panel renders it. */
+        /**
+         * One sentence's stored analysis, as the panel renders it.
+         *
+         * The analysis is read against the *current* sentence, never against the text
+         * it remembers: a source correction moves the sentence, and then the stored
+         * analysis is stale — reported as such, with the same text comparison
+         * `analysisCoverage` uses, rather than returned as a usable analysis.
+         */
         readSentenceAnalysis(passageId, anchorId, signal) {
             signal.throwIfAborted();
             const passage = this.readPassage(passageId);
@@ -2311,7 +2334,19 @@ let FrenchReaderController = (() => {
                 .find((entry) => entry.anchorId === anchorId);
             if (analysis === undefined)
                 return { found: false };
-            const report = validateSentenceAnalysis(analysis, analysis.text);
+            const segmentation = this.readSegmentation(passage) ?? {
+                passageId: passage.id, sourceRevision: passage.sourceRevision,
+                revision: SEGMENTATION_REVISION, paragraphs: segmentSource(passage.sourceText),
+            };
+            const sentence = segmentation.paragraphs
+                .flatMap((paragraph) => paragraph.sentences)
+                .find((entry) => entry.id === anchorId);
+            if (sentence === undefined || sentence.text !== analysis.text) {
+                // The anchor may exist and still not name this text any more: either way
+                // the analysis describes a sentence that is no longer there.
+                return { found: false, stale: true };
+            }
+            const report = validateSentenceAnalysis(analysis, sentence.text);
             return { found: true, analysis, errors: report.errors, hints: report.hints };
         }
         /**
@@ -2380,8 +2415,13 @@ let FrenchReaderController = (() => {
             let outcome = null;
             const result = await (async () => {
                 try {
-                    outcome = await backend.generate({ backend: backend.id, model: input.model, reasoningEffort: input.reasoningEffort ?? undefined }, {
-                        system: renderSystem(), prompt, signal,
+                    outcome = await backend.generate({ backend: backend.id, model: input.model, reasoningEffort: input.reasoningEffort ?? undefined }, 
+                    // Sentence analysis runs on its own output protocol: the system
+                    // instruction asks for one JSON object and nothing else. The
+                    // discussion system prompt (renderSystem) asks for a grammar block
+                    // after the answer — the two cannot be mixed into one call.
+                    {
+                        system: renderAnalysisSystem(), prompt, signal,
                         onDelta: (delta) => {
                             receivedText += delta;
                             const now = Date.now();
@@ -2405,8 +2445,10 @@ let FrenchReaderController = (() => {
                     return { ok: false, reason: 'model-error', failure: outcome.failure };
                 }
                 // A cancelled generation has no usable reply; reporting it as anything else
-                // sends the reader looking at the wrong layer.
-                if (outcome.finish === 'cancelled') {
+                // sends the reader looking at the wrong layer. A provider that ignored the
+                // cancel and still answered `stop` lands here too: the reader revoked this
+                // turn, and its late reply is not a result.
+                if (outcome.finish === 'cancelled' || signal.aborted) {
                     return { ok: false, reason: 'cancelled', failure: outcome.failure };
                 }
                 const parsed = parseAnalysisReply(outcome.text, {
@@ -2428,8 +2470,39 @@ let FrenchReaderController = (() => {
                     };
                 }
                 // The gate decides, not the model: an analysis with errors is reported and
-                // never stored.
-                const stored = await this.serialize(() => putSentenceAnalysis(this.table(), parsed.analysis, sentence.text));
+                // never stored. The write itself re-checks everything the reply was
+                // computed against, because both a cancel and a source revision can land
+                // while this call waits its turn in the write queue:
+                // - a cancel that arrived after the parse still refuses the store;
+                // - a source revision made the sentence this analysis describes no longer
+                //   the current one, so storing it would attach it to text it is not about.
+                const stored = await this.serialize(async () => {
+                    if (signal.aborted)
+                        return { stored: false, cancelled: true };
+                    const current = this.readPassage(passage.id);
+                    const currentSegmentation = current === undefined ? undefined : this.readSegmentation(current);
+                    const currentSentence = currentSegmentation?.paragraphs
+                        .flatMap((entry) => entry.sentences)
+                        .find((entry) => entry.id === sentence.id);
+                    if (current === undefined
+                        || current.sourceRevision !== passage.sourceRevision
+                        || current.segmentationRevision !== passage.segmentationRevision
+                        || currentSentence === undefined
+                        || currentSentence.text !== sentence.text) {
+                        return { stored: false, revised: true };
+                    }
+                    return putSentenceAnalysis(this.table(), parsed.analysis, sentence.text);
+                });
+                if ('cancelled' in stored && stored.cancelled === true) {
+                    return { ok: false, reason: 'cancelled', failure: outcome.failure };
+                }
+                if ('revised' in stored && stored.revised === true) {
+                    return {
+                        ok: false,
+                        reason: 'source-revised',
+                        failure: '生成期间原文已被修订：这条解析对应的是旧文本，未写入；请基于新原文重新解析。',
+                    };
+                }
                 if (stored.stored === false) {
                     return {
                         ok: false,

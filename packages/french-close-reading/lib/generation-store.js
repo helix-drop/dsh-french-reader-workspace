@@ -1,3 +1,13 @@
+import { MAX_TRANSLATION_CHARACTERS } from "./limits.js";
+/**
+ * `partialText` is diagnostic evidence bounded by its schema field, never a
+ * second copy of the answer: the business result is parsed from the full reply,
+ * while the record keeps the head of it. Truncating here — at the store
+ * boundary — means no caller can fail a write by handing over a long reply.
+ */
+function truncatePartial(text) {
+    return text.length <= MAX_TRANSLATION_CHARACTERS ? text : text.slice(0, MAX_TRANSLATION_CHARACTERS);
+}
 /** The key of one job: kind plus operation id, both path-safe. */
 export const generationJobKey = (kind, operationId) => `job_${kind}_${operationId}`;
 /** One job by its own operation, or undefined when this operation never ran. */
@@ -63,7 +73,7 @@ export async function beginGenerationJob(table, input) {
 export async function recordGenerationProgress(table, job, partialText) {
     const next = {
         ...job,
-        partialText,
+        partialText: truncatePartial(partialText),
         updatedAt: new Date().toISOString(),
     };
     await writeGenerationJob(table, next);
@@ -97,7 +107,7 @@ export async function finishGenerationJob(table, job, patch) {
         usage: patch.usage === undefined ? job.usage : patch.usage,
         messageId: patch.messageId === undefined ? job.messageId : patch.messageId,
         contextId: patch.contextId === undefined ? job.contextId : patch.contextId,
-        partialText: patch.partialText ?? job.partialText,
+        partialText: patch.partialText === undefined ? job.partialText : truncatePartial(patch.partialText),
         updatedAt: now,
         finishedAt: now,
     };
