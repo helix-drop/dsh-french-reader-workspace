@@ -583,6 +583,10 @@ export const GenerationJobSchema = z.object({
   phase: z.string().max(24).nullable().optional(),
   /** How many times this operation has been attempted; a retry increments it. */
   attempt: z.number().int().min(1).default(1),
+  /** Milliseconds from backend dispatch to its terminal result; null if no call began. */
+  modelCallMs: z.number().int().min(0).nullable().optional(),
+  /** Milliseconds from backend dispatch to first text delta; null for non-streaming backends. */
+  firstTextDeltaMs: z.number().int().min(0).nullable().optional(),
   /** Text captured while the answer was still arriving. */
   partialText: z.string().max(MAX_TRANSLATION_CHARACTERS).default(''),
   finish: z.enum(['stop', 'max-tokens', 'cancelled', 'error']).nullable().default(null),

@@ -87,21 +87,31 @@ export class AgyBackend {
             argv.push('--effort', target.reasoningEffort);
         }
         capacity.running = true;
+        const callStartedAt = Date.now();
+        const withCallTiming = (outcome) => ({
+            ...outcome,
+            modelCallMs: Math.max(0, Date.now() - callStartedAt),
+            // The CLI returns one complete envelope; it has no observable text-delta boundary.
+            firstTextDeltaMs: null,
+        });
         try {
             const result = await this.runner(argv, request.signal, this.timeoutMs);
             if (request.signal.aborted) {
-                return { text: '', resolvedModel: null, usage: null, finish: 'cancelled', failure: null };
+                return withCallTiming({ text: '', resolvedModel: null, usage: null, finish: 'cancelled', failure: null });
             }
             if (result.timedOut)
-                return failureOutcome('agy-timeout', 'agy 在时限内没有完成，进程已停止。');
+                return withCallTiming(failureOutcome('agy-timeout', 'agy 在时限内没有完成，进程已停止。'));
             if (result.exitCode !== 0)
-                return failureOutcome('agy-failed', 'agy 报告本次运行未成功。');
+                return withCallTiming(failureOutcome('agy-failed', 'agy 报告本次运行未成功。'));
             if (result.lossy)
-                return failureOutcome('agy-output-truncated', 'agy 的输出被截断，不能当作完整回答。');
-            return parseEnvelope(result.text, target.model);
+                return withCallTiming(failureOutcome('agy-output-truncated', 'agy 的输出被截断，不能当作完整回答。'));
+            return withCallTiming(parseEnvelope(result.text, target.model));
         }
         catch {
-            return failureOutcome('agy-spawn-failed', '无法启动本机 agy CLI。');
+            if (request.signal.aborted) {
+                return withCallTiming({ text: '', resolvedModel: null, usage: null, finish: 'cancelled', failure: null });
+            }
+            return withCallTiming(failureOutcome('agy-spawn-failed', '无法启动本机 agy CLI。'));
         }
         finally {
             capacity.running = false;

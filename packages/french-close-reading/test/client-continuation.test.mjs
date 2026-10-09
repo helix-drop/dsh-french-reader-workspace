@@ -9,15 +9,26 @@ const passage = { id: 'parent', title: '第 3 章', sourceText: 'Je lis.', sourc
 
 async function panel(services = {}, browser = {}) {
   let stateIndex = 0, refIndex = 0, registration, component, props
-  const values = new Map([[10, passage], [16, { paragraphs: [] }]])
+  // The panel gained three archive-list state slots. Keep older test call sites
+  // expressed in their established indices while storing current React indices.
+  const toRuntimeStateIndex = (index) => typeof index === 'number' && index > 0 ? index + 3 : index
+  const stateValues = new Map([[13, passage], [19, { paragraphs: [] }]])
+  const values = {
+    get: (index) => stateValues.get(toRuntimeStateIndex(index)),
+    set: (index, value) => { stateValues.set(toRuntimeStateIndex(index), value); return values },
+    values: () => stateValues.values(),
+    *[Symbol.iterator]() {
+      for (const [index, value] of stateValues) yield [index > 0 ? index - 3 : index, value]
+    },
+  }
   const refs = []
   const effects = []
   const React = {
     createElement: (type, props, ...children) => ({ type, props: { ...props, children } }),
     useState(initial) {
       const index = stateIndex++
-      if (!values.has(index)) values.set(index, initial)
-      return [values.get(index), (next) => values.set(index, typeof next === 'function' ? next(values.get(index)) : next)]
+      if (!stateValues.has(index)) stateValues.set(index, initial)
+      return [stateValues.get(index), (next) => stateValues.set(index, typeof next === 'function' ? next(stateValues.get(index)) : next)]
     },
     useRef(initial) { const index = refIndex++; return refs[index] ??= { current: initial } },
     useEffect(factory) { effects.push(factory) }, useLayoutEffect() {}, useCallback: (fn) => fn, useMemo: (fn) => fn(),
@@ -44,7 +55,7 @@ async function panel(services = {}, browser = {}) {
     remote: { frenchReader: api, $mount: async () => async () => {} },
   }
   await registration.factory(() => React).apply(ctx)
-  return { render() { stateIndex = 0; refIndex = 0; return component(props) }, values, effects }
+  return { render() { stateIndex = 0; refIndex = 0; return component(props) }, values, effects, refs }
 }
 function all(node, predicate) {
   if (node == null || typeof node !== 'object') return []
@@ -728,7 +739,13 @@ function openComposer(p, branch, { preview = null, draft = '这一句怎么读�
   p.values.set(29, 'stub-model')
   p.values.set(30, { branches: [branch], conclusions: [] })
   p.values.set(31, draft)
-  p.values.set(32, preview)
+  const passageId = p.values.get(10)?.id ?? null
+  const requestId = p.refs[26]?.current ?? 0
+  const previewWithIdentity = preview === null ? null : {
+    ...preview,
+    previewIdentity: JSON.stringify([passageId, requestId, branch.branchId, 'stub', 'stub-model', draft.trim()]),
+  }
+  p.values.set(32, previewWithIdentity)
   p.values.set(50, { id: branch.branchId, anchorId: branch.anchorId, kind: 'discussion', title: branch.title })
 }
 

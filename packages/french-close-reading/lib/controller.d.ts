@@ -5,7 +5,7 @@ import type { SourceFetch } from './source-gate.ts';
 import { type GenerationBackend } from './generation.ts';
 import { FRENCH_READER_DOMAIN, type StoredContextManifest, type StoredSentenceAnalysis, type StoredDiscussionBranch, type StoredRun, type StoredRunExtraction, type StoredGenerationJob, type StoredGrammarEntry, type StoredGrammarPending } from './domain.ts';
 import type { AskInput, AskPreview, AskRequest, AskFrame, AskResult, BackendModelView, BackendStatus, CreateBranchRequest, CreateBranchValue, DiscussionView, ListBackendModelsRequest, ListBackendModelsValue, ListBackendsRequest, ListBackendsValue, ListDiscussionRequest, PreviewAskRequest, PreviewAskValue, FetchLexiconSourceRequest, FetchLexiconSourceValue, ListLexiconSourcesRequest, ListLexiconSourcesValue, ReadContextRequest, ReadContextValue, AnalyseParagraphRequest, AnalyseParagraphResult, AnalyseSentenceRequest, AnalyseSentenceResult, AnalysisCoverageValue, ReadAnalysisCoverageRequest, PublishAnalysisRequest, PublishAnalysisValue, PutSentenceAnalysisRequest, PutSentenceAnalysisValue, ReadSentenceAnalysisRequest, ReadSentenceAnalysisValue, SetGrammarMasteryRequest, SetGrammarMasteryValue, RecordConclusionRequest, RecordConclusionValue, SetBranchStateRequest, SetBranchStateValue } from './generation-types.ts';
-import type { AddBranchRequest, AddBranchValue, ArchivePassageRequest, ArchivePassageValue, CreateSelectionRequest, CreateSelectionValue, ListGrammarRequest, ListGrammarValue, ConjugationRequest, FetchConjugationValue, ListLexiconRequest, ListLexiconValue, ReadConjugationValue, RenderLexiconRequest, RenderLexiconValue, ResolveGrammarRequest, ResolveGrammarValue, CreatePassageRequest, CreatePassageValue, ExportLibraryRequest, ExportLibraryValue, ExportPassagesValue, GetPassageRequest, GetPassageValue, ImportPreviewValue, PreviewImportRequest, GetSegmentationRequest, GetSegmentationValue, ListAnalysisRequest, ListAnalysisValue, LexiconLookup, LookupMotRequest, AdoptTranslationRequest, AdoptTranslationValue, LexiconView, ListPassagesRequest, ListPassagesValue, SaveTranslationRequest, SaveTranslationValue } from './types.ts';
+import type { AddBranchRequest, AddBranchValue, ArchivePassageRequest, ArchivePassageValue, RestorePassageRequest, RestorePassageValue, CreateSelectionRequest, CreateSelectionValue, ListGrammarRequest, ListGrammarValue, ConjugationRequest, FetchConjugationValue, ListLexiconRequest, ListLexiconValue, ReadConjugationValue, RenderLexiconRequest, RenderLexiconValue, ResolveGrammarRequest, ResolveGrammarValue, CreatePassageRequest, CreatePassageValue, ExportLibraryRequest, ExportLibraryValue, ImportLibraryRequest, ImportLibraryValue, ExportPassagesValue, GetPassageRequest, GetPassageValue, ImportPreviewValue, PreviewImportRequest, GetSegmentationRequest, GetSegmentationValue, ListAnalysisRequest, ListAnalysisValue, LexiconLookup, LookupMotRequest, AdoptTranslationRequest, AdoptTranslationValue, LexiconView, ListPassagesRequest, ListPassagesValue, SaveTranslationRequest, SaveTranslationValue } from './types.ts';
 /** Host service behind the generated `ctx.remote.frenchReader` namespace. */
 export declare class FrenchReaderController extends TypertRemoteService {
     private readonly domain;
@@ -14,6 +14,7 @@ export declare class FrenchReaderController extends TypertRemoteService {
     private table;
     constructor(ctx: Context, domain: Domain<typeof FRENCH_READER_DOMAIN>, backends?: GenerationBackend[] | null);
     listPassages(request: ListPassagesRequest, signal: AbortSignal): Promise<ListPassagesValue>;
+    listArchivedPassages(request: ListPassagesRequest, signal: AbortSignal): Promise<ListPassagesValue>;
     getPassage(request: GetPassageRequest, signal: AbortSignal): Promise<GetPassageValue>;
     listBackendsRemote(request: ListBackendsRequest, signal: AbortSignal): ListBackendsValue;
     listBackendModelsRemote(request: ListBackendModelsRequest, signal: AbortSignal): Promise<ListBackendModelsValue>;
@@ -69,6 +70,7 @@ export declare class FrenchReaderController extends TypertRemoteService {
      * state; source and analysis records remain exportable and recoverable.
      */
     archivePassage(request: ArchivePassageRequest, signal: AbortSignal): Promise<ArchivePassageValue>;
+    restorePassage(request: RestorePassageRequest, signal: AbortSignal): Promise<RestorePassageValue>;
     /**
      * What an import would store. Read-only by construction: the panel shows the
      * boundaries and the flags, and nothing reaches storage until the reader
@@ -681,6 +683,7 @@ export declare class FrenchReaderController extends TypertRemoteService {
      * backup holds analysis, discussions, vocabulary and runs — not only sources.
      */
     exportLibraryRemote(request: ExportLibraryRequest, signal: AbortSignal): Promise<ExportLibraryValue>;
+    importLibraryRemote(request: ImportLibraryRequest, signal: AbortSignal): Promise<ImportLibraryValue>;
     /**
      * Restore an exported library without ever overwriting local work.
      *

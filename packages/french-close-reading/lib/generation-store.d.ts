@@ -52,6 +52,8 @@ export declare function recordGenerationProgress(table: RecordTable, job: Stored
  * phase is 'preparing' never opened the provider stream.
  */
 export declare function recordGenerationPhase(table: RecordTable, job: StoredGenerationJob, phase: string): Promise<StoredGenerationJob>;
+/** Store the first visible text boundary once; non-streaming backends leave it null. */
+export declare function recordFirstTextDelta(table: RecordTable, job: StoredGenerationJob, elapsedMs: number): Promise<StoredGenerationJob>;
 /** Settle one job with its outcome. */
 export declare function finishGenerationJob(table: RecordTable, job: StoredGenerationJob, patch: {
     status: StoredGenerationJob['status'];
@@ -61,6 +63,8 @@ export declare function finishGenerationJob(table: RecordTable, job: StoredGener
     usage?: StoredGenerationJob['usage'];
     messageId?: string | null;
     contextId?: string | null;
+    modelCallMs?: number | null;
+    firstTextDeltaMs?: number | null;
     partialText?: string;
 }): Promise<StoredGenerationJob>;
 /**

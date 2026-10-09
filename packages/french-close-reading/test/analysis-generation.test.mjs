@@ -569,6 +569,27 @@ test('a paragraph run names the sentence it could not store, and keeps the rest'
   assert.equal(run.missing, 1)
 })
 
+test('a paragraph run stops on a busy backend and counts only attempted sentences', async () => {
+  const backend = { ...stubBackend('', { finish: 'error', failure: 'agy-busy: one task is already running' }), id: 'agy' }
+  const backing = createBacking()
+  const opened = await openController(backing, FRENCH_READER_DOMAIN, { backends: [backend] })
+  await opened.controller.createPassage({
+    ...passageRequest,
+    sourceText: 'Il faut cultiver notre jardin. Le nôtre, dit-il.',
+  }, signal())
+
+  const run = await opened.controller.analyseParagraph({
+    passageId: ids.passage, paragraphId: 'p1', backend: 'agy', model: 'test-model',
+    reasoningEffort: null, operationId: uuid(),
+  }, signal())
+
+  assert.equal(run.ok, true)
+  assert.equal(run.asked, 1, 'the second missing sentence was not attempted after the busy refusal')
+  assert.equal(run.stored, 0)
+  assert.deepEqual(run.failed, [{ anchorId: 'p1.s1', reason: 'agy-busy' }])
+  assert.equal(backend.calls.length, 1)
+})
+
 test('a paragraph anchor is refused by the sentence path as "not a sentence", not as unknown', async () => {
   const backend = stubBackend(goodReply())
   const { controller } = await withPassage(backend)

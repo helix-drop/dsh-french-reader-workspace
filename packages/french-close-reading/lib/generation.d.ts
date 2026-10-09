@@ -53,6 +53,12 @@ export interface GenerateRequest {
      */
     onDelta?: (delta: string) => void;
     /**
+     * Called once for the first text delta, with milliseconds since backend dispatch.
+     * This is not necessarily the first reasoning token: adapters may expose reasoning
+     * separately or include it only in usage.
+     */
+    onFirstTextDelta?: (elapsedMs: number) => void;
+    /**
      * Called once per stage boundary: 'preparing' (metadata/路由解析, not yet at
      * the provider) and 'streaming' (provider stream open). A caller that records
      * these can tell afterwards where a stalled call was waiting.
@@ -70,6 +76,10 @@ export interface GenerateOutcome {
     /** How the generation ended, so a partial answer is never stored as complete. */
     finish: 'stop' | 'max-tokens' | 'cancelled' | 'error';
     failure: string | null;
+    /** Milliseconds from backend dispatch to its terminal result; null if no call began. */
+    modelCallMs?: number | null;
+    /** Milliseconds to first text delta; null for backends that do not stream text. */
+    firstTextDeltaMs?: number | null;
 }
 export interface GenerationBackend {
     readonly id: string;

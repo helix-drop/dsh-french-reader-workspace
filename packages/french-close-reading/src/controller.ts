@@ -73,6 +73,7 @@ import {
   listGenerationJobs as listStoredGenerationJobs,
   readGenerationJob,
   reconcileGenerationJobs,
+  recordFirstTextDelta,
   recordGenerationPhase,
   recordGenerationProgress,
 } from './generation-store.ts'
@@ -188,6 +189,8 @@ import type {
   AddBranchValue,
   ArchivePassageRequest,
   ArchivePassageValue,
+  RestorePassageRequest,
+  RestorePassageValue,
   CreateSelectionRequest,
   CreateSelectionValue,
   ListGrammarRequest,
@@ -205,6 +208,8 @@ import type {
   CreatePassageValue,
   ExportLibraryRequest,
   ExportLibraryValue,
+  ImportLibraryRequest,
+  ImportLibraryValue,
   ExportPassagesValue,
   JsonValue,
   GetPassageRequest,
@@ -243,6 +248,17 @@ const archiveRequestSchema = z.object({
   passageId: z.string().uuid(),
   operationId: z.string().uuid(),
   expectedSourceRevision: z.number().int().min(1),
+}).strict()
+
+const restoreRequestSchema = z.object({
+  passageId: z.string().uuid(),
+  expectedSourceRevision: z.number().int().min(1),
+}).strict()
+
+const importLibraryRequestSchema = z.object({
+  schemaVersion: z.literal(1),
+  exportedAt: z.string().datetime(),
+  records: z.array(z.object({ key: z.string().min(1), record: z.unknown() }).strict()),
 }).strict()
 
 const renderLexiconRequestSchema = z.object({
@@ -504,6 +520,28 @@ export class FrenchReaderController extends TypertRemoteService {
     const rows = this.readPassages()
       .filter((passage) => passage.archivedAt === null)
       .sort((left, right) => right.createdAt.localeCompare(left.createdAt) || left.id.localeCompare(right.id))
+    const start = parsed.data.offset
+    const end = start + parsed.data.limit
+    const value: ListPassagesValue = {
+      items: rows.slice(start, end).map(toSummary),
+      offset: start,
+      total: rows.length,
+      hasMore: end < rows.length,
+    }
+    signal.throwIfAborted()
+    return value
+  }
+
+  @Remote('listArchivedPassages')
+  async listArchivedPassages(request: ListPassagesRequest, signal: AbortSignal): Promise<ListPassagesValue> {
+    const parsed = listRequestSchema.safeParse(request)
+    if (!parsed.success) throw badRequest('Invalid archived-passage list request', parsed.error.issues)
+    signal.throwIfAborted()
+
+    const rows = this.readPassages()
+      .filter((passage) => passage.archivedAt !== null)
+      .sort((left, right) => (right.archivedAt ?? '').localeCompare(left.archivedAt ?? '')
+        || left.id.localeCompare(right.id))
     const start = parsed.data.offset
     const end = start + parsed.data.limit
     const value: ListPassagesValue = {
@@ -827,6 +865,33 @@ export class FrenchReaderController extends TypertRemoteService {
     })
   }
 
+  @Remote('restorePassage')
+  async restorePassage(request: RestorePassageRequest, signal: AbortSignal): Promise<RestorePassageValue> {
+    const parsed = restoreRequestSchema.safeParse(request)
+    if (!parsed.success) throw badRequest('Invalid restore request', parsed.error.issues)
+    const input = parsed.data
+
+    return this.serialize(async () => {
+      signal.throwIfAborted()
+      const table = this.table()
+      const record = table.get(input.passageId)
+      if (record?.kind !== 'passage') return { kind: 'conflict', reason: 'passage-unknown' }
+      if (record.payload.sourceRevision !== input.expectedSourceRevision) {
+        return { kind: 'conflict', reason: 'revision-conflict' }
+      }
+      if (record.payload.archivedAt === null) {
+        return { kind: 'already-active', passage: toPassage(record.payload) }
+      }
+      const passage: StoredPassage = {
+        ...record.payload,
+        archivedAt: null,
+        archiveOperationId: null,
+      }
+      await table.put(input.passageId, { kind: 'passage', recordVersion: 1, payload: passage })
+      return { kind: 'restored', passage: toPassage(passage) }
+    })
+  }
+
   /**
    * What an import would store. Read-only by construction: the panel shows the
    * boundaries and the flags, and nothing reaches storage until the reader
@@ -909,8 +974,12 @@ export class FrenchReaderController extends TypertRemoteService {
         contentStatus: entry.contentStatus,
         askCount: entry.askCount,
         lastAskedAt: entry.lastAskedAt,
+        revision: entry.revision,
         examples: entry.examples.length,
+        exampleTexts: entry.examples.map((example) => example.text),
+        notes: entry.notes,
         pitfalls: entry.pitfalls.length,
+        pitfallTexts: entry.pitfalls.map((pitfall) => pitfall.text),
         keyPoints: entry.keyPoints,
       })),
       pending: value.pending.map((item) => ({
@@ -2054,7 +2123,15 @@ export class FrenchReaderController extends TypertRemoteService {
     try {
       outcome = await backend.generate(
         { backend: backend.id, model: input.model, reasoningEffort: input.reasoningEffort ?? undefined },
-        { system: renderSystem(), prompt: renderPrompt(manifest), signal, onDelta },
+        {
+          system: renderSystem(), prompt: renderPrompt(manifest), signal, onDelta,
+          onFirstTextDelta: (elapsedMs) => {
+            void this.serialize(() => recordFirstTextDelta(this.table(), job, elapsedMs)).then(
+              (next) => { job = next },
+              () => {},
+            )
+          },
+        },
       )
     } catch (error) {
       outcome = { text: '', resolvedModel: null, usage: null, finish: 'error', failure: String(error) }
@@ -2111,6 +2188,8 @@ export class FrenchReaderController extends TypertRemoteService {
       usage: outcome.usage,
       messageId: stored.messageId ?? null,
       contextId: manifest.id,
+      modelCallMs: outcome.modelCallMs,
+      firstTextDeltaMs: outcome.firstTextDeltaMs,
       partialText: outcome.finish === 'stop' ? '' : partial,
     }))
     // A failed generation is not a successful turn: the attempt is stored, and
@@ -2332,20 +2411,32 @@ export class FrenchReaderController extends TypertRemoteService {
     note?: string
     stored?: boolean
   }> {
+    signal.throwIfAborted()
+    const entry = this.readLexiconEntries().find((candidate) => candidate.id === input.entryId)
+    if (entry === undefined) return { fetched: false, reason: 'entry-unknown' }
+
+    // The requested entry owns its headword. Never trust a redundant caller
+    // field to decide which word the source request describes.
+    const value = await fetchLexiconSource(stateOf(this).ctx, {
+      source: input.source,
+      section: input.section,
+      mot: entry.mot,
+    }, signal)
+    const fetched = value.fetch
+    if (fetched === undefined) return { fetched: false, reason: value.reason ?? 'fetch-refused' }
+
+    // Network latency must not hold the controller's global write queue. Only
+    // the durable record is serialized, and the entry is checked again after
+    // the fetch in case it disappeared or changed while the request was away.
     return this.serialize(async () => {
       signal.throwIfAborted()
-      const entry = this.readLexiconEntries().find((candidate) => candidate.id === input.entryId)
-      if (entry === undefined) return { fetched: false, reason: 'entry-unknown' }
-      const value = await fetchLexiconSource(stateOf(this).ctx, {
-        source: input.source,
-        section: input.section,
-        mot: input.mot,
-      }, signal)
-      if (value.fetch === undefined) return { fetched: false, reason: value.reason ?? 'fetch-refused' }
+      const current = this.readLexiconEntries().find((candidate) => candidate.id === input.entryId)
+      if (current === undefined) return { fetched: false, reason: 'entry-unknown' }
+      if (current.mot !== entry.mot) return { fetched: false, reason: 'entry-changed' }
       // The attempt is recorded either way: a failed fetch is a fact about the
       // card, and hiding it would let the reader believe a source was consulted.
       const recorded = await recordLexiconSource(this.table(), {
-        ...value.fetch,
+        ...fetched,
         entryId: input.entryId,
       })
       return {
@@ -2736,6 +2827,9 @@ export class FrenchReaderController extends TypertRemoteService {
           // after the answer — the two cannot be mixed into one call.
           {
             system: renderAnalysisSystem(), prompt, signal,
+            onFirstTextDelta: (elapsedMs) => {
+              queueWrite((current) => recordFirstTextDelta(this.table(), current, elapsedMs))
+            },
             onDelta: (delta) => {
               receivedText += delta
               const now = Date.now()
@@ -2753,10 +2847,18 @@ export class FrenchReaderController extends TypertRemoteService {
           },
         )
       } catch (error) {
-        return { ok: false, reason: 'model-error', failure: String(error) }
+        return {
+          ok: false,
+          reason: signal.aborted ? 'cancelled' : 'model-error',
+          failure: String(error),
+        }
       }
       if (outcome.finish === 'error') {
-        return { ok: false, reason: 'model-error', failure: outcome.failure }
+        const failure = outcome.failure ?? ''
+        const reason = failure.startsWith('agy-busy:') ? 'agy-busy'
+          : failure.startsWith('stub-busy:') ? 'stub-busy'
+            : 'model-error'
+        return { ok: false, reason, failure }
       }
       // A cancelled generation has no usable reply; reporting it as anything else
       // sends the reader looking at the wrong layer. A provider that ignored the
@@ -2853,6 +2955,8 @@ export class FrenchReaderController extends TypertRemoteService {
         failure: result.ok === true ? null : String(result.failure ?? result.reason).slice(0, 2_000),
         resolvedModel: outcome?.resolvedModel ?? null,
         usage: outcome?.usage ?? null,
+        modelCallMs: outcome?.modelCallMs,
+        firstTextDeltaMs: outcome?.firstTextDeltaMs,
         partialText: outcome?.text ?? receivedText,
       }))
     } catch {
@@ -2899,10 +3003,12 @@ export class FrenchReaderController extends TypertRemoteService {
 
     const stored: string[] = []
     const failed: { anchorId: string; reason: string }[] = []
+    let asked = 0
     for (const anchorId of missing) {
       signal.throwIfAborted()
       // One id per sentence, derived from the caller's: a retry of this run
       // recognises the sentences it already did instead of asking again.
+      asked += 1
       const value = await this.analyseSentence({
         passageId: passage.id,
         anchorId,
@@ -2921,7 +3027,7 @@ export class FrenchReaderController extends TypertRemoteService {
     const after = this.readAnalysisCoverage(passage.id, signal)
     return {
       ok: true,
-      asked: missing.length,
+      asked,
       stored: stored.length,
       failed,
       covered: after.covered?.length ?? 0,
@@ -3286,6 +3392,14 @@ export class FrenchReaderController extends TypertRemoteService {
       // instead of widening every named record type.
       records: bundle.records.map((entry) => ({ key: entry.key, record: entry.record as JsonValue })),
     }
+  }
+
+  @Remote('importLibrary')
+  async importLibraryRemote(request: ImportLibraryRequest, signal: AbortSignal): Promise<ImportLibraryValue> {
+    const parsed = importLibraryRequestSchema.safeParse(request)
+    if (!parsed.success) throw badRequest('Invalid library backup', parsed.error.issues)
+    signal.throwIfAborted()
+    return this.importLibrary(parsed.data, signal)
   }
 
   /**

@@ -99,8 +99,8 @@ export declare const TranslationSchema: z.ZodObject<{
         excerpt: z.ZodString;
     }, z.core.$strict>>>;
     source: z.ZodDefault<z.ZodEnum<{
-        ai: "ai";
         user: "user";
+        ai: "ai";
     }>>;
     note: z.ZodDefault<z.ZodString>;
     language: z.ZodString;
@@ -173,8 +173,8 @@ export declare const AnalysisSchema: z.ZodObject<{
             excerpt: z.ZodString;
         }, z.core.$strict>>>;
         source: z.ZodDefault<z.ZodEnum<{
-            ai: "ai";
             user: "user";
+            ai: "ai";
         }>>;
         note: z.ZodDefault<z.ZodString>;
         language: z.ZodString;
@@ -408,8 +408,8 @@ export declare const LexiconEntrySchema: z.ZodObject<{
         createdAt: z.ZodString;
     }, z.core.$strict>>;
     provenance: z.ZodEnum<{
-        ai: "ai";
         user: "user";
+        ai: "ai";
         mixed: "mixed";
     }>;
     status: z.ZodEnum<{
@@ -687,20 +687,22 @@ export declare const GenerationJobSchema: z.ZodObject<{
     backend: z.ZodString;
     model: z.ZodString;
     status: z.ZodEnum<{
+        cancelled: "cancelled";
         failed: "failed";
         running: "running";
         succeeded: "succeeded";
-        cancelled: "cancelled";
         interrupted: "interrupted";
     }>;
     phase: z.ZodOptional<z.ZodNullable<z.ZodString>>;
     attempt: z.ZodDefault<z.ZodNumber>;
+    modelCallMs: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
+    firstTextDeltaMs: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
     partialText: z.ZodDefault<z.ZodString>;
     finish: z.ZodDefault<z.ZodNullable<z.ZodEnum<{
-        error: "error";
-        cancelled: "cancelled";
         stop: "stop";
         "max-tokens": "max-tokens";
+        cancelled: "cancelled";
+        error: "error";
     }>>>;
     failure: z.ZodDefault<z.ZodNullable<z.ZodString>>;
     resolvedModel: z.ZodDefault<z.ZodNullable<z.ZodString>>;
@@ -769,8 +771,8 @@ declare const PassageRecordSchema: z.ZodDiscriminatedUnion<[z.ZodObject<{
                 excerpt: z.ZodString;
             }, z.core.$strict>>>;
             source: z.ZodDefault<z.ZodEnum<{
-                ai: "ai";
                 user: "user";
+                ai: "ai";
             }>>;
             note: z.ZodDefault<z.ZodString>;
             language: z.ZodString;
@@ -902,8 +904,8 @@ declare const PassageRecordSchema: z.ZodDiscriminatedUnion<[z.ZodObject<{
             createdAt: z.ZodString;
         }, z.core.$strict>>;
         provenance: z.ZodEnum<{
-            ai: "ai";
             user: "user";
+            ai: "ai";
             mixed: "mixed";
         }>;
         status: z.ZodEnum<{
@@ -1082,10 +1084,10 @@ declare const PassageRecordSchema: z.ZodDiscriminatedUnion<[z.ZodObject<{
                     resolvedModel: z.ZodDefault<z.ZodNullable<z.ZodString>>;
                     attempt: z.ZodDefault<z.ZodNumber>;
                     status: z.ZodEnum<{
+                        cancelled: "cancelled";
                         failed: "failed";
                         draft: "draft";
                         partial: "partial";
-                        cancelled: "cancelled";
                         complete: "complete";
                     }>;
                     failure: z.ZodDefault<z.ZodNullable<z.ZodString>>;
@@ -1216,20 +1218,22 @@ declare const PassageRecordSchema: z.ZodDiscriminatedUnion<[z.ZodObject<{
         backend: z.ZodString;
         model: z.ZodString;
         status: z.ZodEnum<{
+            cancelled: "cancelled";
             failed: "failed";
             running: "running";
             succeeded: "succeeded";
-            cancelled: "cancelled";
             interrupted: "interrupted";
         }>;
         phase: z.ZodOptional<z.ZodNullable<z.ZodString>>;
         attempt: z.ZodDefault<z.ZodNumber>;
+        modelCallMs: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
+        firstTextDeltaMs: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
         partialText: z.ZodDefault<z.ZodString>;
         finish: z.ZodDefault<z.ZodNullable<z.ZodEnum<{
-            error: "error";
-            cancelled: "cancelled";
             stop: "stop";
             "max-tokens": "max-tokens";
+            cancelled: "cancelled";
+            error: "error";
         }>>>;
         failure: z.ZodDefault<z.ZodNullable<z.ZodString>>;
         resolvedModel: z.ZodDefault<z.ZodNullable<z.ZodString>>;
@@ -1340,8 +1344,8 @@ declare const PassageRecordSchema: z.ZodDiscriminatedUnion<[z.ZodObject<{
         field: z.ZodString;
         text: z.ZodString;
         author: z.ZodEnum<{
-            ai: "ai";
             user: "user";
+            ai: "ai";
             mixed: "mixed";
         }>;
         reason: z.ZodDefault<z.ZodNullable<z.ZodString>>;
@@ -1406,8 +1410,8 @@ declare const PassageRecordSchema: z.ZodDiscriminatedUnion<[z.ZodObject<{
                 end: z.ZodDefault<z.ZodNullable<z.ZodNumber>>;
             }, z.core.$strict>>;
             provenance: z.ZodEnum<{
-                ai: "ai";
                 user: "user";
+                ai: "ai";
                 mixed: "mixed";
             }>;
             status: z.ZodEnum<{
@@ -1509,7 +1513,7 @@ export declare const FRENCH_READER_DOMAIN: {
                         end: number;
                         excerpt: string;
                     } | null;
-                    source: "ai" | "user";
+                    source: "user" | "ai";
                     note: string;
                     language: string;
                     text: string;
@@ -1620,7 +1624,7 @@ export declare const FRENCH_READER_DOMAIN: {
                     operationId: string;
                     createdAt: string;
                 }[];
-                provenance: "ai" | "user" | "mixed";
+                provenance: "user" | "ai" | "mixed";
                 status: "draft" | "reviewed";
                 revision: number;
                 operationId: string;
@@ -1762,7 +1766,7 @@ export declare const FRENCH_READER_DOMAIN: {
                             model: string;
                             resolvedModel: string | null;
                             attempt: number;
-                            status: "failed" | "draft" | "partial" | "cancelled" | "complete";
+                            status: "cancelled" | "failed" | "draft" | "partial" | "complete";
                             failure: string | null;
                             usage: {
                                 inputTokens: number | null;
@@ -1860,10 +1864,10 @@ export declare const FRENCH_READER_DOMAIN: {
                 anchorId: string | null;
                 backend: string;
                 model: string;
-                status: "failed" | "running" | "succeeded" | "cancelled" | "interrupted";
+                status: "cancelled" | "failed" | "running" | "succeeded" | "interrupted";
                 attempt: number;
                 partialText: string;
-                finish: "error" | "cancelled" | "stop" | "max-tokens" | null;
+                finish: "stop" | "max-tokens" | "cancelled" | "error" | null;
                 failure: string | null;
                 resolvedModel: string | null;
                 usage: {
@@ -1876,6 +1880,8 @@ export declare const FRENCH_READER_DOMAIN: {
                 updatedAt: string;
                 finishedAt: string | null;
                 phase?: string | null | undefined;
+                modelCallMs?: number | null | undefined;
+                firstTextDeltaMs?: number | null | undefined;
             };
         } | {
             kind: "conjugationDataset";
@@ -1944,7 +1950,7 @@ export declare const FRENCH_READER_DOMAIN: {
                 targetId: string;
                 field: string;
                 text: string;
-                author: "ai" | "user" | "mixed";
+                author: "user" | "ai" | "mixed";
                 reason: string | null;
                 replacesId: string | null;
                 createdAt: string;
@@ -2001,7 +2007,7 @@ export declare const FRENCH_READER_DOMAIN: {
                         start: number | null;
                         end: number | null;
                     }[];
-                    provenance: "ai" | "user" | "mixed";
+                    provenance: "user" | "ai" | "mixed";
                     status: "draft" | "reviewed";
                     revision: number;
                     createdAt: string;

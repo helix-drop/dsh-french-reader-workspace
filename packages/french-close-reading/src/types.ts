@@ -55,6 +55,16 @@ export type ArchivePassageValue =
   | { kind: 'already-archived'; passage: Passage }
   | { kind: 'conflict'; reason: 'passage-unknown' | 'operation-used' | 'revision-conflict' }
 
+export interface RestorePassageRequest {
+  passageId: string
+  expectedSourceRevision: number
+}
+
+export type RestorePassageValue =
+  | { kind: 'restored'; passage: Passage }
+  | { kind: 'already-active'; passage: Passage }
+  | { kind: 'conflict'; reason: 'passage-unknown' | 'revision-conflict' }
+
 /** One half-open character range of a phrase selection. */
 export interface SelectionRange {
   start: number
@@ -157,6 +167,14 @@ export interface ExportLibraryValue {
 export interface ExportLibraryRequest {
   /** Reserved: a whole-library backup takes no parameters today. */
   scope: 'all'
+}
+
+export interface ImportLibraryRequest extends ExportLibraryValue {}
+
+export interface ImportLibraryValue {
+  imported: number
+  skipped: number
+  conflicts: { key: string; reason: string }[]
 }
 
 /** One sentence inside a paragraph; offsets index the passage source. */
@@ -338,8 +356,12 @@ export interface GrammarEntryView {
   contentStatus: 'ai-unverified' | 'user' | 'mixed'
   askCount: number
   lastAskedAt: string | null
+  revision: number
   examples: number
+  exampleTexts: string[]
+  notes: string
   pitfalls: number
+  pitfallTexts: string[]
   keyPoints: string
 }
 

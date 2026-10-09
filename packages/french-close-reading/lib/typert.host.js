@@ -3,6 +3,8 @@ import { z } from 'zod'
 
 let JsonValueRemoteCodec$schema$value
 const JsonValueRemoteCodec$schema = () => (JsonValueRemoteCodec$schema$value ??= z.union([z.literal(null), z.string(), z.number(), z.literal(false), z.literal(true), z.array(z.lazy(() => JsonValueRemoteCodec$schema())), z.record(z.string(), z.lazy(() => JsonValueRemoteCodec$schema()))]))
+let JsonValueRemoteCodec$schema2$value
+const JsonValueRemoteCodec$schema2 = () => (JsonValueRemoteCodec$schema2$value ??= z.union([z.literal(null), z.string(), z.number(), z.literal(false), z.literal(true), z.array(z.lazy(() => JsonValueRemoteCodec$schema2())), z.record(z.string(), z.lazy(() => JsonValueRemoteCodec$schema2()))]))
 let _local_french_close_reading_frenchReader_addBranch_parameter_0$schema$value
 const _local_french_close_reading_frenchReader_addBranch_parameter_0$schema = () => (_local_french_close_reading_frenchReader_addBranch_parameter_0$schema$value ??= z.object({
   'passageId': z.string(),
@@ -419,6 +421,24 @@ const _local_french_close_reading_frenchReader_getSegmentation_result$schema = (
 })),
 })]),
 }))
+let _local_french_close_reading_frenchReader_importLibrary_parameter_0$schema$value
+const _local_french_close_reading_frenchReader_importLibrary_parameter_0$schema = () => (_local_french_close_reading_frenchReader_importLibrary_parameter_0$schema$value ??= z.object({
+  'schemaVersion': z.literal(1),
+  'exportedAt': z.string(),
+  'records': z.array(z.object({
+  'key': z.string(),
+  'record': z.union([z.literal(null), z.string(), z.number(), z.literal(false), z.literal(true), z.array(z.lazy(() => JsonValueRemoteCodec$schema2())), z.record(z.string(), z.lazy(() => JsonValueRemoteCodec$schema2()))]),
+})),
+}))
+let _local_french_close_reading_frenchReader_importLibrary_result$schema$value
+const _local_french_close_reading_frenchReader_importLibrary_result$schema = () => (_local_french_close_reading_frenchReader_importLibrary_result$schema$value ??= z.object({
+  'imported': z.number(),
+  'skipped': z.number(),
+  'conflicts': z.array(z.object({
+  'key': z.string(),
+  'reason': z.string(),
+})),
+}))
 let _local_french_close_reading_frenchReader_listAnalysis_parameter_0$schema$value
 const _local_french_close_reading_frenchReader_listAnalysis_parameter_0$schema = () => (_local_french_close_reading_frenchReader_listAnalysis_parameter_0$schema$value ??= z.object({
   'passageId': z.string(),
@@ -486,6 +506,26 @@ const _local_french_close_reading_frenchReader_listAnalysis_result$schema = () =
   'currentText': z.string(),
 })),
 }),
+}))
+let _local_french_close_reading_frenchReader_listArchivedPassages_parameter_0$schema$value
+const _local_french_close_reading_frenchReader_listArchivedPassages_parameter_0$schema = () => (_local_french_close_reading_frenchReader_listArchivedPassages_parameter_0$schema$value ??= z.object({
+  'offset': z.number(),
+  'limit': z.number(),
+}))
+let _local_french_close_reading_frenchReader_listArchivedPassages_result$schema$value
+const _local_french_close_reading_frenchReader_listArchivedPassages_result$schema = () => (_local_french_close_reading_frenchReader_listArchivedPassages_result$schema$value ??= z.object({
+  'items': z.array(z.object({
+  'id': z.string(),
+  'title': z.string(),
+  'excerpt': z.string(),
+  'characterCount': z.number(),
+  'sourceRevision': z.number(),
+  'createdAt': z.string(),
+  'updatedAt': z.string(),
+})),
+  'offset': z.number(),
+  'total': z.number(),
+  'hasMore': z.boolean(),
 }))
 let _local_french_close_reading_frenchReader_listBackendModels_parameter_0$schema$value
 const _local_french_close_reading_frenchReader_listBackendModels_parameter_0$schema = () => (_local_french_close_reading_frenchReader_listBackendModels_parameter_0$schema$value ??= z.object({
@@ -574,8 +614,12 @@ const _local_french_close_reading_frenchReader_listGrammar_result$schema = () =>
   'contentStatus': z.union([z.literal("user"), z.literal("mixed"), z.literal("ai-unverified")]),
   'askCount': z.number(),
   'lastAskedAt': z.union([z.literal(null), z.string()]),
+  'revision': z.number(),
   'examples': z.number(),
+  'exampleTexts': z.array(z.string()),
+  'notes': z.string(),
   'pitfalls': z.number(),
+  'pitfallTexts': z.array(z.string()),
   'keyPoints': z.string(),
 })),
   'pending': z.array(z.object({
@@ -1070,6 +1114,44 @@ const _local_french_close_reading_frenchReader_resolveGrammarCandidate_result$sc
   'kind': z.literal("conflict"),
   'reason': z.union([z.literal("entry-unknown"), z.literal("pending-unknown")]),
 })]))
+let _local_french_close_reading_frenchReader_restorePassage_parameter_0$schema$value
+const _local_french_close_reading_frenchReader_restorePassage_parameter_0$schema = () => (_local_french_close_reading_frenchReader_restorePassage_parameter_0$schema$value ??= z.object({
+  'passageId': z.string(),
+  'expectedSourceRevision': z.number(),
+}))
+let _local_french_close_reading_frenchReader_restorePassage_result$schema$value
+const _local_french_close_reading_frenchReader_restorePassage_result$schema = () => (_local_french_close_reading_frenchReader_restorePassage_result$schema$value ??= z.union([z.object({
+  'kind': z.literal("restored"),
+  'passage': z.object({
+  'id': z.string(),
+  'title': z.string(),
+  'sourceText': z.string(),
+  'sourceRevision': z.number(),
+  'segmentationRevision': z.number(),
+  'status': z.literal("source-only"),
+  'createdAt': z.string(),
+  'updatedAt': z.string(),
+  'archivedAt': z.union([z.literal(null), z.string()]),
+  'archiveOperationId': z.union([z.literal(null), z.string()]),
+}),
+}), z.object({
+  'kind': z.literal("already-active"),
+  'passage': z.object({
+  'id': z.string(),
+  'title': z.string(),
+  'sourceText': z.string(),
+  'sourceRevision': z.number(),
+  'segmentationRevision': z.number(),
+  'status': z.literal("source-only"),
+  'createdAt': z.string(),
+  'updatedAt': z.string(),
+  'archivedAt': z.union([z.literal(null), z.string()]),
+  'archiveOperationId': z.union([z.literal(null), z.string()]),
+}),
+}), z.object({
+  'kind': z.literal("conflict"),
+  'reason': z.union([z.literal("passage-unknown"), z.literal("revision-conflict")]),
+})]))
 let _local_french_close_reading_frenchReader_saveTranslation_parameter_0$schema$value
 const _local_french_close_reading_frenchReader_saveTranslation_parameter_0$schema = () => (_local_french_close_reading_frenchReader_saveTranslation_parameter_0$schema$value ??= z.object({
   'passageId': z.string(),
@@ -1250,7 +1332,7 @@ export const TYPERT = {
         typeSymbol: '@local/french-close-reading/types#AddBranchValue',
         create: _local_french_close_reading_frenchReader_addBranch_result$schema,
       },
-      sourceLocation: {"file":"packages/french-close-reading/src/controller.ts","line":1102,"column":9},
+      sourceLocation: {"file":"packages/french-close-reading/src/controller.ts","line":1171,"column":9},
     },
     {
       id: '@local/french-close-reading#frenchReader/adoptTranslation',
@@ -1277,7 +1359,7 @@ export const TYPERT = {
         typeSymbol: '@local/french-close-reading/types#AdoptTranslationValue',
         create: _local_french_close_reading_frenchReader_adoptTranslation_result$schema,
       },
-      sourceLocation: {"file":"packages/french-close-reading/src/controller.ts","line":2385,"column":9},
+      sourceLocation: {"file":"packages/french-close-reading/src/controller.ts","line":2476,"column":9},
     },
     {
       id: '@local/french-close-reading#frenchReader/analyseParagraph',
@@ -1304,7 +1386,7 @@ export const TYPERT = {
         typeSymbol: '@local/french-close-reading/types#AnalyseParagraphResult',
         create: _local_french_close_reading_frenchReader_analyseParagraph_result$schema,
       },
-      sourceLocation: {"file":"packages/french-close-reading/src/controller.ts","line":693,"column":9},
+      sourceLocation: {"file":"packages/french-close-reading/src/controller.ts","line":731,"column":9},
     },
     {
       id: '@local/french-close-reading#frenchReader/analyseSentence',
@@ -1331,7 +1413,7 @@ export const TYPERT = {
         typeSymbol: '@local/french-close-reading/types#AnalyseSentenceResult',
         create: _local_french_close_reading_frenchReader_analyseSentence_result$schema,
       },
-      sourceLocation: {"file":"packages/french-close-reading/src/controller.ts","line":682,"column":9},
+      sourceLocation: {"file":"packages/french-close-reading/src/controller.ts","line":720,"column":9},
     },
     {
       id: '@local/french-close-reading#frenchReader/archivePassage',
@@ -1357,7 +1439,7 @@ export const TYPERT = {
         typeSymbol: '@local/french-close-reading/types#ArchivePassageValue',
         create: _local_french_close_reading_frenchReader_archivePassage_result$schema,
       },
-      sourceLocation: {"file":"packages/french-close-reading/src/controller.ts","line":801,"column":9},
+      sourceLocation: {"file":"packages/french-close-reading/src/controller.ts","line":839,"column":9},
     },
     {
       id: '@local/french-close-reading#frenchReader/ask',
@@ -1384,7 +1466,7 @@ export const TYPERT = {
         typeSymbol: '@local/french-close-reading/types#AskResult',
         create: _local_french_close_reading_frenchReader_ask_result$schema,
       },
-      sourceLocation: {"file":"packages/french-close-reading/src/controller.ts","line":568,"column":9},
+      sourceLocation: {"file":"packages/french-close-reading/src/controller.ts","line":606,"column":9},
     },
     {
       id: '@local/french-close-reading#frenchReader/createBranch',
@@ -1411,7 +1493,7 @@ export const TYPERT = {
         typeSymbol: '@local/french-close-reading/types#CreateBranchValue',
         create: _local_french_close_reading_frenchReader_createBranch_result$schema,
       },
-      sourceLocation: {"file":"packages/french-close-reading/src/controller.ts","line":584,"column":9},
+      sourceLocation: {"file":"packages/french-close-reading/src/controller.ts","line":622,"column":9},
     },
     {
       id: '@local/french-close-reading#frenchReader/createPassage',
@@ -1437,7 +1519,7 @@ export const TYPERT = {
         typeSymbol: '@local/french-close-reading/types#CreatePassageValue',
         create: _local_french_close_reading_frenchReader_createPassage_result$schema,
       },
-      sourceLocation: {"file":"packages/french-close-reading/src/controller.ts","line":960,"column":9},
+      sourceLocation: {"file":"packages/french-close-reading/src/controller.ts","line":1029,"column":9},
     },
     {
       id: '@local/french-close-reading#frenchReader/createSelection',
@@ -1464,7 +1546,7 @@ export const TYPERT = {
         typeSymbol: '@local/french-close-reading/types#CreateSelectionValue',
         create: _local_french_close_reading_frenchReader_createSelection_result$schema,
       },
-      sourceLocation: {"file":"packages/french-close-reading/src/controller.ts","line":928,"column":9},
+      sourceLocation: {"file":"packages/french-close-reading/src/controller.ts","line":997,"column":9},
     },
     {
       id: '@local/french-close-reading#frenchReader/exportLibrary',
@@ -1491,7 +1573,7 @@ export const TYPERT = {
         typeSymbol: '@local/french-close-reading/types#ExportLibraryValue',
         create: _local_french_close_reading_frenchReader_exportLibrary_result$schema,
       },
-      sourceLocation: {"file":"packages/french-close-reading/src/controller.ts","line":3276,"column":9},
+      sourceLocation: {"file":"packages/french-close-reading/src/controller.ts","line":3382,"column":9},
     },
     {
       id: '@local/french-close-reading#frenchReader/exportPassages',
@@ -1507,7 +1589,7 @@ export const TYPERT = {
         typeSymbol: '@local/french-close-reading/types#ExportPassagesValue',
         create: _local_french_close_reading_frenchReader_exportPassages_result$schema,
       },
-      sourceLocation: {"file":"packages/french-close-reading/src/controller.ts","line":1015,"column":9},
+      sourceLocation: {"file":"packages/french-close-reading/src/controller.ts","line":1084,"column":9},
     },
     {
       id: '@local/french-close-reading#frenchReader/fetchConjugation',
@@ -1534,7 +1616,7 @@ export const TYPERT = {
         typeSymbol: '@local/french-close-reading/types#FetchConjugationValue',
         create: _local_french_close_reading_frenchReader_fetchConjugation_result$schema,
       },
-      sourceLocation: {"file":"packages/french-close-reading/src/controller.ts","line":2401,"column":9},
+      sourceLocation: {"file":"packages/french-close-reading/src/controller.ts","line":2492,"column":9},
     },
     {
       id: '@local/french-close-reading#frenchReader/fetchLexiconSource',
@@ -1561,7 +1643,7 @@ export const TYPERT = {
         typeSymbol: '@local/french-close-reading/types#FetchLexiconSourceValue',
         create: _local_french_close_reading_frenchReader_fetchLexiconSource_result$schema,
       },
-      sourceLocation: {"file":"packages/french-close-reading/src/controller.ts","line":734,"column":9},
+      sourceLocation: {"file":"packages/french-close-reading/src/controller.ts","line":772,"column":9},
     },
     {
       id: '@local/french-close-reading#frenchReader/getPassage',
@@ -1587,7 +1669,7 @@ export const TYPERT = {
         typeSymbol: '@local/french-close-reading/types#GetPassageValue',
         create: _local_french_close_reading_frenchReader_getPassage_result$schema,
       },
-      sourceLocation: {"file":"packages/french-close-reading/src/controller.ts","line":520,"column":9},
+      sourceLocation: {"file":"packages/french-close-reading/src/controller.ts","line":558,"column":9},
     },
     {
       id: '@local/french-close-reading#frenchReader/getSegmentation',
@@ -1613,7 +1695,34 @@ export const TYPERT = {
         typeSymbol: '@local/french-close-reading/types#GetSegmentationValue',
         create: _local_french_close_reading_frenchReader_getSegmentation_result$schema,
       },
-      sourceLocation: {"file":"packages/french-close-reading/src/controller.ts","line":1030,"column":9},
+      sourceLocation: {"file":"packages/french-close-reading/src/controller.ts","line":1099,"column":9},
+    },
+    {
+      id: '@local/french-close-reading#frenchReader/importLibrary',
+      service: 'frenchReader',
+      namespace: 'frenchReader',
+      method: 'importLibrary',
+      implementation: 'importLibraryRemote',
+      invocation: { kind: 'direct' },
+      parameters: [
+        {
+          name: 'request',
+          wire: 'request',
+          source: 'json',
+          codec: {
+            mode: 'strict',
+            typeSymbol: '@local/french-close-reading/types#ImportLibraryRequest',
+            create: _local_french_close_reading_frenchReader_importLibrary_parameter_0$schema,
+          },
+        },
+      ],
+      cancellation: { parameter: 'signal' },
+      result: {
+        mode: 'strict',
+        typeSymbol: '@local/french-close-reading/types#ImportLibraryValue',
+        create: _local_french_close_reading_frenchReader_importLibrary_result$schema,
+      },
+      sourceLocation: {"file":"packages/french-close-reading/src/controller.ts","line":3398,"column":9},
     },
     {
       id: '@local/french-close-reading#frenchReader/listAnalysis',
@@ -1639,7 +1748,33 @@ export const TYPERT = {
         typeSymbol: '@local/french-close-reading/types#ListAnalysisValue',
         create: _local_french_close_reading_frenchReader_listAnalysis_result$schema,
       },
-      sourceLocation: {"file":"packages/french-close-reading/src/controller.ts","line":1160,"column":9},
+      sourceLocation: {"file":"packages/french-close-reading/src/controller.ts","line":1229,"column":9},
+    },
+    {
+      id: '@local/french-close-reading#frenchReader/listArchivedPassages',
+      service: 'frenchReader',
+      namespace: 'frenchReader',
+      method: 'listArchivedPassages',
+      invocation: { kind: 'direct' },
+      parameters: [
+        {
+          name: 'request',
+          wire: 'request',
+          source: 'json',
+          codec: {
+            mode: 'strict',
+            typeSymbol: '@local/french-close-reading/types#ListPassagesRequest',
+            create: _local_french_close_reading_frenchReader_listArchivedPassages_parameter_0$schema,
+          },
+        },
+      ],
+      cancellation: { parameter: 'signal' },
+      result: {
+        mode: 'strict',
+        typeSymbol: '@local/french-close-reading/types#ListPassagesValue',
+        create: _local_french_close_reading_frenchReader_listArchivedPassages_result$schema,
+      },
+      sourceLocation: {"file":"packages/french-close-reading/src/controller.ts","line":536,"column":9},
     },
     {
       id: '@local/french-close-reading#frenchReader/listBackendModels',
@@ -1666,7 +1801,7 @@ export const TYPERT = {
         typeSymbol: '@local/french-close-reading/types#ListBackendModelsValue',
         create: _local_french_close_reading_frenchReader_listBackendModels_result$schema,
       },
-      sourceLocation: {"file":"packages/french-close-reading/src/controller.ts","line":543,"column":9},
+      sourceLocation: {"file":"packages/french-close-reading/src/controller.ts","line":581,"column":9},
     },
     {
       id: '@local/french-close-reading#frenchReader/listBackends',
@@ -1693,7 +1828,7 @@ export const TYPERT = {
         typeSymbol: '@local/french-close-reading/types#ListBackendsValue',
         create: _local_french_close_reading_frenchReader_listBackends_result$schema,
       },
-      sourceLocation: {"file":"packages/french-close-reading/src/controller.ts","line":536,"column":3},
+      sourceLocation: {"file":"packages/french-close-reading/src/controller.ts","line":574,"column":3},
     },
     {
       id: '@local/french-close-reading#frenchReader/listDiscussion',
@@ -1720,7 +1855,7 @@ export const TYPERT = {
         typeSymbol: '@local/french-close-reading/types#DiscussionView',
         create: _local_french_close_reading_frenchReader_listDiscussion_result$schema,
       },
-      sourceLocation: {"file":"packages/french-close-reading/src/controller.ts","line":576,"column":3},
+      sourceLocation: {"file":"packages/french-close-reading/src/controller.ts","line":614,"column":3},
     },
     {
       id: '@local/french-close-reading#frenchReader/listGrammar',
@@ -1747,7 +1882,7 @@ export const TYPERT = {
         typeSymbol: '@local/french-close-reading/types#ListGrammarValue',
         create: _local_french_close_reading_frenchReader_listGrammar_result$schema,
       },
-      sourceLocation: {"file":"packages/french-close-reading/src/controller.ts","line":899,"column":9},
+      sourceLocation: {"file":"packages/french-close-reading/src/controller.ts","line":964,"column":9},
     },
     {
       id: '@local/french-close-reading#frenchReader/listLexicon',
@@ -1774,7 +1909,7 @@ export const TYPERT = {
         typeSymbol: '@local/french-close-reading/types#ListLexiconValue',
         create: _local_french_close_reading_frenchReader_listLexicon_result$schema,
       },
-      sourceLocation: {"file":"packages/french-close-reading/src/controller.ts","line":887,"column":9},
+      sourceLocation: {"file":"packages/french-close-reading/src/controller.ts","line":952,"column":9},
     },
     {
       id: '@local/french-close-reading#frenchReader/listLexiconSources',
@@ -1801,7 +1936,7 @@ export const TYPERT = {
         typeSymbol: '@local/french-close-reading/types#ListLexiconSourcesValue',
         create: _local_french_close_reading_frenchReader_listLexiconSources_result$schema,
       },
-      sourceLocation: {"file":"packages/french-close-reading/src/controller.ts","line":742,"column":3},
+      sourceLocation: {"file":"packages/french-close-reading/src/controller.ts","line":780,"column":3},
     },
     {
       id: '@local/french-close-reading#frenchReader/listPassages',
@@ -1827,7 +1962,7 @@ export const TYPERT = {
         typeSymbol: '@local/french-close-reading/types#ListPassagesValue',
         create: _local_french_close_reading_frenchReader_listPassages_result$schema,
       },
-      sourceLocation: {"file":"packages/french-close-reading/src/controller.ts","line":499,"column":9},
+      sourceLocation: {"file":"packages/french-close-reading/src/controller.ts","line":515,"column":9},
     },
     {
       id: '@local/french-close-reading#frenchReader/lookupMot',
@@ -1854,7 +1989,7 @@ export const TYPERT = {
         typeSymbol: '@local/french-close-reading/types#LexiconLookup',
         create: _local_french_close_reading_frenchReader_lookupMot_result$schema,
       },
-      sourceLocation: {"file":"packages/french-close-reading/src/controller.ts","line":2370,"column":9},
+      sourceLocation: {"file":"packages/french-close-reading/src/controller.ts","line":2461,"column":9},
     },
     {
       id: '@local/french-close-reading#frenchReader/previewAsk',
@@ -1881,7 +2016,7 @@ export const TYPERT = {
         typeSymbol: '@local/french-close-reading/types#PreviewAskValue',
         create: _local_french_close_reading_frenchReader_previewAsk_result$schema,
       },
-      sourceLocation: {"file":"packages/french-close-reading/src/controller.ts","line":556,"column":3},
+      sourceLocation: {"file":"packages/french-close-reading/src/controller.ts","line":594,"column":3},
     },
     {
       id: '@local/french-close-reading#frenchReader/previewImport',
@@ -1907,7 +2042,7 @@ export const TYPERT = {
         typeSymbol: '@local/french-close-reading/types#ImportPreviewValue',
         create: _local_french_close_reading_frenchReader_previewImport_result$schema,
       },
-      sourceLocation: {"file":"packages/french-close-reading/src/controller.ts","line":941,"column":9},
+      sourceLocation: {"file":"packages/french-close-reading/src/controller.ts","line":1010,"column":9},
     },
     {
       id: '@local/french-close-reading#frenchReader/publishAnalysis',
@@ -1934,7 +2069,7 @@ export const TYPERT = {
         typeSymbol: '@local/french-close-reading/types#PublishAnalysisValue',
         create: _local_french_close_reading_frenchReader_publishAnalysis_result$schema,
       },
-      sourceLocation: {"file":"packages/french-close-reading/src/controller.ts","line":714,"column":9},
+      sourceLocation: {"file":"packages/french-close-reading/src/controller.ts","line":752,"column":9},
     },
     {
       id: '@local/french-close-reading#frenchReader/putSentenceAnalysis',
@@ -1961,7 +2096,7 @@ export const TYPERT = {
         typeSymbol: '@local/french-close-reading/types#PutSentenceAnalysisValue',
         create: _local_french_close_reading_frenchReader_putSentenceAnalysis_result$schema,
       },
-      sourceLocation: {"file":"packages/french-close-reading/src/controller.ts","line":702,"column":9},
+      sourceLocation: {"file":"packages/french-close-reading/src/controller.ts","line":740,"column":9},
     },
     {
       id: '@local/french-close-reading#frenchReader/readAnalysisCoverage',
@@ -1988,7 +2123,7 @@ export const TYPERT = {
         typeSymbol: '@local/french-close-reading/types#AnalysisCoverageValue',
         create: _local_french_close_reading_frenchReader_readAnalysisCoverage_result$schema,
       },
-      sourceLocation: {"file":"packages/french-close-reading/src/controller.ts","line":628,"column":3},
+      sourceLocation: {"file":"packages/french-close-reading/src/controller.ts","line":666,"column":3},
     },
     {
       id: '@local/french-close-reading#frenchReader/readConjugation',
@@ -2015,7 +2150,7 @@ export const TYPERT = {
         typeSymbol: '@local/french-close-reading/types#ReadConjugationValue',
         create: _local_french_close_reading_frenchReader_readConjugation_result$schema,
       },
-      sourceLocation: {"file":"packages/french-close-reading/src/controller.ts","line":2393,"column":3},
+      sourceLocation: {"file":"packages/french-close-reading/src/controller.ts","line":2484,"column":3},
     },
     {
       id: '@local/french-close-reading#frenchReader/readContext',
@@ -2042,7 +2177,7 @@ export const TYPERT = {
         typeSymbol: '@local/french-close-reading/types#ReadContextValue',
         create: _local_french_close_reading_frenchReader_readContext_result$schema,
       },
-      sourceLocation: {"file":"packages/french-close-reading/src/controller.ts","line":771,"column":3},
+      sourceLocation: {"file":"packages/french-close-reading/src/controller.ts","line":809,"column":3},
     },
     {
       id: '@local/french-close-reading#frenchReader/readSentenceAnalysis',
@@ -2069,7 +2204,7 @@ export const TYPERT = {
         typeSymbol: '@local/french-close-reading/types#ReadSentenceAnalysisValue',
         create: _local_french_close_reading_frenchReader_readSentenceAnalysis_result$schema,
       },
-      sourceLocation: {"file":"packages/french-close-reading/src/controller.ts","line":637,"column":3},
+      sourceLocation: {"file":"packages/french-close-reading/src/controller.ts","line":675,"column":3},
     },
     {
       id: '@local/french-close-reading#frenchReader/recordConclusion',
@@ -2096,7 +2231,7 @@ export const TYPERT = {
         typeSymbol: '@local/french-close-reading/types#RecordConclusionValue',
         create: _local_french_close_reading_frenchReader_recordConclusion_result$schema,
       },
-      sourceLocation: {"file":"packages/french-close-reading/src/controller.ts","line":611,"column":9},
+      sourceLocation: {"file":"packages/french-close-reading/src/controller.ts","line":649,"column":9},
     },
     {
       id: '@local/french-close-reading#frenchReader/renderLexicon',
@@ -2123,7 +2258,7 @@ export const TYPERT = {
         typeSymbol: '@local/french-close-reading/types#RenderLexiconValue',
         create: _local_french_close_reading_frenchReader_renderLexicon_result$schema,
       },
-      sourceLocation: {"file":"packages/french-close-reading/src/controller.ts","line":844,"column":9},
+      sourceLocation: {"file":"packages/french-close-reading/src/controller.ts","line":909,"column":9},
     },
     {
       id: '@local/french-close-reading#frenchReader/resolveGrammarCandidate',
@@ -2150,7 +2285,33 @@ export const TYPERT = {
         typeSymbol: '@local/french-close-reading/types#ResolveGrammarValue',
         create: _local_french_close_reading_frenchReader_resolveGrammarCandidate_result$schema,
       },
-      sourceLocation: {"file":"packages/french-close-reading/src/controller.ts","line":864,"column":9},
+      sourceLocation: {"file":"packages/french-close-reading/src/controller.ts","line":929,"column":9},
+    },
+    {
+      id: '@local/french-close-reading#frenchReader/restorePassage',
+      service: 'frenchReader',
+      namespace: 'frenchReader',
+      method: 'restorePassage',
+      invocation: { kind: 'direct' },
+      parameters: [
+        {
+          name: 'request',
+          wire: 'request',
+          source: 'json',
+          codec: {
+            mode: 'strict',
+            typeSymbol: '@local/french-close-reading/types#RestorePassageRequest',
+            create: _local_french_close_reading_frenchReader_restorePassage_parameter_0$schema,
+          },
+        },
+      ],
+      cancellation: { parameter: 'signal' },
+      result: {
+        mode: 'strict',
+        typeSymbol: '@local/french-close-reading/types#RestorePassageValue',
+        create: _local_french_close_reading_frenchReader_restorePassage_result$schema,
+      },
+      sourceLocation: {"file":"packages/french-close-reading/src/controller.ts","line":869,"column":9},
     },
     {
       id: '@local/french-close-reading#frenchReader/saveTranslation',
@@ -2176,7 +2337,7 @@ export const TYPERT = {
         typeSymbol: '@local/french-close-reading/types#SaveTranslationValue',
         create: _local_french_close_reading_frenchReader_saveTranslation_result$schema,
       },
-      sourceLocation: {"file":"packages/french-close-reading/src/controller.ts","line":1051,"column":9},
+      sourceLocation: {"file":"packages/french-close-reading/src/controller.ts","line":1120,"column":9},
     },
     {
       id: '@local/french-close-reading#frenchReader/setBranchState',
@@ -2203,7 +2364,7 @@ export const TYPERT = {
         typeSymbol: '@local/french-close-reading/types#SetBranchStateValue',
         create: _local_french_close_reading_frenchReader_setBranchState_result$schema,
       },
-      sourceLocation: {"file":"packages/french-close-reading/src/controller.ts","line":595,"column":9},
+      sourceLocation: {"file":"packages/french-close-reading/src/controller.ts","line":633,"column":9},
     },
     {
       id: '@local/french-close-reading#frenchReader/setGrammarMastery',
@@ -2230,7 +2391,7 @@ export const TYPERT = {
         typeSymbol: '@local/french-close-reading/types#SetGrammarMasteryValue',
         create: _local_french_close_reading_frenchReader_setGrammarMastery_result$schema,
       },
-      sourceLocation: {"file":"packages/french-close-reading/src/controller.ts","line":753,"column":9},
+      sourceLocation: {"file":"packages/french-close-reading/src/controller.ts","line":791,"column":9},
     },
     {
       id: '@local/french-close-reading#frenchReader/streamAsk',
@@ -2257,7 +2418,7 @@ export const TYPERT = {
         typeSymbol: '@local/french-close-reading/types#AskFrame',
         create: _local_french_close_reading_frenchReader_streamAsk_result$schema,
       },
-      sourceLocation: {"file":"packages/french-close-reading/src/controller.ts","line":3025,"column":10},
+      sourceLocation: {"file":"packages/french-close-reading/src/controller.ts","line":3131,"column":10},
     },
   ],
   model: {
@@ -2274,6 +2435,11 @@ export const TYPERT = {
             "kind": "method",
             "name": "listPassages",
             "signature": "@Remote('listPassages') async listPassages(request: ListPassagesRequest, signal: AbortSignal): Promise<ListPassagesValue>"
+          },
+          {
+            "kind": "method",
+            "name": "listArchivedPassages",
+            "signature": "@Remote('listArchivedPassages') async listArchivedPassages(request: ListPassagesRequest, signal: AbortSignal): Promise<ListPassagesValue>"
           },
           {
             "kind": "method",
@@ -2398,6 +2564,11 @@ export const TYPERT = {
             "signature": "@Remote('archivePassage') async archivePassage(request: ArchivePassageRequest, signal: AbortSignal): Promise<ArchivePassageValue>",
             "summary": "Archiving is the default removal path.",
             "jsDoc": "/**\n * Archiving is the default removal path. It changes only the library index\n * state; source and analysis records remain exportable and recoverable.\n */"
+          },
+          {
+            "kind": "method",
+            "name": "restorePassage",
+            "signature": "@Remote('restorePassage') async restorePassage(request: RestorePassageRequest, signal: AbortSignal): Promise<RestorePassageValue>"
           },
           {
             "kind": "method",
@@ -2760,6 +2931,11 @@ export const TYPERT = {
           },
           {
             "kind": "method",
+            "name": "importLibraryRemote",
+            "signature": "@Remote('importLibrary') async importLibraryRemote(request: ImportLibraryRequest, signal: AbortSignal): Promise<ImportLibraryValue>"
+          },
+          {
+            "kind": "method",
             "name": "importLibrary",
             "signature": "async importLibrary(bundle: { schemaVersion?: unknown records?: readonly { key?: unknown; record?: unknown }[] }, signal: AbortSignal): Promise<{ imported: number; skipped: number; conflicts: { key: string; reason: string }[] }>",
             "summary": "Restore an exported library without ever overwriting local work.",
@@ -3011,7 +3187,7 @@ export const TYPERT = {
           },
           {
             "name": "GrammarEntryView",
-            "declaration": "export interface GrammarEntryView {\n    entryId: string;\n    topic: string;\n    level: string | null;\n    module: string | null;\n    mastery: 'learning' | 'reviewing' | 'known';\n    contentStatus: 'ai-unverified' | 'user' | 'mixed';\n    askCount: number;\n    lastAskedAt: string | null;\n    examples: number;\n    pitfalls: number;\n    keyPoints: string;\n}"
+            "declaration": "export interface GrammarEntryView {\n    entryId: string;\n    topic: string;\n    level: string | null;\n    module: string | null;\n    mastery: 'learning' | 'reviewing' | 'known';\n    contentStatus: 'ai-unverified' | 'user' | 'mixed';\n    askCount: number;\n    lastAskedAt: string | null;\n    revision: number;\n    examples: number;\n    exampleTexts: string[];\n    notes: string;\n    pitfalls: number;\n    pitfallTexts: string[];\n    keyPoints: string;\n}"
           },
           {
             "name": "GrammarPendingView",
@@ -3024,6 +3200,14 @@ export const TYPERT = {
           {
             "name": "ImportFlagView",
             "declaration": "export interface ImportFlagView {\n    code: string;\n    severity: 'error' | 'hint';\n    detail: string;\n}"
+          },
+          {
+            "name": "ImportLibraryRequest",
+            "declaration": "export interface ImportLibraryRequest extends ExportLibraryValue {\n}"
+          },
+          {
+            "name": "ImportLibraryValue",
+            "declaration": "export interface ImportLibraryValue {\n    imported: number;\n    skipped: number;\n    conflicts: { key: string; reason: string; }[];\n}"
           },
           {
             "name": "ImportPreviewValue",
@@ -3228,6 +3412,14 @@ export const TYPERT = {
           {
             "name": "ResolveGrammarValue",
             "declaration": "export type ResolveGrammarValue = { kind: 'attached'; entryId: string; outcome: string; } | { kind: 'created'; entryId: string; outcome: string; } | { kind: 'discarded'; } | { kind: 'already-resolved'; entryId: string | null; outcome: string; } | { kind: 'conflict'; reason: 'pending-unknown' | 'entry-unknown'; };"
+          },
+          {
+            "name": "RestorePassageRequest",
+            "declaration": "export interface RestorePassageRequest {\n    passageId: string;\n    expectedSourceRevision: number;\n}"
+          },
+          {
+            "name": "RestorePassageValue",
+            "declaration": "export type RestorePassageValue = { kind: 'restored'; passage: Passage; } | { kind: 'already-active'; passage: Passage; } | { kind: 'conflict'; reason: 'passage-unknown' | 'revision-conflict'; };"
           },
           {
             "name": "SaveTranslationRequest",

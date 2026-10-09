@@ -32,7 +32,10 @@ function structuredReact(overrides = new Map(), byName = new Map()) {
     useState: (initial) => {
       const at = index
       index += 1
-      if (active !== null && active.has(at)) return [active.get(at), () => {}]
+      // PassagePage gained three archive-list state slots before its historical
+      // reading state indices; keep root seeds mapped by their old test labels.
+      const seedAt = active === overrides && at > 0 ? at - 3 : at
+      if (active !== null && active.has(seedAt)) return [active.get(seedAt), () => {}]
       return [initial, () => {}]
     },
     useRef: (initial) => ({ current: initial ?? null }),

@@ -37,7 +37,7 @@ test('strict Host and Client Remote contracts expose the same endpoints', () => 
   const host = hostTypert.invocations.map((item) => item.id).sort()
   const client = clientRemote.descriptors.map((item) => item.id).sort()
   assert.deepEqual(client, host)
-  assert.equal(host.length, 39)
+  assert.equal(host.length, 42)
   for (const invocation of hostTypert.invocations) {
     assert.equal(invocation.namespace, 'frenchReader')
     assert.equal(invocation.result.mode, 'strict')
@@ -46,11 +46,11 @@ test('strict Host and Client Remote contracts expose the same endpoints', () => 
   assert.deepEqual(clientRemote.descriptors.map((item) => item.method).sort(), [
     'addBranch', 'adoptTranslation', 'analyseParagraph', 'analyseSentence', 'archivePassage', 'ask', 'createBranch', 'createPassage',
     'createSelection', 'exportLibrary', 'exportPassages', 'fetchConjugation', 'fetchLexiconSource', 'getPassage',
-    'getSegmentation', 'listAnalysis', 'listBackendModels', 'listBackends', 'listDiscussion',
+    'getSegmentation', 'importLibrary', 'listAnalysis', 'listArchivedPassages', 'listBackendModels', 'listBackends', 'listDiscussion',
     'listGrammar', 'listLexicon', 'listLexiconSources', 'listPassages', 'lookupMot', 'previewAsk',
     'previewImport', 'publishAnalysis', 'putSentenceAnalysis', 'readAnalysisCoverage',
     'readConjugation', 'readContext', 'readSentenceAnalysis', 'recordConclusion', 'renderLexicon',
-    'resolveGrammarCandidate', 'saveTranslation', 'setBranchState', 'setGrammarMastery', 'streamAsk',
+    'resolveGrammarCandidate', 'restorePassage', 'saveTranslation', 'setBranchState', 'setGrammarMastery', 'streamAsk',
   ])
 })
 

@@ -104,6 +104,9 @@ export class DshLlmBackend {
         let finish = 'stop';
         let failure = null;
         let sawFinish = false;
+        let modelCallStartedAt = null;
+        let modelCallMs = null;
+        let firstTextDeltaMs = null;
         try {
             // The dispatch carries the *prepared* config verbatim, plus this turn's
             // messages. The runtime compares the two and refuses a mismatch, and an
@@ -116,11 +119,18 @@ export class DshLlmBackend {
                 system: request.system,
                 signal: request.signal,
             };
-            // The provider stream is open: from here on, a wait is a wait on the model.
+            // `streaming` means the provider stream is being read, not that visible text
+            // has arrived. Timings start here; the first non-empty text delta is recorded
+            // separately below.
+            modelCallStartedAt = Date.now();
             request.onPhase?.('streaming');
             for await (const chunk of prepared.stream(dispatched)) {
                 if (chunk.type === 'text-delta') {
                     text += chunk.text;
+                    if (chunk.text !== '' && firstTextDeltaMs === null) {
+                        firstTextDeltaMs = Math.max(0, Date.now() - modelCallStartedAt);
+                        request.onFirstTextDelta?.(firstTextDeltaMs);
+                    }
                     // Handed to the caller as it arrives, so a turn in progress has something
                     // durable behind it rather than appearing only once it is finished.
                     request.onDelta?.(chunk.text);
@@ -143,12 +153,16 @@ export class DshLlmBackend {
                     }
                 }
             }
+            modelCallMs = modelCallStartedAt === null ? null : Math.max(0, Date.now() - modelCallStartedAt);
         }
         catch (error) {
+            modelCallMs = modelCallStartedAt === null ? null : Math.max(0, Date.now() - modelCallStartedAt);
             return {
                 text, resolvedModel: target.model, usage,
                 finish: request.signal.aborted ? 'cancelled' : 'error',
                 failure: failureText(error),
+                modelCallMs,
+                firstTextDeltaMs,
             };
         }
         // A provider stream that ends without a terminal frame is a failure, not a
@@ -156,18 +170,21 @@ export class DshLlmBackend {
         if (!sawFinish) {
             return {
                 text, resolvedModel: target.model, usage, finish: 'error',
-                failure: 'stream-ended-without-finish',
+                failure: 'stream-ended-without-finish', modelCallMs, firstTextDeltaMs,
             };
         }
         // A provider may ignore the cancel and still end its stream with `stop`:
         // the turn was revoked, and a late "success" must never be handed back as a
         // usable result — downstream stores whatever this returns.
         if (request.signal.aborted) {
-            return { text, resolvedModel: target.model, usage, finish: 'cancelled', failure };
+            return {
+                text, resolvedModel: target.model, usage, finish: 'cancelled', failure,
+                modelCallMs, firstTextDeltaMs,
+            };
         }
         // A route that answered is named by the request's own route; the backend does
         // not pretend to know a different one after the fact.
-        return { text, resolvedModel: target.model, usage, finish, failure };
+        return { text, resolvedModel: target.model, usage, finish, failure, modelCallMs, firstTextDeltaMs };
     }
 }
 /** Split a `provider/model` id, or null when the id is not a route. */

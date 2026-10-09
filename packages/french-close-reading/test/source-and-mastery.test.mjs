@@ -173,6 +173,69 @@ test('the panel endpoint stores the attempt on the entry, success or failure', a
   assert.equal(listed[0].sources.length, 0, 'nothing is recorded when nothing was attempted')
 })
 
+test('a slow dictionary request does not hold the global write queue', async () => {
+  let resolvePage
+  let didStart
+  const started = new Promise((resolve) => { didStart = resolve })
+  const response = new Promise((resolve) => { resolvePage = resolve })
+  const { controller } = await openWithWeb(async () => {
+    didStart()
+    return response
+  })
+  await controller.createPassage(passageRequest, signal())
+  const entry = await controller.createLexiconEntry({
+    mot: 'ouvrir', partOfSpeech: 'verbe', lemma: 'ouvrir', forms: [],
+    definition: '打开', label: '基本义', provenance: 'user', operationId: uuid(),
+  }, signal())
+
+  const fetch = controller.fetchLexiconSource({
+    entryId: entry.entryId, source: 'cnrtl', section: 'etymology', mot: 'ouvrir',
+  }, signal())
+  await started
+  const secondPassage = {
+    ...passageRequest,
+    id: uuid(), operationId: uuid(), title: 'Second passage', sourceText: 'Nous avons le temps.',
+  }
+  let savedBeforeFetchFinished = false
+  const save = controller.createPassage(secondPassage, signal()).then((value) => {
+    savedBeforeFetchFinished = true
+    return value
+  })
+  await new Promise((resolve) => setTimeout(resolve, 30))
+  assert.equal(savedBeforeFetchFinished, true, 'a passage save completes while web.fetch is still pending')
+
+  resolvePage({
+    url: 'https://www.cnrtl.fr/etymologie/ouvrir', statusCode: 200,
+    body: { kind: 'html', content: '<h1>ouvrir</h1><p>Une étymologie suffisamment longue pour être conservée.</p>' },
+    truncated: false,
+  })
+  await Promise.all([fetch, save])
+})
+
+test('the source fetch uses the Mot stored on entryId, not a caller-supplied word', async () => {
+  let requestedUrl = ''
+  const { controller } = await openWithWeb(async ({ url }) => {
+    requestedUrl = url
+    return {
+      url, statusCode: 200,
+      body: { kind: 'html', content: '<h1>ouvrir</h1><p>Une étymologie suffisamment longue pour être conservée.</p>' },
+      truncated: false,
+    }
+  })
+  await controller.createPassage(passageRequest, signal())
+  const entry = await controller.createLexiconEntry({
+    mot: 'ouvrir', partOfSpeech: 'verbe', lemma: 'ouvrir', forms: [],
+    definition: '打开', label: '基本义', provenance: 'user', operationId: uuid(),
+  }, signal())
+
+  const result = await controller.fetchLexiconSource({
+    entryId: entry.entryId, source: 'cnrtl', section: 'etymology', mot: 'fermer',
+  }, signal())
+  assert.match(requestedUrl, /\/ouvrir$/u)
+  assert.doesNotMatch(requestedUrl, /fermer/u)
+  assert.equal(result.fetched, true)
+})
+
 test('the source kinds endpoint says what each source may support', async () => {
   const { controller, entryId } = await withEntry()
   const kinds = controller.listLexiconSourceKinds()

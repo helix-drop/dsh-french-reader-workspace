@@ -40,11 +40,12 @@ function stubBackend() {
     available: () => ({ available: true }),
     listModels: async () => [{ id: 'stub-model', name: 'Stub', reasoningEfforts: [], contextWindow: null }],
     generate: async (target, request) => {
-      calls.push({ target, prompt: request.prompt })
+      calls.push({ target, prompt: request.prompt, signal: request.signal })
       const text = request.prompt.includes('逐句精读解析') ? reply : '这一句是无人称结构。'
       return {
         text, resolvedModel: target.model,
         usage: { inputTokens: 5, outputTokens: 7 }, finish: 'stop', failure: null,
+        modelCallMs: 17, firstTextDeltaMs: null,
       }
     },
   }
@@ -52,12 +53,13 @@ function stubBackend() {
 
 async function withTool() {
   const backing = createBacking()
-  const opened = await openController(backing, FRENCH_READER_DOMAIN, { backends: [stubBackend()] })
+  const backend = stubBackend()
+  const opened = await openController(backing, FRENCH_READER_DOMAIN, { backends: [backend] })
   const tool = buildFrenchReaderTool(opened.controller)
   await tool.execute({
     action: 'save', title: 'T', sourceText: SENTENCE, id: ids.passage, operationId: ids.source,
   })
-  return { backing, controller: opened.controller, tool, backend: opened.controller.listBackends().length > 0 }
+  return { backing, controller: opened.controller, tool, backend }
 }
 
 test('the tool lists the backends with their honest status and the models they serve', async () => {
@@ -124,6 +126,73 @@ test('the ask action stores the turn and reports the answer with its provenance'
   })
   assert.equal(sent.detail.found, true)
   assert.equal(sent.detail.model, 'stub-model')
+
+  const runs = await tool.execute({ action: 'runs', passageId: ids.passage })
+  assert.equal(runs.detail.jobs.length, 1)
+  assert.equal(runs.detail.jobs[0].modelCallMs, 17)
+  assert.equal(runs.detail.jobs[0].firstTextDeltaMs, null)
+})
+
+test('tool call cancellation reaches generation and uses the 10-minute timeout budget', async () => {
+  const { tool, backend } = await withTool()
+  const branch = await tool.execute({
+    action: 'discuss', passageId: ids.passage, anchorId: 'p1.s1', title: '取消测试',
+  })
+  assert.equal(branch.ok, true)
+
+  const controller = new AbortController()
+  controller.abort(new Error('cancelled before generation'))
+  await tool.execute({
+    action: 'ask', passageId: ids.passage, branchId: branch.detail.branchId,
+    question: '这一句怎么读？', backend: 'stub', model: 'stub-model',
+  }, { signal: controller.signal })
+
+  assert.equal(tool.timeoutMs, 600_000)
+  assert.equal(backend.calls.length, 1, 'the generation backend was reached')
+  assert.equal(backend.calls[0].signal, controller.signal, 'the exact pre-aborted call signal reaches generation')
+  assert.equal(backend.calls[0].signal.aborted, true)
+})
+
+test('identical ask calls without an operation id use distinct operation ids', async () => {
+  const { tool, controller } = await withTool()
+  const branch = await tool.execute({ action: 'discuss', passageId: ids.passage, anchorId: 'p1.s1', title: '讨论' })
+  const request = {
+    action: 'ask', passageId: ids.passage, branchId: branch.detail.branchId,
+    question: '这一句怎么读？', backend: 'stub', model: 'stub-model',
+  }
+
+  const first = await tool.execute(request)
+  const second = await tool.execute(request)
+  assert.equal(first.ok, true, JSON.stringify(first.detail))
+  assert.equal(second.ok, true, JSON.stringify(second.detail))
+
+  const operationIds = controller.listGenerationJobs(ids.passage, signal())
+    .filter((job) => job.kind === 'ask')
+    .map((job) => job.operationId)
+  assert.equal(operationIds.length, 2, 'each independent tool call starts its own generation job')
+  assert.equal(new Set(operationIds).size, 2, 'repeated ask arguments are not an implicit retry')
+  for (const operationId of operationIds) {
+    assert.match(operationId, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u)
+  }
+})
+
+test('ask preserves an explicit operation id for a true retry', async () => {
+  const { tool, controller } = await withTool()
+  const branch = await tool.execute({ action: 'discuss', passageId: ids.passage, anchorId: 'p1.s1', title: '讨论' })
+  const operationId = '99999999-8888-4777-8666-555555555555'
+  const request = {
+    action: 'ask', passageId: ids.passage, branchId: branch.detail.branchId,
+    question: '这一句怎么读？', backend: 'stub', model: 'stub-model', operationId,
+  }
+
+  const first = await tool.execute(request)
+  const retry = await tool.execute(request)
+  assert.equal(first.ok, true, JSON.stringify(first.detail))
+  assert.equal(retry.ok, true, JSON.stringify(retry.detail))
+
+  const jobs = controller.listGenerationJobs(ids.passage, signal()).filter((job) => job.kind === 'ask')
+  assert.equal(jobs.length, 1, 'the caller-supplied id keeps a true retry idempotent')
+  assert.equal(jobs[0].operationId, operationId, 'the tool passes the explicit id through unchanged')
 })
 
 test('a sibling branch stays out of an ask made through the tool', async () => {

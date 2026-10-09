@@ -57,6 +57,12 @@ export interface GenerateRequest {
    */
   onDelta?: (delta: string) => void
   /**
+   * Called once for the first text delta, with milliseconds since backend dispatch.
+   * This is not necessarily the first reasoning token: adapters may expose reasoning
+   * separately or include it only in usage.
+   */
+  onFirstTextDelta?: (elapsedMs: number) => void
+  /**
    * Called once per stage boundary: 'preparing' (metadata/路由解析, not yet at
    * the provider) and 'streaming' (provider stream open). A caller that records
    * these can tell afterwards where a stalled call was waiting.
@@ -72,6 +78,10 @@ export interface GenerateOutcome {
   /** How the generation ended, so a partial answer is never stored as complete. */
   finish: 'stop' | 'max-tokens' | 'cancelled' | 'error'
   failure: string | null
+  /** Milliseconds from backend dispatch to its terminal result; null if no call began. */
+  modelCallMs?: number | null
+  /** Milliseconds to first text delta; null for backends that do not stream text. */
+  firstTextDeltaMs?: number | null
 }
 
 export interface GenerationBackend {
@@ -189,6 +199,9 @@ export class DshLlmBackend implements GenerationBackend {
     let finish: GenerateOutcome['finish'] = 'stop'
     let failure: string | null = null
     let sawFinish = false
+    let modelCallStartedAt: number | null = null
+    let modelCallMs: number | null = null
+    let firstTextDeltaMs: number | null = null
     try {
       // The dispatch carries the *prepared* config verbatim, plus this turn's
       // messages. The runtime compares the two and refuses a mismatch, and an
@@ -201,11 +214,18 @@ export class DshLlmBackend implements GenerationBackend {
         system: request.system,
         signal: request.signal,
       }
-      // The provider stream is open: from here on, a wait is a wait on the model.
+      // `streaming` means the provider stream is being read, not that visible text
+      // has arrived. Timings start here; the first non-empty text delta is recorded
+      // separately below.
+      modelCallStartedAt = Date.now()
       request.onPhase?.('streaming')
       for await (const chunk of prepared.stream(dispatched)) {
         if (chunk.type === 'text-delta') {
           text += chunk.text
+          if (chunk.text !== '' && firstTextDeltaMs === null) {
+            firstTextDeltaMs = Math.max(0, Date.now() - modelCallStartedAt)
+            request.onFirstTextDelta?.(firstTextDeltaMs)
+          }
           // Handed to the caller as it arrives, so a turn in progress has something
           // durable behind it rather than appearing only once it is finished.
           request.onDelta?.(chunk.text)
@@ -224,11 +244,15 @@ export class DshLlmBackend implements GenerationBackend {
           }
         }
       }
+      modelCallMs = modelCallStartedAt === null ? null : Math.max(0, Date.now() - modelCallStartedAt)
     } catch (error) {
+      modelCallMs = modelCallStartedAt === null ? null : Math.max(0, Date.now() - modelCallStartedAt)
       return {
         text, resolvedModel: target.model, usage,
         finish: request.signal.aborted ? 'cancelled' : 'error',
         failure: failureText(error),
+        modelCallMs,
+        firstTextDeltaMs,
       }
     }
     // A provider stream that ends without a terminal frame is a failure, not a
@@ -236,19 +260,22 @@ export class DshLlmBackend implements GenerationBackend {
     if (!sawFinish) {
       return {
         text, resolvedModel: target.model, usage, finish: 'error',
-        failure: 'stream-ended-without-finish',
+        failure: 'stream-ended-without-finish', modelCallMs, firstTextDeltaMs,
       }
     }
     // A provider may ignore the cancel and still end its stream with `stop`:
     // the turn was revoked, and a late "success" must never be handed back as a
     // usable result — downstream stores whatever this returns.
     if (request.signal.aborted) {
-      return { text, resolvedModel: target.model, usage, finish: 'cancelled', failure }
+      return {
+        text, resolvedModel: target.model, usage, finish: 'cancelled', failure,
+        modelCallMs, firstTextDeltaMs,
+      }
     }
 
     // A route that answered is named by the request's own route; the backend does
     // not pretend to know a different one after the fact.
-    return { text, resolvedModel: target.model, usage, finish, failure }
+    return { text, resolvedModel: target.model, usage, finish, failure, modelCallMs, firstTextDeltaMs }
   }
 }
 

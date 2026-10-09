@@ -95,6 +95,8 @@ export async function beginGenerationJob(
     status: 'running',
     phase: 'dispatched',
     attempt: (existing?.attempt ?? 0) + 1,
+    modelCallMs: null,
+    firstTextDeltaMs: null,
     partialText: '',
     finish: null,
     failure: null,
@@ -146,6 +148,22 @@ export async function recordGenerationPhase(
   return next
 }
 
+/** Store the first visible text boundary once; non-streaming backends leave it null. */
+export async function recordFirstTextDelta(
+  table: RecordTable,
+  job: StoredGenerationJob,
+  elapsedMs: number,
+): Promise<StoredGenerationJob> {
+  if (job.firstTextDeltaMs !== null && job.firstTextDeltaMs !== undefined) return job
+  const next: StoredGenerationJob = {
+    ...job,
+    firstTextDeltaMs: Math.max(0, Math.trunc(elapsedMs)),
+    updatedAt: new Date().toISOString(),
+  }
+  await writeGenerationJob(table, next)
+  return next
+}
+
 /** Settle one job with its outcome. */
 export async function finishGenerationJob(
   table: RecordTable,
@@ -158,6 +176,8 @@ export async function finishGenerationJob(
     usage?: StoredGenerationJob['usage']
     messageId?: string | null
     contextId?: string | null
+    modelCallMs?: number | null
+    firstTextDeltaMs?: number | null
     partialText?: string
   },
 ): Promise<StoredGenerationJob> {
@@ -171,6 +191,8 @@ export async function finishGenerationJob(
     usage: patch.usage === undefined ? job.usage : patch.usage,
     messageId: patch.messageId === undefined ? job.messageId : patch.messageId,
     contextId: patch.contextId === undefined ? job.contextId : patch.contextId,
+    modelCallMs: patch.modelCallMs === undefined ? job.modelCallMs : patch.modelCallMs,
+    firstTextDeltaMs: patch.firstTextDeltaMs === undefined ? job.firstTextDeltaMs : patch.firstTextDeltaMs,
     partialText: patch.partialText === undefined ? job.partialText : truncatePartial(patch.partialText),
     updatedAt: now,
     finishedAt: now,

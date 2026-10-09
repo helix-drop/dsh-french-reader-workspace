@@ -140,7 +140,7 @@ test('the inlined contribution passes the client registry validation that failed
 
   const contribution = mounted[0]
   const { endpoints } = validateContribution(contribution)
-  assert.equal(endpoints.size, 39)
+  assert.equal(endpoints.size, 42)
   assert.ok(endpoints.has('frenchReader/listPassages'))
   assert.ok(endpoints.has('frenchReader/archivePassage'))
 })
@@ -239,7 +239,7 @@ test('the client sends every argument under the name the Host descriptor declare
   assert.equal(Array.isArray(clientInvocations), true)
 
   const hostById = new Map(TYPERT.invocations.map((entry) => [entry.id, entry]))
-  assert.equal(hostById.size, 39, 'the Host declares every endpoint')
+  assert.equal(hostById.size, 42, 'the Host declares every endpoint')
 
   const mismatches = []
   for (const client of clientInvocations) {
@@ -315,8 +315,8 @@ test('the client codecs accept every argument shape the panel actually sends', a
   assert.equal(grammarResult.safeParse({
     entries: [{
       entryId: 'e', topic: 't', level: null, module: null, mastery: 'learning',
-      contentStatus: 'ai-unverified', askCount: 1, lastAskedAt: null,
-      examples: 0, pitfalls: 0, keyPoints: '',
+      contentStatus: 'ai-unverified', askCount: 1, lastAskedAt: null, revision: 1,
+      examples: 0, exampleTexts: [], notes: '', pitfalls: 0, pitfallTexts: [], keyPoints: '',
     }],
     pending: [{
       pendingId: 'p', topic: 't', body: '', candidates: [],

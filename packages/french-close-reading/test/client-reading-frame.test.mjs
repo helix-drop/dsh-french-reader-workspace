@@ -134,11 +134,13 @@ test('the knowledge library is the prototype\'s list, not the old panel view', (
   ]) {
     assert.equal(library.includes(marker), true, `the library builds ${marker}`)
   }
-  // The two tabs are counted, and the filters come from the prototype's own list.
+  // The two tabs are counted. Mastery is a grammar-only field; the unsupported
+  // current-sentence scope selector is intentionally absent from both tabs.
   assert.match(library, /t\('lexiconTab'\)\} \$\{\(lexicon\?\.entries/u)
   assert.match(library, /t\('grammarTab'\)\} \$\{\(grammar\?\.entries/u)
+  assert.match(library, /tab === 'grammar' \? h\('select'/u)
   assert.match(library, /t\('masteryFilter'\)/u)
-  assert.match(library, /t\('scopeFilter'\)/u)
+  assert.equal(library.includes("t('scopeFilter')"), false)
   // `kbUI.mode`: the entry opens on top of the list, and the bar walks back.
   assert.match(source, /knowledgeEntryId === null/u)
   assert.match(source, /onOpenEntry: \(id, tab\) => \{ setKnowledgeEntryId\(id\); setKnowledgeTab\(tab\) \}/u)
@@ -147,7 +149,7 @@ test('the knowledge library is the prototype\'s list, not the old panel view', (
   // `renderKnowledgeEntry()`'s header: the word/grammar title, the intro line, and the meta
   // row — with the mastery control only where the Host actually stores a mastery.
   const entry = source.slice(source.indexOf('function KnowledgeEntry('), source.indexOf('function KnowledgeSection('))
-  for (const marker of ["className: isWord ? 'kbWord' : 'detailTitle'", "className: 'kbIntro'", "className: 'kbMeta'", 'setGrammarMastery({ entryId: entry.entryId, mastery: next })']) {
+  for (const marker of ["className: isWord ? 'kbWord' : 'detailTitle'", "className: 'kbIntro'", "className: 'kbMeta'", 'expectedRevision: entry.revision,', 'operationId: createUuid(),']) {
     assert.equal(entry.includes(marker), true, `the entry header builds ${marker}`)
   }
   assert.match(entry, /isWord \|\| entry === null \? null : h\('select'/u,
@@ -265,19 +267,25 @@ test('reading shows the syntax legend with an analysis; other detail branches re
 test('the passage switcher is built from the prototype\'s own vocabulary', () => {
   const at = source.indexOf('function passageSwitcher()')
   assert.notEqual(at, -1, 'the switcher exists')
-  const body = source.slice(at, source.indexOf('function closeButton(', at))
+  const body = source.slice(at, source.indexOf('function passageComposer(', at))
+  const composer = source.slice(source.indexOf('function passageComposer(', at), source.indexOf('function passageRows(', at))
+  const rows = source.slice(source.indexOf('function passageRows(', at), source.indexOf('function archivedPassageRows(', at))
   // The prototype has no passage list, so this is an extra capability — and the rule for
-  // those is that it invents no look: it reuses the dialog and knowledge-list vocabulary.
-  for (const marker of ["className: 'modalBackdrop'", "className: 'modal switcher'", "className: 'modalFoot'",
-    "className: 'kbRows'", "className: 'kbRow'", "className: 'kbField'", "className: 'kbBar'"]) {
+  // those is that it invents no look: dialog, composer and saved rows reuse panel vocabulary.
+  for (const marker of ["className: 'modalBackdrop'", "className: 'modal switcher'", "className: 'modalFoot'", "className: 'kbBar'"]) {
     assert.equal(body.includes(marker), true, `the switcher builds ${marker}`)
   }
-  // It reuses the panel's handlers rather than re-implementing them.
-  for (const handler of ['openPassage(item.id)', 'onSubmit: submit', 'onClick: exportBackup', 'onClick: exportSources']) {
-    assert.equal(body.includes(handler), true, `the switcher uses ${handler}`)
+  assert.equal(composer.includes("className: 'kbField'"), true, 'the composer uses the shared field styling')
+  for (const marker of ["className: 'kbRows'", "className: 'kbRow'"]) {
+    assert.equal(rows.includes(marker), true, `the saved passage list builds ${marker}`)
   }
-  // The brand title opens it; nothing else does.
-  assert.match(source, /onClick: \(\) => \{ setSwitcherMode\('list'\); setSwitcherOpen\(true\) \}/u)
+  // It reuses the panel's handlers rather than re-implementing them.
+  assert.equal(rows.includes('openPassage(item.id)'), true, 'a saved row opens its passage')
+  for (const handler of ['onSubmit: submit', 'onClick: exportBackup', 'onClick: exportSources']) {
+    assert.equal(body.includes(handler) || composer.includes(handler), true, `the switcher uses ${handler}`)
+  }
+  // The library action opens the existing list, while the modal itself remains guarded by switcherOpen.
+  assert.match(source, /setShowArchived\(false\); setSwitcherMode\('list'\); setSwitcherOpen\(true\)/u)
   assert.match(source, /switcherOpen \? passageSwitcher\(\) : null/u)
 })
 

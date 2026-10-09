@@ -87,6 +87,41 @@ test('the dispatch carries the prepared config, so the runtime does not refuse i
   assert.deepEqual(outcome.usage, { inputTokens: 12, outputTokens: 3 })
 })
 
+test('first visible text timing is distinct from opening the stream', async () => {
+  const { service } = strictLlm({ chunks: textChunks })
+  const backend = new DshLlmBackend(contextWith(service))
+  const observed = []
+  const outcome = await backend.generate(
+    { backend: 'dsh', model: 'prov/model' },
+    {
+      system: 's', prompt: 'p', signal: new AbortController().signal,
+      onFirstTextDelta: (elapsedMs) => observed.push(elapsedMs),
+    },
+  )
+
+  assert.equal(observed.length, 1)
+  assert.equal(outcome.firstTextDeltaMs, observed[0])
+  assert.equal(Number.isInteger(outcome.firstTextDeltaMs), true)
+  assert.equal(Number.isInteger(outcome.modelCallMs), true)
+  assert.ok(outcome.modelCallMs >= outcome.firstTextDeltaMs)
+})
+
+test('non-text streams have no first-text timestamp', async () => {
+  const { service } = strictLlm({ chunks: [
+    { type: 'usage', usage: { inputTokens: 1, outputTokens: 0 } },
+    { type: 'finish', reason: { kind: 'stop' } },
+  ] })
+  const backend = new DshLlmBackend(contextWith(service))
+  const outcome = await backend.generate(
+    { backend: 'dsh', model: 'prov/model' },
+    { system: 's', prompt: 'p', signal: new AbortController().signal },
+  )
+
+  assert.equal(outcome.finish, 'stop')
+  assert.equal(outcome.firstTextDeltaMs, null)
+  assert.equal(Number.isInteger(outcome.modelCallMs), true)
+})
+
 test('an adapter default the caller did not ask for still matches, because it travels through', async () => {
   // The live failure: the adapter resolved `temperature`/`maxTokens`, the caller
   // sent only provider/model/messages, and the runtime refused the mismatch.

@@ -30,6 +30,8 @@ function lifecycleBackend({ text = '这是回答。', finish = 'stop', failure =
     listModels: async () => [{ id: 'stub-model', name: 'Stub', reasoningEfforts: [], contextWindow: null }],
     generate: async (target, request) => {
       calls.push({ target, prompt: request.prompt, onDelta: request.onDelta })
+      const firstTextDeltaMs = deltas.some((delta) => delta !== '') ? 17 : null
+      if (firstTextDeltaMs !== null) request.onFirstTextDelta?.(firstTextDeltaMs)
       for (const delta of deltas) request.onDelta?.(delta)
       if (hold !== null) await hold(request.signal)
       return {
@@ -38,6 +40,8 @@ function lifecycleBackend({ text = '这是回答。', finish = 'stop', failure =
         usage: { inputTokens: 11, outputTokens: 22 },
         finish,
         failure,
+        modelCallMs: 42,
+        firstTextDeltaMs,
       }
     },
   }
@@ -80,6 +84,8 @@ test('a turn leaves a job that says what happened, including how it ended', asyn
   assert.equal(job.model, 'stub-model')
   assert.equal(job.resolvedModel, 'stub-model')
   assert.equal(job.usage.outputTokens, 22)
+  assert.equal(job.modelCallMs, 42)
+  assert.equal(job.firstTextDeltaMs, null, 'no delta means no invented first-text time')
   assert.equal(job.messageId, asked.messageId, 'the job points at the answer it produced')
   assert.equal(job.contextId, asked.contextId, 'and at the context it was sent with')
   assert.notEqual(job.startedAt, null)
@@ -147,6 +153,8 @@ test('a cancel settles the job and keeps what the answer had said so far', async
   assert.equal(job.finish, 'cancelled')
   assert.equal(job.failure, '用户取消')
   assert.equal(job.partialText, '前半段，还有一点', 'the text that arrived before the cancel is kept')
+  assert.equal(job.firstTextDeltaMs, 17)
+  assert.equal(job.modelCallMs, 42)
   assert.equal(job.finishedAt !== null, true)
 })
 

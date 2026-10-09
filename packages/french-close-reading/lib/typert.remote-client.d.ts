@@ -4,7 +4,7 @@ import type {
   RemoteStreamHandle,
   TypertRemoteContribution,
 } from '@deepseek-ai/dsh-typert-protocol'
-import type { AddBranchRequest, AddBranchValue, AdoptTranslationRequest, AdoptTranslationValue, AnalyseParagraphRequest, AnalyseParagraphResult, AnalyseSentenceRequest, AnalyseSentenceResult, AnalysisCoverageValue, ArchivePassageRequest, ArchivePassageValue, AskFrame, AskRequest, AskResult, ConjugationRequest, CreateBranchRequest, CreateBranchValue, CreatePassageRequest, CreatePassageValue, CreateSelectionRequest, CreateSelectionValue, DiscussionView, ExportLibraryRequest, ExportLibraryValue, ExportPassagesValue, FetchConjugationValue, FetchLexiconSourceRequest, FetchLexiconSourceValue, GetPassageRequest, GetPassageValue, GetSegmentationRequest, GetSegmentationValue, ImportPreviewValue, LexiconLookup, ListAnalysisRequest, ListAnalysisValue, ListBackendModelsRequest, ListBackendModelsValue, ListBackendsRequest, ListBackendsValue, ListDiscussionRequest, ListGrammarRequest, ListGrammarValue, ListLexiconRequest, ListLexiconSourcesRequest, ListLexiconSourcesValue, ListLexiconValue, ListPassagesRequest, ListPassagesValue, LookupMotRequest, PreviewAskRequest, PreviewAskValue, PreviewImportRequest, PublishAnalysisRequest, PublishAnalysisValue, PutSentenceAnalysisRequest, PutSentenceAnalysisValue, ReadAnalysisCoverageRequest, ReadConjugationValue, ReadContextRequest, ReadContextValue, ReadSentenceAnalysisRequest, ReadSentenceAnalysisValue, RecordConclusionRequest, RecordConclusionValue, RenderLexiconRequest, RenderLexiconValue, ResolveGrammarRequest, ResolveGrammarValue, SaveTranslationRequest, SaveTranslationValue, SetBranchStateRequest, SetBranchStateValue, SetGrammarMasteryRequest, SetGrammarMasteryValue } from '@local/french-close-reading/types'
+import type { AddBranchRequest, AddBranchValue, AdoptTranslationRequest, AdoptTranslationValue, AnalyseParagraphRequest, AnalyseParagraphResult, AnalyseSentenceRequest, AnalyseSentenceResult, AnalysisCoverageValue, ArchivePassageRequest, ArchivePassageValue, AskFrame, AskRequest, AskResult, ConjugationRequest, CreateBranchRequest, CreateBranchValue, CreatePassageRequest, CreatePassageValue, CreateSelectionRequest, CreateSelectionValue, DiscussionView, ExportLibraryRequest, ExportLibraryValue, ExportPassagesValue, FetchConjugationValue, FetchLexiconSourceRequest, FetchLexiconSourceValue, GetPassageRequest, GetPassageValue, GetSegmentationRequest, GetSegmentationValue, ImportLibraryRequest, ImportLibraryValue, ImportPreviewValue, LexiconLookup, ListAnalysisRequest, ListAnalysisValue, ListBackendModelsRequest, ListBackendModelsValue, ListBackendsRequest, ListBackendsValue, ListDiscussionRequest, ListGrammarRequest, ListGrammarValue, ListLexiconRequest, ListLexiconSourcesRequest, ListLexiconSourcesValue, ListLexiconValue, ListPassagesRequest, ListPassagesValue, LookupMotRequest, PreviewAskRequest, PreviewAskValue, PreviewImportRequest, PublishAnalysisRequest, PublishAnalysisValue, PutSentenceAnalysisRequest, PutSentenceAnalysisValue, ReadAnalysisCoverageRequest, ReadConjugationValue, ReadContextRequest, ReadContextValue, ReadSentenceAnalysisRequest, ReadSentenceAnalysisValue, RecordConclusionRequest, RecordConclusionValue, RenderLexiconRequest, RenderLexiconValue, ResolveGrammarRequest, ResolveGrammarValue, RestorePassageRequest, RestorePassageValue, SaveTranslationRequest, SaveTranslationValue, SetBranchStateRequest, SetBranchStateValue, SetGrammarMasteryRequest, SetGrammarMasteryValue } from '@local/french-close-reading/types'
 
 declare module '@deepseek-ai/dsh-typert-protocol' {
   interface TypertRemoteNamespace$6672656e6368526561646572 {
@@ -23,7 +23,9 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     fetchLexiconSource: (request: FetchLexiconSourceRequest, signal?: AbortSignal) => Promise<RemoteResult<FetchLexiconSourceValue>>
     getPassage: (request: GetPassageRequest, signal?: AbortSignal) => Promise<RemoteResult<GetPassageValue>>
     getSegmentation: (request: GetSegmentationRequest, signal?: AbortSignal) => Promise<RemoteResult<GetSegmentationValue>>
+    importLibrary: (request: ImportLibraryRequest, signal?: AbortSignal) => Promise<RemoteResult<ImportLibraryValue>>
     listAnalysis: (request: ListAnalysisRequest, signal?: AbortSignal) => Promise<RemoteResult<ListAnalysisValue>>
+    listArchivedPassages: (request: ListPassagesRequest, signal?: AbortSignal) => Promise<RemoteResult<ListPassagesValue>>
     listBackendModels: (request: ListBackendModelsRequest, signal?: AbortSignal) => Promise<RemoteResult<ListBackendModelsValue>>
     listBackends: (request: ListBackendsRequest, signal?: AbortSignal) => Promise<RemoteResult<ListBackendsValue>>
     listDiscussion: (request: ListDiscussionRequest, signal?: AbortSignal) => Promise<RemoteResult<DiscussionView>>
@@ -43,6 +45,7 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     recordConclusion: (request: RecordConclusionRequest, signal?: AbortSignal) => Promise<RemoteResult<RecordConclusionValue>>
     renderLexicon: (request: RenderLexiconRequest, signal?: AbortSignal) => Promise<RemoteResult<RenderLexiconValue>>
     resolveGrammarCandidate: (request: ResolveGrammarRequest, signal?: AbortSignal) => Promise<RemoteResult<ResolveGrammarValue>>
+    restorePassage: (request: RestorePassageRequest, signal?: AbortSignal) => Promise<RemoteResult<RestorePassageValue>>
     saveTranslation: (request: SaveTranslationRequest, signal?: AbortSignal) => Promise<RemoteResult<SaveTranslationValue>>
     setBranchState: (request: SetBranchStateRequest, signal?: AbortSignal) => Promise<RemoteResult<SetBranchStateValue>>
     setGrammarMastery: (request: SetGrammarMasteryRequest, signal?: AbortSignal) => Promise<RemoteResult<SetGrammarMasteryValue>>
@@ -64,7 +67,9 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     'frenchReader/fetchLexiconSource': (request: FetchLexiconSourceRequest, signal?: AbortSignal) => Promise<RemoteResult<FetchLexiconSourceValue>>
     'frenchReader/getPassage': (request: GetPassageRequest, signal?: AbortSignal) => Promise<RemoteResult<GetPassageValue>>
     'frenchReader/getSegmentation': (request: GetSegmentationRequest, signal?: AbortSignal) => Promise<RemoteResult<GetSegmentationValue>>
+    'frenchReader/importLibrary': (request: ImportLibraryRequest, signal?: AbortSignal) => Promise<RemoteResult<ImportLibraryValue>>
     'frenchReader/listAnalysis': (request: ListAnalysisRequest, signal?: AbortSignal) => Promise<RemoteResult<ListAnalysisValue>>
+    'frenchReader/listArchivedPassages': (request: ListPassagesRequest, signal?: AbortSignal) => Promise<RemoteResult<ListPassagesValue>>
     'frenchReader/listBackendModels': (request: ListBackendModelsRequest, signal?: AbortSignal) => Promise<RemoteResult<ListBackendModelsValue>>
     'frenchReader/listBackends': (request: ListBackendsRequest, signal?: AbortSignal) => Promise<RemoteResult<ListBackendsValue>>
     'frenchReader/listDiscussion': (request: ListDiscussionRequest, signal?: AbortSignal) => Promise<RemoteResult<DiscussionView>>
@@ -84,6 +89,7 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     'frenchReader/recordConclusion': (request: RecordConclusionRequest, signal?: AbortSignal) => Promise<RemoteResult<RecordConclusionValue>>
     'frenchReader/renderLexicon': (request: RenderLexiconRequest, signal?: AbortSignal) => Promise<RemoteResult<RenderLexiconValue>>
     'frenchReader/resolveGrammarCandidate': (request: ResolveGrammarRequest, signal?: AbortSignal) => Promise<RemoteResult<ResolveGrammarValue>>
+    'frenchReader/restorePassage': (request: RestorePassageRequest, signal?: AbortSignal) => Promise<RemoteResult<RestorePassageValue>>
     'frenchReader/saveTranslation': (request: SaveTranslationRequest, signal?: AbortSignal) => Promise<RemoteResult<SaveTranslationValue>>
     'frenchReader/setBranchState': (request: SetBranchStateRequest, signal?: AbortSignal) => Promise<RemoteResult<SetBranchStateValue>>
     'frenchReader/setGrammarMastery': (request: SetGrammarMasteryRequest, signal?: AbortSignal) => Promise<RemoteResult<SetGrammarMasteryValue>>

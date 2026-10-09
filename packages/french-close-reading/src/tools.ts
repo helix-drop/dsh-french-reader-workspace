@@ -148,9 +148,7 @@ Discipline:
  * @returns Tool options for `ctx.tools.register`.
  */
 export function buildFrenchReaderTool(controller: FrenchReaderController): Record<string, unknown> {
-  const signal = (): AbortSignal => AbortSignal.timeout(30_000)
-
-  const actions: Record<string, (args: Record<string, unknown>) => Promise<ToolDetail>> = {
+  const actions = (signal: () => AbortSignal): Record<string, (args: Record<string, unknown>) => Promise<ToolDetail>> => ({
     async list(args) {
       const offset = typeof args.offset === 'number' ? args.offset : 0
       const limit = typeof args.limit === 'number' ? args.limit : 25
@@ -439,7 +437,7 @@ export function buildFrenchReaderTool(controller: FrenchReaderController): Recor
       // Generation jobs (ask + analyse) ride along: one read answers both which
       // knowledge runs settled and what each model call actually did — whether it
       // reached the provider (phase), what text arrived (partialText), and how it
-      // ended. This is the evidence channel for a stalled or refused call.
+      // ended. `modelCallMs` is backend execution time; `firstTextDeltaMs` marks the first visible text, not a reasoning token (null for agy).
       const jobs = controller.listGenerationJobs(passageId, signal())
       return { total: runs.length, runs: runs.map(describeRun), jobs: jobs.map(describeJob) }
     },
@@ -728,7 +726,7 @@ export function buildFrenchReaderTool(controller: FrenchReaderController): Recor
         extras: [],
         operationId: typeof args.operationId === 'string' && args.operationId !== ''
           ? args.operationId
-          : await deterministicUuid('french-reader/ask', [passageId, branchId, question].join('\u0000')),
+          : globalThis.crypto.randomUUID(),
         expectedFingerprint: typeof args.expectedFingerprint === 'string' && args.expectedFingerprint !== ''
           ? args.expectedFingerprint
           : null,
@@ -1147,12 +1145,12 @@ export function buildFrenchReaderTool(controller: FrenchReaderController): Recor
         })),
       }
     },
-  }
+  })
 
   return {
     name: 'french_reader',
     description: DESCRIPTION,
-    timeoutMs: 60_000,
+    timeoutMs: 600_000,
     parameters: {
       type: 'object',
       properties: {
@@ -1250,11 +1248,16 @@ export function buildFrenchReaderTool(controller: FrenchReaderController): Recor
       },
       render: (_args: unknown, value: unknown) => [{ type: 'text', text: JSON.stringify(value) }],
     },
-    async execute(args: Record<string, unknown>): Promise<{ ok: boolean; action: string; detail: ToolDetail }> {
+    async execute(
+      args: Record<string, unknown>,
+      exec?: { signal?: AbortSignal },
+    ): Promise<{ ok: boolean; action: string; detail: ToolDetail }> {
       const action = typeof args?.action === 'string' ? args.action : ''
-      const run = actions[action]
+      const callSignal = exec?.signal ?? new AbortController().signal
+      const callActions = actions(() => callSignal)
+      const run = callActions[action]
       if (run === undefined) {
-        return { ok: false, action, detail: { error: 'unknown action', allowed: Object.keys(actions) } }
+        return { ok: false, action, detail: { error: 'unknown action', allowed: Object.keys(callActions) } }
       }
       try {
         const detail = await run(args)
@@ -1366,6 +1369,8 @@ function describeJob(job: {
   startedAt: string
   updatedAt: string
   finishedAt: string | null
+  modelCallMs?: number | null
+  firstTextDeltaMs?: number | null
   partialText: string
 }): ToolDetail {
   return {
@@ -1384,6 +1389,8 @@ function describeJob(job: {
     startedAt: job.startedAt,
     updatedAt: job.updatedAt,
     finishedAt: job.finishedAt,
+    modelCallMs: job.modelCallMs ?? null,
+    firstTextDeltaMs: job.firstTextDeltaMs ?? null,
     // The model's actual reply as far as it got: the evidence an unparsable or
     // rejected answer is judged against.
     partialText: job.partialText.length > 4_000 ? `${job.partialText.slice(0, 4_000)}…` : job.partialText,

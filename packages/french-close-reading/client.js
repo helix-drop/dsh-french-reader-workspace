@@ -257,7 +257,10 @@ window.__ModuleLoader__.load({
       return pieces
     }
 
-    const internals = { measureSelection, paragraphOffsetBefore, tokenForRole, renderConstituents }
+    function contextPreviewIdentity(passageId, requestId, branchId, backend, model, question) {
+      return JSON.stringify([passageId, requestId, branchId, backend, model, question.trim()])
+    }
+    const internals = { measureSelection, paragraphOffsetBefore, tokenForRole, renderConstituents, contextPreviewIdentity, conjugationPersonLabel, mergeShelf, mergeContinuationLinks, ConjugationView, KnowledgeEntry, GrammarDetail }
 
     const TYPES = '@local/french-close-reading/types#'
     const remoteContribution = {
@@ -268,6 +271,21 @@ window.__ModuleLoader__.load({
           service: 'frenchReader',
           namespace: 'frenchReader',
           method: 'listPassages',
+          invocation: { kind: 'direct' },
+          parameters: [{
+            name: 'request', wire: 'request', source: 'json',
+            codec: strict(`${TYPES}ListPassagesRequest`, S.obj({ offset: S.num, limit: S.num })),
+          }],
+          cancellation: { parameter: 'signal' },
+          result: strict(`${TYPES}ListPassagesValue`, S.obj({
+            items: S.arr(summaryShape), offset: S.num, total: S.num, hasMore: S.bool,
+          })),
+        },
+        {
+          id: '@local/french-close-reading#frenchReader/listArchivedPassages',
+          service: 'frenchReader',
+          namespace: 'frenchReader',
+          method: 'listArchivedPassages',
           invocation: { kind: 'direct' },
           parameters: [{
             name: 'request', wire: 'request', source: 'json',
@@ -752,6 +770,24 @@ window.__ModuleLoader__.load({
           })),
         },
         {
+          id: '@local/french-close-reading#frenchReader/importLibrary',
+          service: 'frenchReader',
+          namespace: 'frenchReader',
+          method: 'importLibrary',
+          invocation: { kind: 'direct' },
+          parameters: [{
+            name: 'request', wire: 'request', source: 'json',
+            codec: strict(`${TYPES}ImportLibraryRequest`, S.obj({
+              schemaVersion: S.lit(1), exportedAt: S.str,
+              records: S.arr(S.obj({ key: S.str, record: S.any })),
+            })),
+          }],
+          cancellation: { parameter: 'signal' },
+          result: strict(`${TYPES}ImportLibraryValue`, S.obj({
+            imported: S.num, skipped: S.num, conflicts: S.arr(S.obj({ key: S.str, reason: S.str })),
+          })),
+        },
+        {
           id: '@local/french-close-reading#frenchReader/renderLexicon',
           service: 'frenchReader',
           namespace: 'frenchReader',
@@ -834,8 +870,9 @@ window.__ModuleLoader__.load({
               entryId: S.str, topic: S.str, level: S.nilable(S.str), module: S.nilable(S.str),
               mastery: S.oneOf(S.lit('learning'), S.lit('reviewing'), S.lit('known')),
               contentStatus: S.oneOf(S.lit('ai-unverified'), S.lit('user'), S.lit('mixed')),
-              askCount: S.num, lastAskedAt: S.nilable(S.str),
-              examples: S.num, pitfalls: S.num, keyPoints: S.str,
+              askCount: S.num, lastAskedAt: S.nilable(S.str), revision: S.num,
+              examples: S.num, exampleTexts: S.arr(S.str), notes: S.str,
+              pitfalls: S.num, pitfallTexts: S.arr(S.str), keyPoints: S.str,
             })),
             pending: S.arr(S.obj({
               pendingId: S.str, topic: S.str, body: S.str,
@@ -1021,6 +1058,25 @@ window.__ModuleLoader__.load({
           )),
         },
         {
+          id: '@local/french-close-reading#frenchReader/restorePassage',
+          service: 'frenchReader',
+          namespace: 'frenchReader',
+          method: 'restorePassage',
+          invocation: { kind: 'direct' },
+          parameters: [{
+            name: 'request', wire: 'request', source: 'json',
+            codec: strict(`${TYPES}RestorePassageRequest`, S.obj({
+              passageId: S.str, expectedSourceRevision: S.num,
+            })),
+          }],
+          cancellation: { parameter: 'signal' },
+          result: strict(`${TYPES}RestorePassageValue`, S.oneOf(
+            S.obj({ kind: S.lit('restored'), passage: passageShape }),
+            S.obj({ kind: S.lit('already-active'), passage: passageShape }),
+            S.obj({ kind: S.lit('conflict'), reason: S.oneOf(S.lit('passage-unknown'), S.lit('revision-conflict')) }),
+          )),
+        },
+        {
           id: '@local/french-close-reading#frenchReader/getSegmentation',
           service: 'frenchReader',
           namespace: 'frenchReader',
@@ -1115,8 +1171,8 @@ window.__ModuleLoader__.load({
       listTitle: '已保存段落', count: '共 {count} 段 · 上限 250', refresh: '刷新',
       empty: '还没有段落。在右侧保存第一段法语原文。',
       open: '打开', previous: '上一页', nextPage: '下一页', page: '第 {page} 页',
-      exportAll: '导出完整备份', exporting: '正在导出…', exportDone: '已导出完整备份（{count} 条记录）：原文、解析、讨论、知识库与任务一并保存。',
-      exportSources: '仅导出原文', exportSourcesDone: '已导出原文清单（不含解析与知识库）。',
+      exportAll: '导出完整备份', exporting: '正在导出…', exportDone: '已导出完整备份（{count} 条记录）：原文、解析、讨论、知识库、任务及本地书架续读关系一并保存。',
+      exportSources: '仅导出原文', exportSourcesDone: '已导出原文清单（不含解析与知识库）。', importBackup: '导入备份', backupImportDone: '导入完成：新增 {imported} 条，跳过 {skipped} 条，冲突 {conflicts} 条；已有本地书架信息优先保留。',
       untitled: '未命名段落', chars: '{count} 字符',
       compose: '新建段落', composeHint: '原文保存后即为只读基线：译文与分支都作为新版本追加，绝不覆盖原文。',
       startTitle: '开始一段精读',
@@ -1138,7 +1194,7 @@ window.__ModuleLoader__.load({
       limitReached: '已达到当前版本的 250 段上限。请先导出备份。',
       idUsed: '段落标识冲突', operationUsed: '保存操作标识冲突',
       requestFailed: '请求失败，请检查连接后重试。',
-      backupFailed: '导出备份失败。', restoreNote: '重新载入页面后，已保存原文仍可恢复。',
+      backupFailed: '备份操作失败。', backupFormatInvalid: '文件不是可识别的法语精读备份。', restoreNote: '重新载入页面后，已保存原文仍可恢复。',
       backToLibrary: '段落库', sourceRevision: '原文修订 {revision}',
       currentAnchor: '当前锚点', wholePassage: '整篇',
       sentencesHint: '点击句子设为当前锚点；拖选短语可创建选区锚点。',
@@ -1189,21 +1245,21 @@ window.__ModuleLoader__.load({
       masteryKnown: '已掌握', masteryUnknown: '未设', scopeFilter: '出现范围筛选', scopeAll: '全部',
       scopeSentence: '当前句', noMatchingEntry: '没有匹配条目', exampleCount: '{count} 条例句',
       knowledgePolicyNote: '语法知识在问答后自动积累；词条由查词与讨论收入，均为本地记录。',
-      knowledgeLoading: '读取中…',
+      knowledgeLoading: '读取中…', knowledgeNotFound: '未找到该知识条目。', knowledgeRetry: '重试读取',
       contentUser: '读者填写', contentMixed: '混合来源',
       conjBaseCount: '{count} 个语音基底', conjModeLabel: '变位显示方式',
       conjModeOral: '口语', conjModeBoth: '对照', conjModeWritten: '书写',
       conjBaseLabel: '基底 {index}，{persons}',
       partOfSpeechLabel: '词性', notRecorded: '未记录', notRated: '未评级', formsLabel: '形式数',
       registerFrequencyLabel: '语体／频率', contentLabel: '内容来源', entryHintsSummary: '校验提示',
-      grammarStoredRule: '已存规则', grammarRuleEmpty: '尚未填写', grammarPitfalls: '限制与易混点',
+      grammarStoredRule: '已存规则', grammarRuleEmpty: '尚未填写', grammarNotes: '补充笔记', grammarPitfalls: '限制与易混点', grammarExamples: '例句',
       grammarPitfallCount: '已记录 {count} 条易混点',
-      grammarNoBreakdown: '此条目尚无扩展拆解与对比示例，未套用其他语法点的内容。',
-      conjugationNoData: '尚无该动词的读音数据', entryIndexLabel: '词汇详情章节', sectionGapPrefix: '（待补', askCount: '{count} 次提问', contentAiUnverified: 'AI 内容 · 未核实',
+      grammarNoBreakdown: '此条目没有独立的扩展结构化拆解；以上内容仅显示本条实际保存的笔记、易混点与例句。',
+      conjugationTenseLabel: '选择时态', conjugationFetchFailed: '变位数据抓取失败：{reason}', conjugationNoData: '尚无该动词的读音数据', entryIndexLabel: '词汇详情章节', sectionGapPrefix: '（待补', askCount: '{count} 次提问', contentAiUnverified: 'AI 内容 · 未核实',
       askPlaceholder: '提问……', contextNotCompiled: '尚未编译上下文；按下按钮会先给出将要发送的内容。',
       modelNotConnected: '未连接模型',
       modelFallback: '记住的模型 {model} 已不可用，已回退到默认模型。',
-      newBranch: '新分支', newPassage: '新建段落', archivePassage: '归档', archiveDone: '已归档。', passageList: '段落列表', noPassageYet: '还没有段落。',
+      newBranch: '新分支', newPassage: '新建段落', archivePassage: '归档', archiveDone: '已归档。', restorePassage: '恢复', restoreDone: '已恢复到段落列表。', passageList: '段落列表', archivedPassages: '已归档段落', noArchivedPassages: '没有已归档段落。', noPassageYet: '还没有段落。',
       previewSummary: '将切分为 {paragraphs} 段、{sentences} 句。',
       previewBlockMeta: '{id} · {sentences} 句', previewFlagClean: '没有发现编码或排版标记。',
       titleField: '标题',
@@ -1232,7 +1288,7 @@ window.__ModuleLoader__.load({
       partExplanations: '语篇与表达（按确定性标注）',
       kind_syntax: '句法事实', kind_context: '语境解释', kind_rhetoric: '修辞解读', kind_unverified: '待查证',
       discussionSection: '分支讨论',
-      backendLabel: '处理模型', modelLabel: '模型', noModels: '（没有可用模型）',
+      backendLabel: '后端', modelLabel: '模型', noModels: '（没有可用模型）',
       unavailable: '不可用', singleFlightHint: '该后端一次只跑一个任务。',
       startBranch: '在当前锚点开一个讨论分支', branchOpened: '分支已建立。',
       noDiscussion: '还没有讨论分支。',
@@ -1243,7 +1299,7 @@ window.__ModuleLoader__.load({
       contextTitle: '本次上下文（预览即发送内容）', contextSize: '约 {characters} 字符 · {count} 份材料',
       contextMaterialLine: '{refId} · {characters} 字符', contextPromptLabel: '将要发送的完整提示词（逐字）',
       contextChars: '{characters} 字符',
-      branchFirst: '先在这个锚点建立一个讨论分支。',
+      branchFirst: '先在这个锚点建立一个讨论分支。', questionRequired: '请输入问题。', previewAgain: '问题、分支或模型已变化，请重新预览本次上下文。',
       previewRefused: '本次上下文无法发送：{reason}',
       askFailed: '本次生成未完成：{reason} {failure}',
       answerDone: '已回答（{model}）。',
@@ -1255,7 +1311,7 @@ window.__ModuleLoader__.load({
       sourceLabel: '来源', sectionLabel: '章节', sourceNone: '（未选择）',
       fetchSource: '获取该来源', sourceRefused: '本次未发起获取：{reason}',
       mastery_learning: '在学', mastery_reviewing: '复习中', mastery_known: '已掌握',
-      masteryDone: '学习状态已改为 {mastery}（{kind}）。',
+      masteryDone: '学习状态已改为 {mastery}（{kind}）。', masteryConflict: '学习状态未修改（{reason}）：条目已变化，请刷新后重试。',
       translationSection: '译文', translationEmpty: '尚无译文', versions: '{count} 个版本',
       translationPlaceholder: '在这里写下该锚点的译文……',
       saveTranslation: '保存译文', translationSaved: '译文已保存（追加为新版本）。',
@@ -1318,7 +1374,7 @@ window.__ModuleLoader__.load({
       listTitle: 'Saved passages', count: '{count} saved · limit 250', refresh: 'Refresh',
       empty: 'No passages yet. Save a French source on the right to see it here.',
       open: 'Open', previous: 'Previous', nextPage: 'Next', page: 'Page {page}',
-      exportAll: 'Export full backup', exporting: 'Exporting…', exportDone: 'Full backup exported ({count} records): sources, analysis, discussions, knowledge and runs.',
+      exportAll: 'Export full backup', exporting: 'Exporting…', exportDone: 'Full backup exported ({count} records): sources, analysis, discussions, knowledge, runs, shelf placements and continuation links.', importBackup: 'Import backup', backupImportDone: 'Import complete: {imported} added, {skipped} skipped, {conflicts} conflicts; existing local shelf data was preserved.',
       untitled: 'Untitled passage', chars: '{count} chars',
       compose: 'New passage', composeHint: 'The saved source stays immutable: translations and branches are appended as versions, never written over it.',
       startTitle: 'Start a close reading',
@@ -1340,7 +1396,7 @@ window.__ModuleLoader__.load({
       limitReached: 'The current prototype is limited to 250 passages. Export a backup first.',
       idUsed: 'Passage id conflict', operationUsed: 'Save operation id conflict',
       requestFailed: 'The request failed. Check the connection and retry.',
-      backupFailed: 'Could not export a backup.', restoreNote: 'Saved originals remain available after reloading the page.',
+      backupFailed: 'Backup operation failed.', backupFormatInvalid: 'This is not a recognized French close-reading backup.', restoreNote: 'Saved originals remain available after reloading the page.',
       backToLibrary: 'Passages', sourceRevision: 'Source revision {revision}',
       currentAnchor: 'Current anchor', wholePassage: 'Whole passage',
       sentencesHint: 'Click a sentence to make it the current anchor; drag-select a phrase to anchor it.',
@@ -1390,7 +1446,7 @@ window.__ModuleLoader__.load({
       scopeFilter: 'Filter by where it appears', scopeAll: 'Anywhere', scopeSentence: 'This sentence',
       noMatchingEntry: 'No matching entry', exampleCount: '{count} example(s)',
       knowledgePolicyNote: 'Grammar accumulates automatically after a turn; words are filed by lookup and discussion. Everything stays local.',
-      knowledgeLoading: 'Loading…',
+      knowledgeLoading: 'Loading…', knowledgeNotFound: 'Knowledge entry not found.', knowledgeRetry: 'Retry loading',
       contentUser: 'written by the reader', contentMixed: 'mixed sources',
       conjBaseCount: '{count} phonetic base(s)', conjModeLabel: 'How the conjugation is shown',
       conjModeOral: 'Spoken', conjModeBoth: 'Both', conjModeWritten: 'Written',
@@ -1398,15 +1454,15 @@ window.__ModuleLoader__.load({
       partOfSpeechLabel: 'Part of speech', notRecorded: 'not recorded', notRated: 'not rated',
       formsLabel: 'Forms', registerFrequencyLabel: 'Register / frequency', contentLabel: 'Content source',
       entryHintsSummary: 'Validation notes',
-      grammarStoredRule: 'Stored rule', grammarRuleEmpty: 'not written yet', grammarPitfalls: 'Limits and confusions',
+      grammarStoredRule: 'Stored rule', grammarRuleEmpty: 'not written yet', grammarNotes: 'Notes', grammarPitfalls: 'Limits and confusions', grammarExamples: 'Examples',
       grammarPitfallCount: '{count} confusion(s) recorded',
-      grammarNoBreakdown: 'This entry has no extended breakdown or contrast examples yet; nothing was borrowed from another grammar point.',
-      conjugationNoData: 'No pronunciation data for this verb yet', entryIndexLabel: 'Word entry sections', sectionGapPrefix: '（待补',
+      grammarNoBreakdown: 'This entry has no separate structured breakdown; only notes, pitfalls and examples actually saved to this entry are shown above.',
+      conjugationTenseLabel: 'Select tense', conjugationFetchFailed: 'Conjugation fetch failed: {reason}', conjugationNoData: 'No pronunciation data for this verb yet', entryIndexLabel: 'Word entry sections', sectionGapPrefix: '（待补',
       askCount: '{count} question(s)', contentAiUnverified: 'AI content · unverified',
       askPlaceholder: 'Ask…', contextNotCompiled: 'No context compiled yet; the button shows what would be sent first.',
       modelNotConnected: 'no model connected',
       modelFallback: 'The saved model {model} is no longer available; back to the default.',
-      newBranch: 'New branch', newPassage: 'New passage', archivePassage: 'Archive', archiveDone: 'Archived.', passageList: 'Passage list',
+      newBranch: 'New branch', newPassage: 'New passage', archivePassage: 'Archive', archiveDone: 'Archived.', restorePassage: 'Restore', restoreDone: 'Restored to the passage list.', passageList: 'Passage list', archivedPassages: 'Archived passages', noArchivedPassages: 'No archived passages.',
       noPassageYet: 'No passage yet.', sourceTextLabel: 'French source',
       previewSummary: 'Will be split into {paragraphs} paragraph(s) and {sentences} sentence(s).',
       previewBlockMeta: '{id} · {sentences} sentence(s)', previewFlagClean: 'No encoding or typography flags.',
@@ -1448,7 +1504,7 @@ window.__ModuleLoader__.load({
       contextTitle: 'This turn\'s context (the preview is what is sent)', contextSize: '~{characters} characters · {count} materials',
       contextMaterialLine: '{refId} · {characters} characters', contextPromptLabel: 'The full prompt about to be sent (verbatim)',
       contextChars: '{characters} characters',
-      branchFirst: 'Open a discussion branch on this anchor first.',
+      branchFirst: 'Open a discussion branch on this anchor first.', questionRequired: 'Enter a question.', previewAgain: 'The question, branch or model changed. Preview the context again.',
       previewRefused: 'This context cannot be sent: {reason}',
       askFailed: 'The turn did not finish: {reason} {failure}',
       answerDone: 'Answered ({model}).',
@@ -1460,7 +1516,7 @@ window.__ModuleLoader__.load({
       sourceLabel: 'Source', sectionLabel: 'Section', sourceNone: '(none selected)',
       fetchSource: 'Fetch this source', sourceRefused: 'Nothing was requested: {reason}',
       mastery_learning: 'Learning', mastery_reviewing: 'Reviewing', mastery_known: 'Known',
-      masteryDone: 'Mastery set to {mastery} ({kind}).',
+      masteryDone: 'Mastery set to {mastery} ({kind}).', masteryConflict: 'Mastery was not changed ({reason}); the entry changed. Reload and retry.',
       translationSection: 'Translation', translationEmpty: 'No translation yet', versions: '{count} version(s)',
       translationPlaceholder: 'Write the translation for this anchor here…',
       saveTranslation: 'Save translation', translationSaved: 'Translation saved as a new version.',
@@ -1830,16 +1886,35 @@ window.__ModuleLoader__.load({
     }
 
     const SHELF_KEY = 'french-close-reading/bookshelf-v1'
+    function cleanShelf(value) {
+      if (!value || !Array.isArray(value.books) || !value.placements || typeof value.placements !== 'object' || Array.isArray(value.placements)) {
+        return { books: [], placements: {} }
+      }
+      return {
+        books: value.books.filter((book) => typeof book.name === 'string' && Array.isArray(book.chapters))
+          .map((book) => ({ name: book.name, chapters: book.chapters.filter((chapter) => typeof chapter === 'string') })),
+        placements: Object.fromEntries(Object.entries(value.placements).filter(([, loc]) => loc && typeof loc.book === 'string' && typeof loc.chapter === 'string' && Number.isSafeInteger(loc.number) && loc.number > 0)),
+      }
+    }
     function readShelf() {
-      try {
-        const value = JSON.parse(localStorage.getItem(SHELF_KEY) ?? 'null')
-        if (!value || !Array.isArray(value.books) || !value.placements || typeof value.placements !== 'object') return { books: [], placements: {} }
-        return {
-          books: value.books.filter((book) => typeof book.name === 'string' && Array.isArray(book.chapters))
-            .map((book) => ({ name: book.name, chapters: book.chapters.filter((chapter) => typeof chapter === 'string') })),
-          placements: Object.fromEntries(Object.entries(value.placements).filter(([, loc]) => loc && typeof loc.book === 'string' && typeof loc.chapter === 'string' && Number.isSafeInteger(loc.number) && loc.number > 0)),
-        }
-      } catch { return { books: [], placements: {} } }
+      try { return cleanShelf(JSON.parse(localStorage.getItem(SHELF_KEY) ?? 'null')) }
+      catch { return { books: [], placements: {} } }
+    }
+    function mergeShelf(currentValue, incomingValue) {
+      const current = cleanShelf(currentValue)
+      const incoming = cleanShelf(incomingValue)
+      const books = new Map()
+      for (const book of [...incoming.books, ...current.books]) {
+        const existing = books.get(book.name)
+        books.set(book.name, existing === undefined
+          ? { name: book.name, chapters: [...new Set(book.chapters)] }
+          : { ...existing, chapters: [...new Set([...book.chapters, ...existing.chapters])] })
+      }
+      return {
+        books: [...books.values()],
+        // Existing local placements win on conflict; imported locations fill gaps.
+        placements: { ...incoming.placements, ...current.placements },
+      }
     }
     function addShelfChapter(shelf, bookName, chapterName) {
       const existing = shelf.books.find((book) => book.name === bookName)
@@ -1852,13 +1927,19 @@ window.__ModuleLoader__.load({
 
     const CONTINUATION_KEY = 'french-close-reading/continuations'
 
+    function cleanContinuationLinks(stored) {
+      if (!stored || typeof stored !== 'object' || Array.isArray(stored)) return {}
+      return Object.fromEntries(Object.entries(stored).filter(([parent, next]) =>
+        parent !== '__proto__' && parent !== 'constructor' && next && typeof next.id === 'string' && typeof next.title === 'string'))
+    }
+
     function readContinuationLinks() {
-      try {
-        const stored = JSON.parse(localStorage.getItem(CONTINUATION_KEY) ?? 'null')
-        if (!stored || typeof stored !== 'object' || Array.isArray(stored)) return {}
-        return Object.fromEntries(Object.entries(stored).filter(([parent, next]) =>
-          parent !== '__proto__' && parent !== 'constructor' && next && typeof next.id === 'string' && typeof next.title === 'string'))
-      } catch { return {} }
+      try { return cleanContinuationLinks(JSON.parse(localStorage.getItem(CONTINUATION_KEY) ?? 'null')) }
+      catch { return {} }
+    }
+
+    function mergeContinuationLinks(currentValue, incomingValue) {
+      return { ...cleanContinuationLinks(incomingValue), ...cleanContinuationLinks(currentValue) }
     }
 
     function nextPassageTitle(currentTitle, savedTitles = [], nextNumber = null, reservedNumbers = []) {
@@ -1974,18 +2055,21 @@ window.__ModuleLoader__.load({
       const [grammar, setGrammar] = useState(null)
       const [query, setQuery] = useState('')
       const [mastery, setMastery] = useState('all')
-      const [scope, setScope] = useState('all')
       const [error, setError] = useState('')
       const [reloadTick, setReloadTick] = useState(0)
 
       useEffect(() => {
         let cancelled = false
+        setError('')
         Promise.all([
           listLexicon({ scope: 'all' }).then((result) => unwrap(result, t)).catch((cause) => {
             if (!cancelled) setError(String(cause?.message ?? cause))
             return null
           }),
-          listGrammar({ scope: 'all' }).then((result) => unwrap(result, t)).catch(() => null),
+          listGrammar({ scope: 'all' }).then((result) => unwrap(result, t)).catch((cause) => {
+            if (!cancelled) setError(String(cause?.message ?? cause))
+            return null
+          }),
         ]).then(([words, rules]) => {
           if (cancelled) return
           setLexicon(words)
@@ -2004,13 +2088,13 @@ window.__ModuleLoader__.load({
         }))
         : (grammar?.entries ?? []).map((entry) => ({
           id: entry.entryId,
-          name: entry.title,
-          subline: entry.module ?? entry.french ?? '',
-          examples: (entry.examples ?? []).length,
+          name: entry.topic,
+          subline: entry.module ?? '',
+          examples: typeof entry.examples === 'number' ? entry.examples : (entry.exampleTexts ?? []).length,
           mastery: entry.mastery ?? '',
         }))
       const filtered = entries.filter((entry) => {
-        if (mastery !== 'all' && entry.mastery !== mastery) return false
+        if (tab === 'grammar' && mastery !== 'all' && entry.mastery !== mastery) return false
         if (query.trim() !== '' && !`${entry.name} ${entry.subline}`.toLowerCase().includes(query.trim().toLowerCase())) return false
         return true
       })
@@ -2036,18 +2120,12 @@ window.__ModuleLoader__.load({
             placeholder: t('searchPlaceholder'),
             onChange: (event) => setQuery(event.target.value),
           }),
-          h('select', {
+          tab === 'grammar' ? h('select', {
             'aria-label': t('masteryFilter'), value: mastery,
             onChange: (event) => setMastery(event.target.value),
           }, [['all', t('masteryAll')], ['learning', t('masteryLearning')],
             ['reviewing', t('masteryReviewing')], ['known', t('masteryKnown')]]
-            .map(([value, label]) => h('option', { key: value, value }, label))),
-          h('select', {
-            'aria-label': t('scopeFilter'), value: scope,
-            onChange: (event) => setScope(event.target.value),
-          },
-            h('option', { value: 'all' }, t('scopeAll')),
-            h('option', { value: 'sentence' }, t('scopeSentence'))),
+            .map(([value, label]) => h('option', { key: value, value }, label))) : null,
         ),
         h('div', { id: 'kbRows', className: 'kbRows' },
           filtered.length === 0
@@ -2060,14 +2138,16 @@ window.__ModuleLoader__.load({
                 h('div', { className: 'name' }, entry.name),
                 h('div', { className: 'subline' }, entry.subline)),
               h('span', { className: 'kbStatus' }, format(t, 'exampleCount', { count: entry.examples })),
-              h('span', { className: 'kbStatus' }, entry.mastery === '' ? t('masteryUnknown') : entry.mastery)))),
+              tab === 'grammar' ? h('span', { className: 'kbStatus' }, entry.mastery) : null))),
         // The undecided grammar proposals are library-scope management: they live
         // here under the grammar list, with their own title, never on one entry's page.
         tab !== 'grammar' ? null : h(GrammarPendingPanel, {
           t, pending: grammar?.pending ?? [], resolveGrammarCandidate,
           onChanged: async () => setReloadTick((tick) => tick + 1),
         }),
-        error === '' ? null : h('p', { className: 'error', role: 'alert' }, t('knowledgeUnavailable')),
+        error === '' ? null : h('div', null,
+          h('p', { className: 'error', role: 'alert' }, format(t, 'knowledgeUnavailable', { reason: error })),
+          h('button', { type: 'button', className: 'small', onClick: () => setReloadTick((tick) => tick + 1) }, t('knowledgeRetry'))),
         h('p', { className: 'policyNote' }, t('knowledgePolicyNote')),
       )
     }
@@ -2104,7 +2184,7 @@ window.__ModuleLoader__.load({
      * to. A form the Host could not attribute to a base says so rather than guessing.
      */
     function conjRow(t, form, mode, open, base, onToggle) {
-      const person = CONJ_PERSONS[Number(String(form.person).slice(0, 1)) - 1] ?? String(form.person)
+      const person = conjugationPersonLabel(form.person)
       const muted = base !== null && form.baseIndex !== base
       const head = h('button', { type: 'button', className: 'conjRowHead', onClick: onToggle },
         h('span', { className: 'conjPerson' }, person),
@@ -2123,8 +2203,14 @@ window.__ModuleLoader__.load({
     }
 
     /** `conjBaseRail`: one button per pronounced base, muted when another base is chosen. */
-    /** The prototype's own person names, in its own order. */
-    const CONJ_PERSONS = ['je', 'tu', 'il / elle', 'nous', 'vous', 'ils / elles']
+    /** The Host's exact `1s`…`3p` codes mapped to the prototype's person labels. */
+    const CONJ_PERSONS = Object.freeze({
+      '1s': 'je', '2s': 'tu', '3s': 'il / elle',
+      '1p': 'nous', '2p': 'vous', '3p': 'ils / elles',
+    })
+    function conjugationPersonLabel(person) {
+      return CONJ_PERSONS[String(person)] ?? String(person)
+    }
 
     /**
      * The Host names a tense by code (`ind:pre`); the prototype's head shows its French name.
@@ -2188,9 +2274,14 @@ window.__ModuleLoader__.load({
       const [mode, setMode] = useState('both')
       const [base, setBase] = useState(null)
       const [row, setRow] = useState(null)
+      const [tenseIndex, setTenseIndex] = useState(0)
 
       useEffect(() => {
         let cancelled = false
+        setState(null)
+        setTenseIndex(0)
+        setBase(null)
+        setRow(null)
         readConjugation({ lemma })
           .then((result) => { if (!cancelled) setState(unwrap(result, t)) })
           .catch((cause) => { if (!cancelled) setError(String(cause?.message ?? cause)) })
@@ -2201,8 +2292,18 @@ window.__ModuleLoader__.load({
         setBusy(true)
         setError('')
         try {
-          await fetchConjugation({ lemma })
+          const fetched = unwrap(await fetchConjugation({ lemma }), t)
+          const failed = fetched.fetched !== true
+            || ['failed', 'rate-limited', 'no-forms'].includes(fetched.status)
+          if (failed) {
+            const reason = fetched.failure ?? fetched.reason ?? fetched.status ?? t('conjugationNoData')
+            setError(format(t, 'conjugationFetchFailed', { reason }))
+            return
+          }
           setState(unwrap(await readConjugation({ lemma }), t))
+          setTenseIndex(0)
+          setBase(null)
+          setRow(null)
         } catch (cause) {
           setError(String(cause?.message ?? cause))
         } finally {
@@ -2210,23 +2311,33 @@ window.__ModuleLoader__.load({
         }
       }
 
-      const ready = state !== null && state.state === 'ready'
-      const tense = ready ? (state.dataset?.tenses ?? [])[0] ?? null : null
+      const ready = state !== null && state.state === 'dataset'
+      const tenses = ready ? (state.tenses ?? []) : []
+      const selectedTenseIndex = tenses.length === 0 ? 0 : Math.min(tenseIndex, tenses.length - 1)
+      const tense = tenses[selectedTenseIndex] ?? null
       const baseCount = tense === null ? 0 : (tense.bases ?? []).length
       const bases = tense === null ? [] : (tense.bases ?? [])
-      const groups = bases.map((entry) => entry.persons
-        .map((person) => CONJ_PERSONS[Number(String(person).slice(0, 1)) - 1] ?? String(person))
-        .join(' · '))
+      const groups = bases.map((entry) => entry.persons.map(conjugationPersonLabel).join(' · '))
       return h('div', { className: 'conjugationView' },
+        tenses.length < 2 ? null : h('label', { className: 'conjTensePicker' },
+          h('span', null, t('conjugationTenseLabel')),
+          h('select', {
+            className: 'fr-select', value: selectedTenseIndex, 'aria-label': t('conjugationTenseLabel'),
+            onChange: (event) => {
+              setTenseIndex(Number(event.target.value))
+              setBase(null)
+              setRow(null)
+            },
+          }, tenses.map((entry, index) => h('option', { key: `${entry.mood}-${entry.tense}-${index}`, value: index }, entry.label)))),
         conjTop(t, tense, baseCount, mode, setMode),
         bases.length === 0 ? null : conjBaseRail(t, bases, groups, base, setBase),
-        // `pending`: a previous fetch that never finished. The Host distinguishes it from
-        // "no data", and so must the view — saying "no data" would hide a half-done fetch.
+        // `pending`: a previous fetch that never finished. The Host's status and
+        // missing forms are rendered from their actual wire fields.
         state !== null && state.state === 'pending'
           ? h('p', { className: 'conjPending' }, format(t, 'conjugationPending', {
-            status: state.status ?? '?',
+            status: state.fetchStatus ?? '?',
             reason: state.reason ?? '',
-            missing: state.missing ?? 0,
+            missing: (state.missingForms ?? []).length,
           }))
           : null,
         h('div', { className: 'conjRows' }, (tense === null ? [] : (tense.forms ?? []))
@@ -2238,10 +2349,8 @@ window.__ModuleLoader__.load({
           : h('ul', { className: 'conjMissing' }, (tense?.missingPersons ?? []).map((person) => h('li', {
             key: `missing-${String(person)}`,
             className: 'fr-help',
-          }, `${CONJ_PERSONS[Number(String(person).slice(0, 1)) - 1] ?? String(person)} · ${t('conjugationCellMissing')}`))),
+          }, `${conjugationPersonLabel(person)} · ${t('conjugationCellMissing')}`))),
         error === '' ? null : h('p', { className: 'error', role: 'alert' }, error),
-        // The three shapes the Host can return are named here, not inferred: `no-data`,
-        // `pending` (above) and a ready dataset.
         state !== null && state.state === 'no-data'
           ? h('p', { className: 'conjReason' }, state.reason ?? t('conjugationNoData'))
           : null,
@@ -2272,19 +2381,31 @@ window.__ModuleLoader__.load({
      * the two real sections plus that line, not a fabricated lesson.
      */
     function GrammarDetail({ t, entry }) {
+      const examples = entry.exampleTexts ?? []
+      const pitfalls = entry.pitfallTexts ?? []
       return h('div', null,
-        h('div', { className: 'sectionLabel' }, t('grammarStoredRule')),
-        h('div', { className: 'entryBody preserveLines' },
-          entry.keyPoints === undefined || entry.keyPoints === ''
-            ? t('grammarRuleEmpty')
-            : entry.keyPoints),
+        h('section', { className: 'entrySection' },
+          h('div', { className: 'sectionLabel' }, t('grammarStoredRule')),
+          h('div', { className: 'entryBody preserveLines' },
+            entry.keyPoints === undefined || entry.keyPoints === ''
+              ? t('grammarRuleEmpty')
+              : entry.keyPoints)),
+        typeof entry.notes !== 'string' || entry.notes.trim() === '' ? null : h('section', { className: 'entrySection' },
+          h('h3', { className: 'entryHeading' },
+            h('span', { className: 'num' }, '02'), t('grammarNotes')),
+          h('div', { className: 'entryBody preserveLines' }, entry.notes)),
         h('section', { className: 'entrySection' },
           h('h3', { className: 'entryHeading' },
-            h('span', { className: 'num' }, '01'), t('grammarPitfalls')),
-          h('div', { className: 'entryBody' },
-            (entry.pitfalls ?? 0) === 0
-              ? t('notRecorded')
-              : format(t, 'grammarPitfallCount', { count: entry.pitfalls ?? 0 }))),
+            h('span', { className: 'num' }, '03'), t('grammarPitfalls')),
+          pitfalls.length === 0
+            ? h('div', { className: 'entryBody' }, t('notRecorded'))
+            : h('ul', { className: 'entryBody' }, pitfalls.map((text, index) => h('li', { key: `${index}-${text}` }, text)))),
+        h('section', { className: 'entrySection' },
+          h('h3', { className: 'entryHeading' },
+            h('span', { className: 'num' }, '04'), t('grammarExamples')),
+          examples.length === 0
+            ? h('div', { className: 'entryBody' }, t('notRecorded'))
+            : h('ul', { className: 'entryBody' }, examples.map((text, index) => h('li', { key: `${index}-${text}` }, text)))),
         h('p', { className: 'missingSection' }, t('grammarNoBreakdown')),
       )
     }
@@ -2370,27 +2491,58 @@ window.__ModuleLoader__.load({
 
     function KnowledgeEntry({ t, entryId, tab, listLexicon, listGrammar, setGrammarMastery, children }) {
       const [entry, setEntry] = useState(null)
+      const [loading, setLoading] = useState(true)
+      const [notFound, setNotFound] = useState(false)
       const [error, setError] = useState('')
       const [busy, setBusy] = useState(false)
+      const [reloadTick, setReloadTick] = useState(0)
 
       useEffect(() => {
         let cancelled = false
+        setLoading(true)
+        setNotFound(false)
+        setError('')
+        setEntry(null)
         const load = tab === 'grammar'
           ? listGrammar({ scope: 'all' }).then((result) => unwrap(result, t))
             .then((value) => (value.entries ?? []).find((item) => item.entryId === entryId) ?? null)
           : listLexicon({ scope: 'all' }).then((result) => unwrap(result, t))
             .then((value) => (value.entries ?? []).find((item) => item.entryId === entryId) ?? null)
-        load.then((found) => { if (!cancelled) setEntry(found) })
-          .catch((cause) => { if (!cancelled) setError(String(cause?.message ?? cause)) })
+        load.then((found) => {
+          if (cancelled) return
+          setEntry(found)
+          setNotFound(found === null)
+          setLoading(false)
+        }).catch((cause) => {
+          if (cancelled) return
+          setError(String(cause?.message ?? cause))
+          setLoading(false)
+        })
         return () => { cancelled = true }
-      }, [entryId, tab, listLexicon, listGrammar, t])
+      }, [entryId, tab, listLexicon, listGrammar, t, reloadTick])
 
       async function setMastery(next) {
-        if (entry === null) return
+        if (entry === null || tab !== 'grammar') return
         setBusy(true)
+        setError('')
         try {
-          await setGrammarMastery({ entryId: entry.entryId, mastery: next })
-          setEntry({ ...entry, mastery: next })
+          const value = unwrap(await setGrammarMastery({
+            entryId: entry.entryId,
+            mastery: next,
+            expectedRevision: entry.revision,
+            operationId: createUuid(),
+          }), t)
+          if (value.kind === 'conflict') {
+            setError(format(t, 'masteryConflict', { reason: value.reason }))
+            try {
+              const latest = unwrap(await listGrammar({ scope: 'all' }), t)
+              const current = (latest.entries ?? []).find((item) => item.entryId === entry.entryId) ?? null
+              setEntry(current)
+              setNotFound(current === null)
+            } catch { /* Keep the conflict visible; the retry button can refresh again. */ }
+            return
+          }
+          setEntry({ ...entry, mastery: next, revision: value.revision })
         } catch (cause) {
           setError(String(cause?.message ?? cause))
         } finally {
@@ -2399,9 +2551,10 @@ window.__ModuleLoader__.load({
       }
 
       const isWord = tab !== 'grammar'
+      const title = entry !== null ? (isWord ? entry.mot : entry.topic)
+        : loading ? t('knowledgeLoading') : notFound ? t('knowledgeNotFound') : t('knowledgeUnavailable')
       return h('div', null,
-        h('h2', { className: isWord ? 'kbWord' : 'detailTitle' },
-          entry === null ? t('knowledgeLoading') : (isWord ? entry.mot : entry.topic)),
+        h('h2', { className: isWord ? 'kbWord' : 'detailTitle' }, title),
         h('div', { className: 'kbIntro' },
           entry === null ? '' : (isWord ? [entry.lemma, entry.partOfSpeech].filter(Boolean).join(' · ') : (entry.module ?? ''))),
         h('div', { className: 'kbMeta' },
@@ -2418,6 +2571,9 @@ window.__ModuleLoader__.load({
             ? t('contentAiUnverified')
             : entry.contentStatus)),
         error === '' ? null : h('p', { className: 'error', role: 'alert' }, error),
+        !loading && (error !== '' || notFound)
+          ? h('button', { type: 'button', className: 'small', onClick: () => setReloadTick((tick) => tick + 1) }, t('knowledgeRetry'))
+          : null,
         // The entry is only known here, so the card is rendered through a function that
         // receives it — passing a captured value from the parent would be a stale read.
         typeof children === 'function' ? children(entry) : children,
@@ -2740,8 +2896,12 @@ window.__ModuleLoader__.load({
       )
     }
 
-    function PassagePage({t, listPassages, getPassage, createPassage, exportPassages, exportLibrary, previewImport, listLexicon, listGrammar, renderLexicon, resolveGrammarCandidate, listLexiconSources, fetchLexiconSource, setGrammarMastery, readConjugation, fetchConjugation, readSentenceAnalysis, readAnalysisCoverage, analyseSentence, analyseParagraph, publishAnalysis, createSelection, getSegmentation, listAnalysis, saveTranslation, addBranch, listBackends, listBackendModels, previewAsk, ask, streamAsk, listDiscussion, createBranch, setBranchState, onClose, lookupMot, recordConclusion, archivePassage}) {
+    function PassagePage({t, listPassages, listArchivedPassages, getPassage, createPassage, exportPassages, exportLibrary, importLibrary, previewImport, listLexicon, listGrammar, renderLexicon, resolveGrammarCandidate, listLexiconSources, fetchLexiconSource, setGrammarMastery, readConjugation, fetchConjugation, readSentenceAnalysis, readAnalysisCoverage, analyseSentence, analyseParagraph, publishAnalysis, createSelection, getSegmentation, listAnalysis, saveTranslation, addBranch, listBackends, listBackendModels, previewAsk, ask, streamAsk, listDiscussion, createBranch, setBranchState, onClose, lookupMot, recordConclusion, archivePassage, restorePassage}) {
       const [items, setItems] = useState([])
+      const [archivedItems, setArchivedItems] = useState([])
+      const [showArchived, setShowArchived] = useState(false)
+      const [loadingArchived, setLoadingArchived] = useState(false)
+      const backupInput = useRef(null)
       const [offset, setOffset] = useState(0)
       const [total, setTotal] = useState(0)
       const [hasMore, setHasMore] = useState(false)
@@ -2782,6 +2942,24 @@ window.__ModuleLoader__.load({
           setLoadingList(false)
         }
       }, [listPassages, t])
+
+      const refreshArchived = useCallback(async () => {
+        setLoadingArchived(true)
+        try {
+          const all = []
+          let nextPage = 0, value
+          do {
+            value = unwrap(await listArchivedPassages({ offset: nextPage, limit: PAGE_SIZE }), t)
+            all.push(...(value.items ?? []))
+            nextPage += (value.items ?? []).length
+          } while (value.hasMore && (value.items ?? []).length)
+          setArchivedItems(all)
+        } catch (cause) {
+          setError(String(cause?.message ?? cause))
+        } finally {
+          setLoadingArchived(false)
+        }
+      }, [listArchivedPassages, t])
 
       const openPassage = useCallback(async (id) => {
         const request = ++passageRequest.current
@@ -2926,12 +3104,73 @@ window.__ModuleLoader__.load({
         setError('')
         setStatus('')
         try {
-          // The whole library, not just the sources: analysis, variants,
-          // branches, runs, vocabulary and grammar all live in the records.
-          const value = unwrap(await exportLibrary(), t)
+          // Version 2 is the complete panel backup: durable Host records plus
+          // this browser's shelf placements and continuation links.
+          const hostLibrary = unwrap(await exportLibrary(), t)
+          const value = {
+            schemaVersion: 2,
+            exportedAt: new Date().toISOString(),
+            hostLibrary,
+            browserLibrary: {
+              schemaVersion: 1,
+              bookshelf: cleanShelf(shelf),
+              continuations: cleanContinuationLinks(nextPassages),
+            },
+          }
           const name = `french-close-reading-${new Date().toISOString().slice(0, 10)}.json`
           downloadJson(value, name)
-          setStatus(format(t, 'exportDone', { count: value.records.length }))
+          setStatus(format(t, 'exportDone', { count: hostLibrary.records.length }))
+        } catch (cause) {
+          setError(`${t('backupFailed')} ${String(cause?.message ?? cause)}`)
+        } finally {
+          setExporting(false)
+        }
+      }
+
+      async function importBackupFile(event) {
+        const file = event.currentTarget.files?.[0]
+        event.currentTarget.value = ''
+        if (file === undefined) return
+        setExporting(true)
+        setError('')
+        setStatus('')
+        try {
+          const bundle = JSON.parse(await file.text())
+          let hostLibrary
+          let browserLibrary = null
+          if (bundle?.schemaVersion === 2) {
+            hostLibrary = bundle.hostLibrary
+            browserLibrary = bundle.browserLibrary
+            if (browserLibrary?.schemaVersion !== 1
+              || !Array.isArray(browserLibrary.bookshelf?.books)
+              || !browserLibrary.bookshelf?.placements
+              || typeof browserLibrary.bookshelf.placements !== 'object'
+              || !browserLibrary.continuations
+              || typeof browserLibrary.continuations !== 'object'
+              || Array.isArray(browserLibrary.continuations)) {
+              throw new Error(t('backupFormatInvalid'))
+            }
+          } else if (bundle?.schemaVersion === 1) {
+            // Older Host-only backups remain importable; they did not contain
+            // browser shelf metadata.
+            hostLibrary = bundle
+          } else {
+            throw new Error(t('backupFormatInvalid'))
+          }
+          if (hostLibrary?.schemaVersion !== 1 || !Array.isArray(hostLibrary.records)
+            || typeof hostLibrary.exportedAt !== 'string') {
+            throw new Error(t('backupFormatInvalid'))
+          }
+
+          const result = unwrap(await importLibrary(hostLibrary), t)
+          if (browserLibrary !== null) {
+            setShelf((current) => mergeShelf(current, browserLibrary.bookshelf))
+            setNextPassages((current) => mergeContinuationLinks(current, browserLibrary.continuations))
+          }
+          await refreshList(0)
+          setStatus(format(t, 'backupImportDone', {
+            imported: result.imported, skipped: result.skipped, conflicts: result.conflicts.length,
+          }))
         } catch (cause) {
           setError(`${t('backupFailed')} ${String(cause?.message ?? cause)}`)
         } finally {
@@ -2959,16 +3198,37 @@ window.__ModuleLoader__.load({
             setError(format(t, 'saveConflict', { reason: value.reason }))
             return
           }
-          setShelf((current) => { const placements = { ...current.placements }; delete placements[item.id]; return { ...current, placements } })
+          // Keep the local placement and continuation references: they remain
+          // hidden while archived and become useful again if the reader restores it.
           setStatus(t('archiveDone'))
-          setNextPassages((current) => Object.fromEntries(Object.entries(current).filter(([parent, next]) => parent !== item.id && next.id !== item.id)))
-          await refreshList(0)
+          await Promise.all([refreshList(0), refreshArchived()])
           if (displayedPassage.current === item.id) {
             passageRequest.current += 1
             displayedPassage.current = null
             setActivePassage(null)
             setSelectedId('')
           }
+        } catch (cause) {
+          setError(String(cause?.message ?? cause))
+        } finally {
+          setExporting(false)
+        }
+      }
+
+      async function restoreOne(item) {
+        setExporting(true)
+        setError('')
+        try {
+          const value = unwrap(await restorePassage({
+            passageId: item.id,
+            expectedSourceRevision: item.sourceRevision ?? 1,
+          }), t)
+          if (value.kind === 'conflict') {
+            setError(format(t, 'saveConflict', { reason: value.reason }))
+            return
+          }
+          setStatus(t('restoreDone'))
+          await Promise.all([refreshList(0), refreshArchived()])
         } catch (cause) {
           setError(String(cause?.message ?? cause))
         } finally {
@@ -3124,12 +3384,24 @@ window.__ModuleLoader__.load({
       const displayedPassage = useRef(activePassage?.id ?? null)
       const switcherOpener = useRef(null)
       const lookupRequest = useRef(0)
+      const contextPreviewRequest = useRef(0)
+      const askPreviewPending = useRef(false)
+      const modelRequest = useRef(0)
       const focusedAnchor = useRef(anchorId)
       focusedAnchor.current = anchorId
       function currentRead(passageId, request) {
         return passageRequest.current === request && displayedPassage.current === passageId
       }
+      function invalidateContextPreview() {
+        contextPreviewRequest.current += 1
+        setContextPreview(null)
+        if (askPreviewPending.current) {
+          askPreviewPending.current = false
+          setAskBusy(false)
+        }
+      }
       function showBookshelf() {
+        invalidateContextPreview()
         passageRequest.current += 1
         displayedPassage.current = null
         setLoadingPassage(false)
@@ -3326,9 +3598,14 @@ window.__ModuleLoader__.load({
               h('summary', null, t('unfiled')), rows(null, null)) : null,
             shelf.books.length === 0 && items.length === 0 ? h('p', { className: 'hint' }, t('shelfEmpty')) : null),
           h('div', { className: 'directoryFoot' }, h('small', null, shelfError || t('shelfLocal')),
+            h('input', {
+              ref: backupInput, type: 'file', accept: 'application/json,.json', style: { display: 'none' },
+              onChange: importBackupFile,
+            }),
             h('button', { type: 'button', className: 'small quiet', onClick: () => setDirectoryOpen(false) }, t('closeDirectory')),
             h('button', { type: 'button', className: 'small quiet', disabled: exporting, onClick: exportBackup }, t('exportAll')),
-            h('button', { type: 'button', className: 'small quiet', onClick: () => { setSwitcherMode('list'); setSwitcherOpen(true) } }, t('libraryActions'))))
+            h('button', { type: 'button', className: 'small quiet', disabled: exporting, onClick: () => backupInput.current?.click?.() }, t('importBackup')),
+            h('button', { type: 'button', className: 'small quiet', onClick: () => { setShowArchived(false); setSwitcherMode('list'); setSwitcherOpen(true) } }, t('libraryActions'))))
       }
       function readingSource() {
         if (knowledgeOpen) return null
@@ -3754,7 +4031,7 @@ window.__ModuleLoader__.load({
         loadReading(activePassage)
         loadDiscussion(activePassage.id)
         setAskDraft('')
-        setContextPreview(null)
+        invalidateContextPreview()
         setAskStatus('')
         // An in-flight turn from the previous passage keeps running on the Host,
         // but it no longer owns this panel's ask state: its late frames and its
@@ -4163,15 +4440,23 @@ window.__ModuleLoader__.load({
                   else setSwitcherMode('new')
                 },
               }, switcherMode === 'new' ? t('passageList') : t('newPassage')),
+              switcherMode === 'list' ? h('button', {
+                className: 'kbReturn', type: 'button', disabled: exporting,
+                onClick: () => {
+                  const next = !showArchived
+                  setShowArchived(next)
+                  if (next) void refreshArchived()
+                },
+              }, showArchived ? t('passageList') : t('archivedPassages')) : null,
             ),
-            h('h2', { id: 'switchTitle' }, switcherMode === 'continue' ? t('nextPassage') : switcherMode === 'new' ? t('newPassage') : t('switchPassage')),
+            h('h2', { id: 'switchTitle' }, switcherMode === 'continue' ? t('nextPassage') : switcherMode === 'new' ? t('newPassage') : showArchived ? t('archivedPassages') : t('switchPassage')),
             switcherMode === 'continue' ? h('p', { className: 'hint' }, t('nextPassageHint')) : null,
             switcherMode !== 'list' ? passageComposer([
               h('button', {
                 key: 'cancel', type: 'button', disabled: busy,
                 onClick: () => { setError(''); setStatus(''); if (switcherMode === 'continue') closeSwitcher(); else setSwitcherMode('list') },
               }, switcherMode === 'continue' ? t('resumeReading') : t('cancel')),
-            ]) : passageRows(),
+            ]) : showArchived ? archivedPassageRows() : passageRows(),
             switcherMode !== 'list'
               ? null
               : h('div', { className: 'modalFoot' },
@@ -4179,6 +4464,7 @@ window.__ModuleLoader__.load({
                   type: 'button', disabled: exporting, onClick: exportBackup,
                 }, exporting ? t('exporting') : t('exportAll')),
                 h('button', { type: 'button', disabled: exporting, onClick: exportSources }, t('exportSources')),
+                h('button', { type: 'button', disabled: exporting, onClick: () => backupInput.current?.click?.() }, t('importBackup')),
                 h('button', { type: 'button', onClick: closeSwitcher }, t('cancel'))),
           ),
         )
@@ -4270,6 +4556,27 @@ window.__ModuleLoader__.load({
             }, t('archivePassage')))))
       }
 
+      function archivedPassageRows() {
+        if (loadingArchived) return h('p', { className: 'hint' }, t('loading'))
+        return h('div', { className: 'kbRows' }, archivedItems.length === 0
+          ? h('div', { className: 'kbEmpty' }, t('noArchivedPassages'))
+          : archivedItems.map((item) => h('div', {
+            key: item.id,
+            style: { display: 'flex', alignItems: 'center', gap: '8px' },
+          },
+            h('div', { className: 'kbRow', style: { flex: '1 1 auto' } },
+              h('div', null,
+                h('div', { className: 'name' }, item.title || t('untitled')),
+                h('div', { className: 'subline' }, item.excerpt ?? '')),
+              h('span', { className: 'kbStatus' }, item.updatedAt === undefined ? '' : String(item.updatedAt).slice(0, 10)),
+              h('span', { className: 'kbStatus' }, format(t, 'chars', { count: item.characterCount ?? 0 }))),
+            h('button', {
+              className: 'small quiet', type: 'button', disabled: exporting,
+              style: { flex: '0 0 auto', whiteSpace: 'nowrap' },
+              onClick: () => { void restoreOne(item) },
+            }, t('restorePassage')))))
+      }
+
       function closeButton() {
         return h('button', {
           className: 'fr-button fr-buttonQuiet', type: 'button', onClick: onClose,
@@ -4296,10 +4603,12 @@ window.__ModuleLoader__.load({
       }
 
       async function loadModels(name) {
+        const request = ++modelRequest.current
         setModels([])
         setModel('')
         try {
           const value = unwrap(await listBackendModels({ backend: name }), t)
+          if (request !== modelRequest.current) return
           setModels(value.models ?? [])
           if (value.reason !== null && value.reason !== undefined) {
             setError(format(t, 'generationUnavailable', { reason: value.reason }))
@@ -4316,7 +4625,9 @@ window.__ModuleLoader__.load({
           }
           setModel(chosen)
         } catch (cause) {
-          setError(format(t, 'generationUnavailable', { reason: String(cause?.message ?? cause) }))
+          if (request === modelRequest.current) {
+            setError(format(t, 'generationUnavailable', { reason: String(cause?.message ?? cause) }))
+          }
         }
       }
 
@@ -4346,48 +4657,68 @@ window.__ModuleLoader__.load({
 
       async function previewTurn(target) {
         if (activePassage === null || backend === '' || model === '') return
+        const question = askDraft.trim()
+        if (question === '') { setError(t('questionRequired')); return }
         const branchId = branchFor(target)
         if (branchId === null) { setError(t('branchFirst')); return }
-        // The turn belongs to the passage it started on: every state write below
-        // is refused once the reader is looking at another passage, and the
-        // finally only clears the busy flag while this turn still owns it.
+        // A preview belongs to the exact question, branch, backend, model and
+        // passage revision context that produced it. A newer request or edit
+        // invalidates this token so a late answer cannot replace the current one.
         const passageId = activePassage.id
         const requestId = passageRequest.current
-        const mine = () => currentRead(passageId, requestId)
+        const previewId = ++contextPreviewRequest.current
+        const identityKey = contextPreviewIdentity(passageId, requestId, branchId, backend, model, question)
+        const mine = () => currentRead(passageId, requestId) && previewId === contextPreviewRequest.current
+        askPreviewPending.current = true
         setAskBusy(true)
         setError('')
         try {
           const value = unwrap(await previewAsk({
-            passageId, branchId, question: askDraft,
+            passageId, branchId, question,
             backend, model, extras: [],
           }), t)
           if (!mine()) return
-          if (value.ok !== true) { setError(format(t, 'previewRefused', { reason: value.reason })); return }
-          setContextPreview(value)
+          if (value.ok !== true) {
+            setContextPreview(null)
+            setError(format(t, 'previewRefused', { reason: value.reason }))
+            return
+          }
+          setContextPreview({ ...value, previewIdentity: identityKey })
         } catch (cause) {
           if (!mine()) return
           setError(format(t, 'generationUnavailable', { reason: String(cause?.message ?? cause) }))
         } finally {
-          if (mine()) setAskBusy(false)
+          if (mine()) {
+            askPreviewPending.current = false
+            setAskBusy(false)
+          }
         }
       }
 
       async function sendTurn(target) {
-        if (activePassage === null || backend === '' || model === '' || askDraft.trim() === '') return
+        if (activePassage === null || backend === '' || model === '') return
+        const question = askDraft.trim()
+        if (question === '') return
         const branchId = branchFor(target)
         if (branchId === null) { setError(t('branchFirst')); return }
         const passageId = activePassage.id
         const requestId = passageRequest.current
+        const identityKey = contextPreviewIdentity(passageId, requestId, branchId, backend, model, question)
+        if (contextPreview === null || contextPreview.previewIdentity !== identityKey) {
+          invalidateContextPreview()
+          setError(t('previewAgain'))
+          return
+        }
         const mine = () => currentRead(passageId, requestId)
         setAskBusy(true)
         setError('')
         setAskStatus('')
         setStreamText('')
         const request = {
-          passageId, branchId, question: askDraft.trim(),
+          passageId, branchId, question,
           backend, model, reasoningEffort: null, extras: [],
           operationId: createUuid(),
-          expectedFingerprint: contextPreview === null ? null : contextPreview.fingerprint,
+          expectedFingerprint: contextPreview.fingerprint,
         }
         try {
           // A streamed turn shows the answer while it is written and always ends with a
@@ -4400,10 +4731,11 @@ window.__ModuleLoader__.load({
             : unwrap(await ask(request), t)
           if (!mine()) return
           if (value.ok !== true) {
+            invalidateContextPreview()
             setError(format(t, 'askFailed', { reason: value.reason, failure: value.failure ?? '' }))
           } else {
             setAskDraft('')
-            setContextPreview(null)
+            invalidateContextPreview()
             setAskStatus(value.finish === 'stop'
               ? format(t, 'answerDone', { model: value.resolvedModel ?? value.model })
               : format(t, 'answerPartial', { finish: value.finish }))
@@ -4411,6 +4743,7 @@ window.__ModuleLoader__.load({
           await loadDiscussion(passageId)
         } catch (cause) {
           if (!mine()) return
+          invalidateContextPreview()
           setError(format(t, 'generationUnavailable', { reason: String(cause?.message ?? cause) }))
         } finally {
           if (mine()) {
@@ -4707,6 +5040,7 @@ window.__ModuleLoader__.load({
       }
 
       function pickNode(node) {
+        invalidateContextPreview()
         setAnchorId(node.anchorId)
         setSelectedNode(node)
       }
@@ -4716,6 +5050,7 @@ window.__ModuleLoader__.load({
        * that sentence has been analysed — nothing otherwise.
        */
       function selectSentence(sentenceId) {
+        invalidateContextPreview()
         setAnchorId(sentenceId)
         setSelectedNode((coverage?.covered ?? []).includes(sentenceId)
           ? { id: `a-${sentenceId}`, anchorId: sentenceId, parentId: null, kind: 'analysis', title: t('analysisTitle'), status: '' }
@@ -5189,7 +5524,7 @@ window.__ModuleLoader__.load({
 
       /** `renderLocation()`: chapter / paragraph / ordinal · node title. */
       function crumbText() {
-        if (knowledgeOpen) return `${t('tabKnowledge')} / ${libraryTab === 'knowledge' ? t('lexiconTab') : t('lexiconTab')}`
+        if (knowledgeOpen) return `${t('tabKnowledge')} / ${knowledgeTab === 'grammar' ? t('grammarTab') : t('lexiconTab')}`
         const paragraphs = segmentation?.paragraphs ?? []
         for (const [pIndex, paragraph] of paragraphs.entries()) {
           const sIndex = paragraph.sentences.findIndex((sentence) => sentence.id === anchorId)
@@ -5426,7 +5761,11 @@ window.__ModuleLoader__.load({
             value: askDraft,
             placeholder: t('askPlaceholder'),
             'aria-label': t('askPlaceholder'),
-            onChange: (event) => setAskDraft(event.target.value),
+            onChange: (event) => {
+              setAskDraft(event.target.value)
+              invalidateContextPreview()
+              setError('')
+            },
           }),
           h('div', { className: 'composerFoot' },
             h('span', { className: 'hint' }, model === '' ? t('modelNotConnected') : `${backend} · ${model}`),
@@ -5744,9 +6083,24 @@ window.__ModuleLoader__.load({
                 // generation wiring used to be entirely implicit (first backend,
                 // first model), with no way to see or change it mid-reading.
                 h('select', {
-                  className: 'modelSelect', 'aria-label': t('modelLabel'),
-                  value: model, disabled: analysisBusy || models.length === 0,
+                  className: 'modelSelect backendSelect', 'aria-label': t('backendLabel'),
+                  value: backend, disabled: analysisBusy || askBusy || backends.filter((entry) => entry.available).length === 0,
                   onChange: (event) => {
+                    const next = event.target.value
+                    if (next === backend) return
+                    invalidateContextPreview()
+                    setError('')
+                    setBackend(next)
+                    void loadModels(next)
+                  },
+                }, backends.filter((entry) => entry.available).map((entry) => h('option', {
+                  key: entry.backend, value: entry.backend,
+                }, entry.label))),
+                h('select', {
+                  className: 'modelSelect', 'aria-label': t('modelLabel'),
+                  value: model, disabled: analysisBusy || askBusy || models.length === 0,
+                  onChange: (event) => {
+                    invalidateContextPreview()
                     setModel(event.target.value)
                     persistModelPreference(event.target.value)
                   },
@@ -5840,11 +6194,14 @@ window.__ModuleLoader__.load({
         const face = {
           t,
           listPassages: (request) => api.listPassages(request),
+          listArchivedPassages: (request) => api.listArchivedPassages(request),
           getPassage: (request) => api.getPassage(request),
           createPassage: (request) => api.createPassage(request),
           archivePassage: (request) => api.archivePassage(request),
+          restorePassage: (request) => api.restorePassage(request),
           exportPassages: () => api.exportPassages(),
           exportLibrary: () => api.exportLibrary({ scope: 'all' }),
+          importLibrary: (request) => api.importLibrary(request),
           previewImport: (request) => api.previewImport(request),
           createSelection: (request) => api.createSelection(request),
           listLexicon: (request) => api.listLexicon(request),

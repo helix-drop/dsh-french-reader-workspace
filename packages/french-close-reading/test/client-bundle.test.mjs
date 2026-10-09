@@ -234,7 +234,7 @@ test('every panel capability is defined and actually rendered', () => {
     ['the backend list is read', 'await listBackends({ scope: \'all\' })'],
     ['the model list is read', 'await listBackendModels({ backend: name })'],
     ['the context is previewed before sending', 'await previewAsk({'],
-    ['the preview fingerprint travels with the send', 'expectedFingerprint: contextPreview === null ? null : contextPreview.fingerprint'],
+    ['the preview fingerprint travels with the send', 'expectedFingerprint: contextPreview.fingerprint'],
     // The turn is sent through the stream when the Host offers one, and through the
     // unary call when it does not, so the guard tracks the call, not one branch of it.
     ['the turn is sent', 'unwrap(await ask(request), t)'],

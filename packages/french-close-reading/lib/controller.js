@@ -45,7 +45,7 @@ import { compileContext, renderAnalysisSystem, renderPrompt, renderSystem, } fro
 import { extractGrammarPoints, } from "./answer-extraction.js";
 import { answerForLemma, mergeDataset, missingPersons, readConjugationRecord, writeConjugationDataset, } from "./conjugation-store.js";
 import { fetchConjugationDataset } from "./conjugation-fetch.js";
-import { beginGenerationJob, finishGenerationJob, listGenerationJobs as listStoredGenerationJobs, readGenerationJob, reconcileGenerationJobs, recordGenerationPhase, recordGenerationProgress, } from "./generation-store.js";
+import { beginGenerationJob, finishGenerationJob, listGenerationJobs as listStoredGenerationJobs, readGenerationJob, reconcileGenerationJobs, recordFirstTextDelta, recordGenerationPhase, recordGenerationProgress, } from "./generation-store.js";
 import { DshLlmBackend, } from "./generation.js";
 import { ANCHOR_ID_PATTERN, adoptionsKey, analysisKey, GRAMMAR_STORE_KEY, grammarKey, BRANCH_KINDS, EXCERPT_CHARACTERS, FRENCH_READER_DOMAIN, MAX_BRANCH_BODY_CHARACTERS, MAX_BRANCHES, MAX_BRANCH_TITLE_CHARACTERS, MAX_PASSAGES, MAX_PAGE_SIZE, MAX_SOURCE_CHARACTERS, MAX_TITLE_CHARACTERS, MAX_TRANSLATION_CHARACTERS, runsKey, segmentsKey, LEXICON_INDEX_KEY, lexiconKey, SELECTION_GAP, selectionAnchorId, selectionKey, segmentsKeyFor, sourceKey, TRANSLATION_SOURCES, } from "./domain.js";
 import { findAnchor, isKnownAnchor, PASSAGE_ANCHOR_ID, segmentSource, SEGMENTATION_REVISION, } from "./segmentation.js";
@@ -60,6 +60,15 @@ const archiveRequestSchema = z.object({
     passageId: z.string().uuid(),
     operationId: z.string().uuid(),
     expectedSourceRevision: z.number().int().min(1),
+}).strict();
+const restoreRequestSchema = z.object({
+    passageId: z.string().uuid(),
+    expectedSourceRevision: z.number().int().min(1),
+}).strict();
+const importLibraryRequestSchema = z.object({
+    schemaVersion: z.literal(1),
+    exportedAt: z.string().datetime(),
+    records: z.array(z.object({ key: z.string().min(1), record: z.unknown() }).strict()),
 }).strict();
 const renderLexiconRequestSchema = z.object({
     entryId: z.string().uuid(),
@@ -254,6 +263,7 @@ let FrenchReaderController = (() => {
     let _classSuper = TypertRemoteService;
     let _instanceExtraInitializers = [];
     let _listPassages_decorators;
+    let _listArchivedPassages_decorators;
     let _getPassage_decorators;
     let _listBackendsRemote_decorators;
     let _listBackendModelsRemote_decorators;
@@ -274,6 +284,7 @@ let FrenchReaderController = (() => {
     let _setGrammarMasteryRemote_decorators;
     let _readContextRemote_decorators;
     let _archivePassage_decorators;
+    let _restorePassage_decorators;
     let _renderLexiconRemote_decorators;
     let _resolveGrammarCandidateRemote_decorators;
     let _listLexiconRemote_decorators;
@@ -292,10 +303,12 @@ let FrenchReaderController = (() => {
     let _fetchConjugationRemote_decorators;
     let _streamAsk_decorators;
     let _exportLibraryRemote_decorators;
+    let _importLibraryRemote_decorators;
     return class FrenchReaderController extends _classSuper {
         static {
             const _metadata = typeof Symbol === "function" && Symbol.metadata ? Object.create(_classSuper[Symbol.metadata] ?? null) : void 0;
             _listPassages_decorators = [Remote('listPassages')];
+            _listArchivedPassages_decorators = [Remote('listArchivedPassages')];
             _getPassage_decorators = [Remote('getPassage')];
             _listBackendsRemote_decorators = [Remote('listBackends')];
             _listBackendModelsRemote_decorators = [Remote('listBackendModels')];
@@ -316,6 +329,7 @@ let FrenchReaderController = (() => {
             _setGrammarMasteryRemote_decorators = [Remote('setGrammarMastery')];
             _readContextRemote_decorators = [Remote('readContext')];
             _archivePassage_decorators = [Remote('archivePassage')];
+            _restorePassage_decorators = [Remote('restorePassage')];
             _renderLexiconRemote_decorators = [Remote('renderLexicon')];
             _resolveGrammarCandidateRemote_decorators = [Remote('resolveGrammarCandidate')];
             _listLexiconRemote_decorators = [Remote('listLexicon')];
@@ -334,7 +348,9 @@ let FrenchReaderController = (() => {
             _fetchConjugationRemote_decorators = [Remote('fetchConjugation')];
             _streamAsk_decorators = [Remote({ mode: 'stream' })];
             _exportLibraryRemote_decorators = [Remote('exportLibrary')];
+            _importLibraryRemote_decorators = [Remote('importLibrary')];
             __esDecorate(this, null, _listPassages_decorators, { kind: "method", name: "listPassages", static: false, private: false, access: { has: obj => "listPassages" in obj, get: obj => obj.listPassages }, metadata: _metadata }, null, _instanceExtraInitializers);
+            __esDecorate(this, null, _listArchivedPassages_decorators, { kind: "method", name: "listArchivedPassages", static: false, private: false, access: { has: obj => "listArchivedPassages" in obj, get: obj => obj.listArchivedPassages }, metadata: _metadata }, null, _instanceExtraInitializers);
             __esDecorate(this, null, _getPassage_decorators, { kind: "method", name: "getPassage", static: false, private: false, access: { has: obj => "getPassage" in obj, get: obj => obj.getPassage }, metadata: _metadata }, null, _instanceExtraInitializers);
             __esDecorate(this, null, _listBackendsRemote_decorators, { kind: "method", name: "listBackendsRemote", static: false, private: false, access: { has: obj => "listBackendsRemote" in obj, get: obj => obj.listBackendsRemote }, metadata: _metadata }, null, _instanceExtraInitializers);
             __esDecorate(this, null, _listBackendModelsRemote_decorators, { kind: "method", name: "listBackendModelsRemote", static: false, private: false, access: { has: obj => "listBackendModelsRemote" in obj, get: obj => obj.listBackendModelsRemote }, metadata: _metadata }, null, _instanceExtraInitializers);
@@ -355,6 +371,7 @@ let FrenchReaderController = (() => {
             __esDecorate(this, null, _setGrammarMasteryRemote_decorators, { kind: "method", name: "setGrammarMasteryRemote", static: false, private: false, access: { has: obj => "setGrammarMasteryRemote" in obj, get: obj => obj.setGrammarMasteryRemote }, metadata: _metadata }, null, _instanceExtraInitializers);
             __esDecorate(this, null, _readContextRemote_decorators, { kind: "method", name: "readContextRemote", static: false, private: false, access: { has: obj => "readContextRemote" in obj, get: obj => obj.readContextRemote }, metadata: _metadata }, null, _instanceExtraInitializers);
             __esDecorate(this, null, _archivePassage_decorators, { kind: "method", name: "archivePassage", static: false, private: false, access: { has: obj => "archivePassage" in obj, get: obj => obj.archivePassage }, metadata: _metadata }, null, _instanceExtraInitializers);
+            __esDecorate(this, null, _restorePassage_decorators, { kind: "method", name: "restorePassage", static: false, private: false, access: { has: obj => "restorePassage" in obj, get: obj => obj.restorePassage }, metadata: _metadata }, null, _instanceExtraInitializers);
             __esDecorate(this, null, _renderLexiconRemote_decorators, { kind: "method", name: "renderLexiconRemote", static: false, private: false, access: { has: obj => "renderLexiconRemote" in obj, get: obj => obj.renderLexiconRemote }, metadata: _metadata }, null, _instanceExtraInitializers);
             __esDecorate(this, null, _resolveGrammarCandidateRemote_decorators, { kind: "method", name: "resolveGrammarCandidateRemote", static: false, private: false, access: { has: obj => "resolveGrammarCandidateRemote" in obj, get: obj => obj.resolveGrammarCandidateRemote }, metadata: _metadata }, null, _instanceExtraInitializers);
             __esDecorate(this, null, _listLexiconRemote_decorators, { kind: "method", name: "listLexiconRemote", static: false, private: false, access: { has: obj => "listLexiconRemote" in obj, get: obj => obj.listLexiconRemote }, metadata: _metadata }, null, _instanceExtraInitializers);
@@ -373,6 +390,7 @@ let FrenchReaderController = (() => {
             __esDecorate(this, null, _fetchConjugationRemote_decorators, { kind: "method", name: "fetchConjugationRemote", static: false, private: false, access: { has: obj => "fetchConjugationRemote" in obj, get: obj => obj.fetchConjugationRemote }, metadata: _metadata }, null, _instanceExtraInitializers);
             __esDecorate(this, null, _streamAsk_decorators, { kind: "method", name: "streamAsk", static: false, private: false, access: { has: obj => "streamAsk" in obj, get: obj => obj.streamAsk }, metadata: _metadata }, null, _instanceExtraInitializers);
             __esDecorate(this, null, _exportLibraryRemote_decorators, { kind: "method", name: "exportLibraryRemote", static: false, private: false, access: { has: obj => "exportLibraryRemote" in obj, get: obj => obj.exportLibraryRemote }, metadata: _metadata }, null, _instanceExtraInitializers);
+            __esDecorate(this, null, _importLibraryRemote_decorators, { kind: "method", name: "importLibraryRemote", static: false, private: false, access: { has: obj => "importLibraryRemote" in obj, get: obj => obj.importLibraryRemote }, metadata: _metadata }, null, _instanceExtraInitializers);
             if (_metadata) Object.defineProperty(this, Symbol.metadata, { enumerable: true, configurable: true, writable: true, value: _metadata });
         }
         domain = __runInitializers(this, _instanceExtraInitializers);
@@ -403,6 +421,26 @@ let FrenchReaderController = (() => {
             const rows = this.readPassages()
                 .filter((passage) => passage.archivedAt === null)
                 .sort((left, right) => right.createdAt.localeCompare(left.createdAt) || left.id.localeCompare(right.id));
+            const start = parsed.data.offset;
+            const end = start + parsed.data.limit;
+            const value = {
+                items: rows.slice(start, end).map(toSummary),
+                offset: start,
+                total: rows.length,
+                hasMore: end < rows.length,
+            };
+            signal.throwIfAborted();
+            return value;
+        }
+        async listArchivedPassages(request, signal) {
+            const parsed = listRequestSchema.safeParse(request);
+            if (!parsed.success)
+                throw badRequest('Invalid archived-passage list request', parsed.error.issues);
+            signal.throwIfAborted();
+            const rows = this.readPassages()
+                .filter((passage) => passage.archivedAt !== null)
+                .sort((left, right) => (right.archivedAt ?? '').localeCompare(left.archivedAt ?? '')
+                || left.id.localeCompare(right.id));
             const start = parsed.data.offset;
             const end = start + parsed.data.limit;
             const value = {
@@ -707,6 +745,32 @@ let FrenchReaderController = (() => {
                 return { kind: 'archived', passage: toPassage(passage) };
             });
         }
+        async restorePassage(request, signal) {
+            const parsed = restoreRequestSchema.safeParse(request);
+            if (!parsed.success)
+                throw badRequest('Invalid restore request', parsed.error.issues);
+            const input = parsed.data;
+            return this.serialize(async () => {
+                signal.throwIfAborted();
+                const table = this.table();
+                const record = table.get(input.passageId);
+                if (record?.kind !== 'passage')
+                    return { kind: 'conflict', reason: 'passage-unknown' };
+                if (record.payload.sourceRevision !== input.expectedSourceRevision) {
+                    return { kind: 'conflict', reason: 'revision-conflict' };
+                }
+                if (record.payload.archivedAt === null) {
+                    return { kind: 'already-active', passage: toPassage(record.payload) };
+                }
+                const passage = {
+                    ...record.payload,
+                    archivedAt: null,
+                    archiveOperationId: null,
+                };
+                await table.put(input.passageId, { kind: 'passage', recordVersion: 1, payload: passage });
+                return { kind: 'restored', passage: toPassage(passage) };
+            });
+        }
         /**
          * What an import would store. Read-only by construction: the panel shows the
          * boundaries and the flags, and nothing reaches storage until the reader
@@ -787,8 +851,12 @@ let FrenchReaderController = (() => {
                     contentStatus: entry.contentStatus,
                     askCount: entry.askCount,
                     lastAskedAt: entry.lastAskedAt,
+                    revision: entry.revision,
                     examples: entry.examples.length,
+                    exampleTexts: entry.examples.map((example) => example.text),
+                    notes: entry.notes,
                     pitfalls: entry.pitfalls.length,
+                    pitfallTexts: entry.pitfalls.map((pitfall) => pitfall.text),
                     keyPoints: entry.keyPoints,
                 })),
                 pending: value.pending.map((item) => ({
@@ -1810,7 +1878,12 @@ let FrenchReaderController = (() => {
             };
             let outcome;
             try {
-                outcome = await backend.generate({ backend: backend.id, model: input.model, reasoningEffort: input.reasoningEffort ?? undefined }, { system: renderSystem(), prompt: renderPrompt(manifest), signal, onDelta });
+                outcome = await backend.generate({ backend: backend.id, model: input.model, reasoningEffort: input.reasoningEffort ?? undefined }, {
+                    system: renderSystem(), prompt: renderPrompt(manifest), signal, onDelta,
+                    onFirstTextDelta: (elapsedMs) => {
+                        void this.serialize(() => recordFirstTextDelta(this.table(), job, elapsedMs)).then((next) => { job = next; }, () => { });
+                    },
+                });
             }
             catch (error) {
                 outcome = { text: '', resolvedModel: null, usage: null, finish: 'error', failure: String(error) };
@@ -1867,6 +1940,8 @@ let FrenchReaderController = (() => {
                 usage: outcome.usage,
                 messageId: stored.messageId ?? null,
                 contextId: manifest.id,
+                modelCallMs: outcome.modelCallMs,
+                firstTextDeltaMs: outcome.firstTextDeltaMs,
                 partialText: outcome.finish === 'stop' ? '' : partial,
             }));
             // A failed generation is not a successful turn: the attempt is stored, and
@@ -2042,22 +2117,34 @@ let FrenchReaderController = (() => {
          * supports. The gate's verdict is returned, not a claim.
          */
         async fetchLexiconSource(input, signal) {
+            signal.throwIfAborted();
+            const entry = this.readLexiconEntries().find((candidate) => candidate.id === input.entryId);
+            if (entry === undefined)
+                return { fetched: false, reason: 'entry-unknown' };
+            // The requested entry owns its headword. Never trust a redundant caller
+            // field to decide which word the source request describes.
+            const value = await fetchLexiconSource(stateOf(this).ctx, {
+                source: input.source,
+                section: input.section,
+                mot: entry.mot,
+            }, signal);
+            const fetched = value.fetch;
+            if (fetched === undefined)
+                return { fetched: false, reason: value.reason ?? 'fetch-refused' };
+            // Network latency must not hold the controller's global write queue. Only
+            // the durable record is serialized, and the entry is checked again after
+            // the fetch in case it disappeared or changed while the request was away.
             return this.serialize(async () => {
                 signal.throwIfAborted();
-                const entry = this.readLexiconEntries().find((candidate) => candidate.id === input.entryId);
-                if (entry === undefined)
+                const current = this.readLexiconEntries().find((candidate) => candidate.id === input.entryId);
+                if (current === undefined)
                     return { fetched: false, reason: 'entry-unknown' };
-                const value = await fetchLexiconSource(stateOf(this).ctx, {
-                    source: input.source,
-                    section: input.section,
-                    mot: input.mot,
-                }, signal);
-                if (value.fetch === undefined)
-                    return { fetched: false, reason: value.reason ?? 'fetch-refused' };
+                if (current.mot !== entry.mot)
+                    return { fetched: false, reason: 'entry-changed' };
                 // The attempt is recorded either way: a failed fetch is a fact about the
                 // card, and hiding it would let the reader believe a source was consulted.
                 const recorded = await recordLexiconSource(this.table(), {
-                    ...value.fetch,
+                    ...fetched,
                     entryId: input.entryId,
                 });
                 return {
@@ -2422,6 +2509,9 @@ let FrenchReaderController = (() => {
                     // after the answer — the two cannot be mixed into one call.
                     {
                         system: renderAnalysisSystem(), prompt, signal,
+                        onFirstTextDelta: (elapsedMs) => {
+                            queueWrite((current) => recordFirstTextDelta(this.table(), current, elapsedMs));
+                        },
                         onDelta: (delta) => {
                             receivedText += delta;
                             const now = Date.now();
@@ -2439,10 +2529,18 @@ let FrenchReaderController = (() => {
                     });
                 }
                 catch (error) {
-                    return { ok: false, reason: 'model-error', failure: String(error) };
+                    return {
+                        ok: false,
+                        reason: signal.aborted ? 'cancelled' : 'model-error',
+                        failure: String(error),
+                    };
                 }
                 if (outcome.finish === 'error') {
-                    return { ok: false, reason: 'model-error', failure: outcome.failure };
+                    const failure = outcome.failure ?? '';
+                    const reason = failure.startsWith('agy-busy:') ? 'agy-busy'
+                        : failure.startsWith('stub-busy:') ? 'stub-busy'
+                            : 'model-error';
+                    return { ok: false, reason, failure };
                 }
                 // A cancelled generation has no usable reply; reporting it as anything else
                 // sends the reader looking at the wrong layer. A provider that ignored the
@@ -2538,6 +2636,8 @@ let FrenchReaderController = (() => {
                     failure: result.ok === true ? null : String(result.failure ?? result.reason).slice(0, 2_000),
                     resolvedModel: outcome?.resolvedModel ?? null,
                     usage: outcome?.usage ?? null,
+                    modelCallMs: outcome?.modelCallMs,
+                    firstTextDeltaMs: outcome?.firstTextDeltaMs,
                     partialText: outcome?.text ?? receivedText,
                 }));
             }
@@ -2576,10 +2676,12 @@ let FrenchReaderController = (() => {
             }
             const stored = [];
             const failed = [];
+            let asked = 0;
             for (const anchorId of missing) {
                 signal.throwIfAborted();
                 // One id per sentence, derived from the caller's: a retry of this run
                 // recognises the sentences it already did instead of asking again.
+                asked += 1;
                 const value = await this.analyseSentence({
                     passageId: passage.id,
                     anchorId,
@@ -2600,7 +2702,7 @@ let FrenchReaderController = (() => {
             const after = this.readAnalysisCoverage(passage.id, signal);
             return {
                 ok: true,
-                asked: missing.length,
+                asked,
                 stored: stored.length,
                 failed,
                 covered: after.covered?.length ?? 0,
@@ -2936,6 +3038,13 @@ let FrenchReaderController = (() => {
                 // instead of widening every named record type.
                 records: bundle.records.map((entry) => ({ key: entry.key, record: entry.record })),
             };
+        }
+        async importLibraryRemote(request, signal) {
+            const parsed = importLibraryRequestSchema.safeParse(request);
+            if (!parsed.success)
+                throw badRequest('Invalid library backup', parsed.error.issues);
+            signal.throwIfAborted();
+            return this.importLibrary(parsed.data, signal);
         }
         /**
          * Restore an exported library without ever overwriting local work.
