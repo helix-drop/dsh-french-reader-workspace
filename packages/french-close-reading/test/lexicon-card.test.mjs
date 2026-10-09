@@ -138,3 +138,17 @@ test('the Remote card view carries the policy verdict, not just the text', async
     (error) => error.code === 'gateway/bad-request',
   )
 })
+
+test('an entry saved with a Chinese part of speech still renders the verb card with §4 (F03)', async () => {
+  const { controller } = await withEntry('动词')
+
+  const entries = await controller.listLexiconRemote({}, signal())
+  const entryId = entries.entries[0].entryId
+  const card = await controller.renderLexiconRemote({ entryId, wantsEtymology: false }, signal())
+  assert.deepEqual(
+    card.sections.map((section) => section.number),
+    ['§1', '§2', '§4', '§3a', '§3b', '§5', '§6', '§7'],
+    'a verb saved as 动词 carries the conjugation section like verbe',
+  )
+  assert.match(card.rendered, /词性 动词/)
+})

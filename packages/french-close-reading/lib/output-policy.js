@@ -51,6 +51,11 @@ export function sectionOrder(partOfSpeech, options = {}) {
  * Order matters and the patterns are anchored: `/verb/` alone matches
  * "ad**verb**e", which would hand an adverb a verb's section order — including
  * §4 conjugation. Types the plan does not route anywhere stay `autre`.
+ *
+ * The reading panel is Chinese-facing, so the labels the reader actually
+ * types (动词, 名词, …) classify to the same kinds as their French/English
+ * counterparts; otherwise a saved 动词 silently fell to `autre` and its card
+ * lost §4 conjugation (F03).
  */
 export function classify(partOfSpeech) {
     const text = partOfSpeech.normalize('NFC').toLowerCase();
@@ -70,6 +75,24 @@ export function classify(partOfSpeech) {
         return 'article';
     if (/\bpr[ée]p/.test(text))
         return 'preposition';
+    // Chinese labels carry no word boundaries; each pattern is the full label.
+    // 习语/短语 run first so "动词短语" is a locution, not a verb.
+    if (/习语|短语|惯用语|固定表达|词组|成语/.test(text))
+        return 'locution';
+    if (/副词|连词|数词|叹词|助词/.test(text))
+        return 'autre';
+    if (/动词/.test(text))
+        return 'verbe';
+    if (/形容词/.test(text))
+        return 'adjectif';
+    if (/代词/.test(text))
+        return 'pronom';
+    if (/冠词/.test(text))
+        return 'article';
+    if (/介词/.test(text))
+        return 'preposition';
+    if (/名词/.test(text))
+        return 'nom';
     return 'autre';
 }
 /**

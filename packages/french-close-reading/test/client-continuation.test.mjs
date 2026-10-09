@@ -1109,13 +1109,16 @@ test('clicking a branch in the strip selects it and never creates a branch', asy
 
 test('the ＋讨论 entry starts with a first question and an optional editable derived title', async () => {
   const requests = []
+  let discussionReads = 0
   const p = await panel({
     createBranch: async (value) => {
       requests.push(value)
       if (requests.length === 1) throw new Error('temporary connection loss')
-      return ok({ kind: 'created', branch: { id: 'new-branch', title: value.title } })
+      // The real discussion interface returns the public { kind, branchId } shape,
+      // not the addBranch branch object the old stub smuggled past the panel.
+      return ok({ kind: 'created', branchId: 'new-branch' })
     },
-    listDiscussion: async () => ok({ branches: [branch], conclusions: [] }),
+    listDiscussion: async () => { discussionReads += 1; return ok({ branches: [branch], conclusions: [] }) },
   })
   p.values.set(18, 'p1.s1')
   p.values.set(16, { paragraphs: [{ id: 'p1', text: 'Je lis.', start: 0, end: 7,
@@ -1151,6 +1154,7 @@ test('the ＋讨论 entry starts with a first question and an optional editable 
   assert.equal(requests[1].title, '自定义标题', 'the reader can edit the title derived from the first question')
   assert.equal(requests[1].forkedFrom, null, 'a new root discussion is not attached to an unrelated parent')
   assert.equal(p.values.get(50)?.id, 'new-branch', 'creation selects the new discussion')
+  assert.ok(discussionReads > 0, 'a successful create refreshes the discussion before selecting the branch')
   assert.equal(p.values.get(31), '这里的 allée 是什么形式？', 'the first question becomes the composer draft')
   tree = p.render()
   assert.ok(all(tree, (node) => node.props?.className === 'composer')[0], 'the question composer opens immediately')
@@ -1166,7 +1170,7 @@ test('a first-question fork keeps the exact parent message and passage captured 
     ],
   }
   const p = await panel({
-    createBranch: async (value) => { requests.push(value); return ok({ kind: 'created', branch: { id: 'child-branch', title: value.title } }) },
+    createBranch: async (value) => { requests.push(value); return ok({ kind: 'created', branchId: 'child-branch' }) },
     listDiscussion: async () => ok({ branches: [branch], conclusions: [] }),
   })
   p.values.set(30, { branches: [branch], conclusions: [] })
@@ -1461,7 +1465,7 @@ test('asking about a miss creates a ready discussion without another title dialo
   const branch = { branchId: 'b-word', anchorId: 'passage', kind: 'vocabulary', title: 'allée', parentId: null, messages: [] }
   const p = await panel({
     lookupMot: async () => ok({ found: false, entries: [], candidates: [] }),
-    createBranch: async (request) => { created.push(request); return ok({ kind: 'created', branch: { id: 'b-word', title: request.title } }) },
+    createBranch: async (request) => { created.push(request); return ok({ kind: 'created', branchId: 'b-word' }) },
     listDiscussion: async () => ok({ branches: [branch], conclusions: [] }),
   })
   button(p.render(), '查词').props.onClick()
@@ -1506,4 +1510,158 @@ test('a lookup miss names each candidate and opens it with one click', async () 
   assert.deepEqual(lookups, ['connaît', 'connaître'], 'clicking looks up the candidate itself')
   const opened = all(p.render(), (node) => node.props?.className === 'lookupResult')[0]
   assert.match(text(opened), /知道；认得。/u, 'the candidate’s entry is shown')
+})
+
+test('the start button reaches the preview even when React hands the click event to the handler (F01)', async () => {
+  const previewCalls = [], generationCalls = []
+  const p = await panel({
+    previewAnalysisContext: async (request) => {
+      previewCalls.push(request)
+      return ok({
+        ok: true, reason: null, anchorId: 'p1.s1', currentParagraphId: 'p1',
+        characterLimit: 3500, characters: 7, materials: [],
+        includedParagraphIds: ['p1'], omittedParagraphIds: [], fingerprint: 'fp-f01',
+      })
+    },
+    analyseSentence: async (request) => {
+      generationCalls.push(request)
+      return ok({ ok: true, covered: 1, missing: 0, failed: 0, stale: 0, model: 'stub-model', resolvedModel: 'stub-model' })
+    },
+  })
+  p.values.set(16, { paragraphs: [{ id: 'p1', text: 'Je lis.', start: 0, end: 7,
+    sentences: [{ id: 'p1.s1', text: 'Je lis.', start: 0, end: 7 }] }] })
+  p.values.set(18, 'p1.s1')
+  p.values.set(27, 'stub')
+  p.values.set(29, 'stub-model')
+  const startButton = all(p.render(), (node) => node.type === 'button' && node.props.id === 'start')[0]
+  // A real React click passes the synthetic event as the first argument; the
+  // handler must treat "no confirmed preview" as its default, not the event.
+  startButton.props.onClick({ target: {}, preventDefault() {}, stopPropagation() {} })
+  await flush()
+  assert.equal(previewCalls.length, 1, 'the click opens the material preview')
+  assert.equal(generationCalls.length, 0, 'opening the preview never calls the model')
+})
+
+test('returning from the library after saving shows the stored entry, not the stale miss (F04)', async () => {
+  const p = await panel({
+    lookupMot: async () => ok({ found: false, entries: [], candidates: [] }),
+    createLexiconEntry: async () => ok({ kind: 'created', entryId: 'entry-envoyée', occurrence: { kind: 'appended', reason: null } }),
+  }, { requestAnimationFrame: (callback) => callback() })
+  button(p.render(), '查词').props.onClick()
+  all(p.render(), (node) => node.props?.id === 'lookupInput')[0].props.onChange({ target: { value: 'envoyée' } })
+  button(p.render(), '查阅').props.onClick()
+  await flush()
+  const miss = all(p.render(), (node) => node.props?.className === 'lookupResult')[0]
+  assert.ok(button(miss, '手动添加词条'), 'the miss offers the manual-add path before saving')
+  button(miss, '手动添加词条').props.onClick()
+  all(p.render(), (node) => node.props?.id === 'entryPartOfSpeech')[0].props.onChange({ target: { value: '动词' } })
+  all(p.render(), (node) => node.props?.id === 'entryLabel')[0].props.onChange({ target: { value: '本义' } })
+  all(p.render(), (node) => node.props?.id === 'entryDefinition')[0].props.onChange({ target: { value: 'envoyer 的过去分词阴性形式。' } })
+  button(p.render(), '保存词条').props.onClick()
+  await flush()
+  assert.equal(p.values.get(43), true, 'the knowledge view opens after saving')
+  // The top toggle exits the library through the same returnToAnalysis path as
+  // the pane's own back button (the component stub does not render that bar).
+  button(p.render(), '知识库').props.onClick()
+  await flush()
+  const node = p.values.get(50)
+  assert.equal(node?.miss, false, 'the restored node is the stored entry, not the old miss snapshot')
+  assert.equal(node?.entryId, 'entry-envoyée')
+  const restored = all(p.render(), (node) => node.props?.className === 'lookupResult')[0]
+  assert.ok(restored)
+  assert.doesNotMatch(text(restored), /手动添加词条/u, 'a stored entry no longer implies the lexicon missed it')
+  assert.ok(button(restored, '打开词条卡片'), 'the stored entry offers its card')
+})
+
+test('a stored conclusion is routable and navigates back to its source branch (F05)', async () => {
+  const branch = {
+    ...discussionBranch('b-source'),
+    title: '来源讨论', status: 'understood',
+  }
+  const conclusion = {
+    conclusionId: 'c-confirmed-1', branchId: 'b-source', anchorId: 'p1.s1',
+    text: 'allée 在此句中是 aller 的过去分词阴性单数。', status: 'confirmed', messageId: 'm1',
+  }
+  const p = await panel()
+  p.values.set(16, { paragraphs: [{ id: 'p1', text: 'Je lis.', start: 0, end: 7,
+    sentences: [{ id: 'p1.s1', text: 'Je lis.', start: 0, end: 7 }] }] })
+  p.values.set(18, 'p1.s1')
+  p.values.set(30, { branches: [branch], conclusions: [conclusion] })
+  p.values.set(37, { total: 1, covered: ['p1.s1'], missing: [], failed: [], stale: [] })
+  let tree = p.render()
+  const routeNode = all(tree, (node) => node.props?.className === 'navText'
+    && text(node).includes('已确认的学习结论'))[0]
+  assert.ok(routeNode, 'the conclusion appears on the route')
+  assert.match(text(routeNode), /结论已确认/u)
+  routeNode.props.onClick()
+  await flush()
+  tree = p.render()
+  assert.match(text(tree), /allée 在此句中是 aller 的过去分词阴性单数。/u, 'the conclusion body is readable')
+  assert.match(text(tree), /来源：来源讨论/u, 'the source branch is named')
+  const back = button(tree, '返回来源讨论')
+  assert.ok(back, 'the back entry exists')
+  back.props.onClick()
+  await flush()
+  const selected = p.values.get(50)
+  assert.equal(selected?.id, 'b-source', 'back selects the source branch instead of dropping the selection')
+  assert.equal(selected?.kind, 'discussion')
+})
+
+test('cancelling a turn reads the persisted terminal state instead of always claiming unconfirmed', async () => {
+  const branch = {
+    ...discussionBranch('b1'),
+    messages: [
+      { messageId: 'q1', author: 'user', text: '这一句怎么读？', status: null, createdAt: '2026-01-01T00:00:00.000Z' },
+      { messageId: 'a1', author: 'model', text: '', status: 'cancelled', backend: 'stub', model: 'stub-model',
+        resolvedModel: 'stub-model', failure: 'DeepSeek Messages request aborted', contextId: null,
+        createdAt: '2026-01-01T00:00:01.000Z', extraction: null },
+    ],
+  }
+  const p = await panel({
+    streamAsk: (request, signal) => (async function* () {
+      await new Promise((resolve, reject) => {
+        signal.addEventListener('abort', () => reject(new Error('DeepSeek Messages request aborted')))
+      })
+      yield { kind: 'done', result: { ok: false, finish: 'cancelled' } }
+    })(),
+    listDiscussion: async () => ok({ branches: [branch], conclusions: [] }),
+  })
+  openComposer(p, discussionBranch('b1'), {
+    preview: { ok: true, fingerprint: 'fp-cancel', characters: 0, materials: [], prompt: '' },
+  })
+  button(p.render(), '发送').props.onClick()
+  await flush()
+  const runStatus = all(p.render(), (node) => node.props?.className === 'askRunStatus')[0]
+  assert.ok(runStatus, 'the run status with the cancel entry is shown')
+  button(runStatus, '取消').props.onClick()
+  await flush()
+  assert.equal(p.values.get(34), '已取消，讨论记录中该回答已标记为取消状态。',
+    'a persisted cancelled message confirms the cancellation')
+})
+
+test('a turn whose record stays silent about cancellation still reports it as unconfirmed', async () => {
+  const branch = {
+    ...discussionBranch('b1'),
+    messages: [
+      { messageId: 'q1', author: 'user', text: '这一句怎么读？', status: null, createdAt: '2026-01-01T00:00:00.000Z' },
+    ],
+  }
+  const p = await panel({
+    streamAsk: (request, signal) => (async function* () {
+      await new Promise((resolve, reject) => {
+        signal.addEventListener('abort', () => reject(new Error('aborted')))
+      })
+      yield { kind: 'done', result: { ok: false, finish: 'cancelled' } }
+    })(),
+    listDiscussion: async () => ok({ branches: [branch], conclusions: [] }),
+  })
+  openComposer(p, discussionBranch('b1'), {
+    preview: { ok: true, fingerprint: 'fp-cancel-2', characters: 0, materials: [], prompt: '' },
+  })
+  button(p.render(), '发送').props.onClick()
+  await flush()
+  button(all(p.render(), (node) => node.props?.className === 'askRunStatus')[0], '取消').props.onClick()
+  await flush()
+  assert.equal(p.values.get(34), '连接已停止，但取消状态尚未确认；请检查讨论记录中的部分回答后再重试。',
+    'without a persisted cancelled message the panel keeps the honest unconfirmed state')
 })

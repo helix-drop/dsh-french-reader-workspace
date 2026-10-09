@@ -209,7 +209,7 @@ test('the card is rebuilt from the Host\'s own section headings, in the Host\'s 
 
 test('the knowledge round-trip restores where the reader was', () => {
   // `saveReadingPoint()`: the sentence, the selected node and the scroll offset are kept.
-  const save = source.slice(source.indexOf('function openKnowledge()'), source.indexOf('function returnToAnalysis()'))
+  const save = source.slice(source.indexOf('function openKnowledge('), source.indexOf('function returnToAnalysis()'))
   assert.match(save, /returnPoint\.current = \{/u)
   assert.match(save, /scroll: scroller\?\.scrollTop \?\? 0/u)
   assert.match(save, /shortReading \? readingPaneRef\.current : detailScrollRef\.current/u,

@@ -36,6 +36,11 @@ export type PartOfSpeechKind = 'verbe' | 'nom' | 'adjectif' | 'pronom' | 'articl
  * Order matters and the patterns are anchored: `/verb/` alone matches
  * "ad**verb**e", which would hand an adverb a verb's section order — including
  * §4 conjugation. Types the plan does not route anywhere stay `autre`.
+ *
+ * The reading panel is Chinese-facing, so the labels the reader actually
+ * types (动词, 名词, …) classify to the same kinds as their French/English
+ * counterparts; otherwise a saved 动词 silently fell to `autre` and its card
+ * lost §4 conjugation (F03).
  */
 export declare function classify(partOfSpeech: string): PartOfSpeechKind;
 /** What is known about the entry, as far as the policy cares. */

@@ -44,6 +44,28 @@ test('the section order follows the type, and §5 only appears for its types', (
   assert.equal(sectionOrder('adverbe').includes('§4'), false, 'no conjugation section for an adverb')
 })
 
+test('Chinese part-of-speech labels classify to the same kinds as French ones (F03)', () => {
+  assert.equal(classify('动词'), 'verbe')
+  assert.equal(classify('名词'), 'nom')
+  assert.equal(classify('形容词'), 'adjectif')
+  assert.equal(classify('代词'), 'pronom')
+  assert.equal(classify('冠词'), 'article')
+  assert.equal(classify('介词'), 'preposition')
+  assert.equal(classify('副词'), 'autre', 'a Chinese adverb is not a verb either')
+  assert.equal(classify('连词'), 'autre')
+  assert.equal(classify('数词'), 'autre')
+  assert.equal(classify('动词短语'), 'locution', 'a verb phrase is a locution, not a verb')
+  assert.equal(classify('verbe（动词）'), 'verbe', 'a mixed label still classifies')
+  // The section order is what the card renders: a verb saved with a Chinese
+  // label must carry §4 conjugation like any other verb.
+  assert.deepEqual(
+    sectionOrder('动词').map((section) => section.number),
+    ['§1', '§2', '§4', '§3a', '§3b', '§5', '§6', '§7'],
+  )
+  assert.deepEqual(sectionOrder('名词').map((section) => section.number),
+    ['§1', '§2', '§3a', '§3b', '§5', '§6', '§7'])
+})
+
 test('§2 renders as an ordered list with examples and no table', () => {
   const card = renderCard({
     ...filled,

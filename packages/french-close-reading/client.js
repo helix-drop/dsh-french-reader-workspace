@@ -344,9 +344,11 @@ window.__ModuleLoader__.load({
         const key = `inline-${index++}`
         if (value.startsWith('`')) output.push(h('code', { key }, value.slice(1, -1)))
         else if (value.startsWith('**') || value.startsWith('__')) {
-          output.push(h('strong', { key }, value.slice(2, -2)))
+          // Nested inline markup (e.g. `code` inside **bold**) is parsed, not
+          // shown as literal asterisks/backticks (F06).
+          output.push(h('strong', { key }, ...markdownInline(value.slice(2, -2))))
         } else {
-          output.push(h('em', { key }, value.slice(1, -1)))
+          output.push(h('em', { key }, ...markdownInline(value.slice(1, -1))))
         }
         cursor = match.index + value.length
       }
@@ -454,14 +456,23 @@ window.__ModuleLoader__.load({
 
         if (listAt(line)) {
           const ordered = /^\s*\d+[.)]\s+/u.test(line)
+          const itemPattern = ordered ? /^\s*(\d+)[.)]\s+/u : /^\s*[-+*]\s+/u
           const items = []
-          const itemPattern = ordered ? /^\s*\d+[.)]\s+/u : /^\s*[-+*]\s+/u
+          let firstNumber = null
           while (lineIndex < lines.length && listAt(lines[lineIndex])
             && /^\s*\d+[.)]\s+/u.test(lines[lineIndex]) === ordered) {
+            const itemMatch = itemPattern.exec(lines[lineIndex])
+            if (ordered && firstNumber === null) firstNumber = Number(itemMatch[1])
             items.push(lines[lineIndex++].replace(itemPattern, ''))
           }
           const tag = ordered ? 'ol' : 'ul'
-          blocks.push(h(tag, { key: `block-${blocks.length}` }, ...items.map((item, index) =>
+          // A list interrupted by a blank line or a paragraph starts a new <ol>;
+          // without the source's first number every fragment would restart at 1
+          // and the answer's own numbering is lost (F06).
+          const listProps = ordered && firstNumber !== null && firstNumber !== 1
+            ? { key: `block-${blocks.length}`, start: firstNumber }
+            : { key: `block-${blocks.length}` }
+          blocks.push(h(tag, listProps, ...items.map((item, index) =>
             h('li', { key: `item-${index}` }, ...markdownInline(item)))))
           continue
         }
@@ -1552,6 +1563,7 @@ window.__ModuleLoader__.load({
       certainty_syntax: '句法事实', certainty_context: '语境解释', certainty_rhetoric: '修辞效果', certainty_unverified: '待查证',
       lexiconTab: '词汇', statusGenerated: '已生成', branchOpen: '待理解', branchSettled: '已理解',
       confirmedConclusion: '已确认的学习结论', conclusionSource: '来源：', backToSourceDiscussion: '返回来源讨论',
+      conclusionStatusConfirmed: '结论已确认', conclusionStatusProposed: '结论待确认', conclusionStatusSuperseded: '结论已被取代',
       forkedFrom: '从「{title}」分出{cut}。兄弟分支不进入本次讨论。',
       fixedAtMessage: '固定至第 {index} 条消息', forkedAtMessage: '已分叉 · 固定至第 {index} 条消息',
       forkBranch: '⑂ 分叉', distilConclusion: '提炼结论', markUnderstood: '✓ 我已理解', markToCheck: '↺ 标记待查证',
@@ -1643,6 +1655,7 @@ window.__ModuleLoader__.load({
       askSent: '已发送问题：{question}',
       askCancelRequesting: '正在请求宿主停止；状态尚未确认。',
       askCancelUnconfirmed: '连接已停止，但取消状态尚未确认；请检查讨论记录中的部分回答后再重试。',
+      askCancelledConfirmed: '已取消，讨论记录中该回答已标记为取消状态。',
       answerDone: '已回答（{model}）。',
       answerPartial: '回答结束于 {finish}，可能不完整。',
       historyCount: '本次请求携带 {count} 条历史',
@@ -1798,6 +1811,7 @@ window.__ModuleLoader__.load({
       certainty_syntax: 'syntax', certainty_context: 'context', certainty_rhetoric: 'rhetoric', certainty_unverified: 'unverified',
       lexiconTab: 'Vocabulary', statusGenerated: 'generated', branchOpen: 'open', branchSettled: 'understood',
       confirmedConclusion: 'Confirmed conclusion', conclusionSource: 'From: ', backToSourceDiscussion: 'Back to the source discussion',
+      conclusionStatusConfirmed: 'Conclusion confirmed', conclusionStatusProposed: 'Conclusion proposed', conclusionStatusSuperseded: 'Conclusion superseded',
       forkedFrom: 'Split from “{title}”{cut}. Sibling branches are not part of this turn.',
       fixedAtMessage: 'fixed at message {index}', forkedAtMessage: 'Forked · fixed at message {index}',
       forkBranch: '⑂ Fork', distilConclusion: 'Distil a conclusion', markUnderstood: '✓ I understand this', markToCheck: '↺ Mark to check',
@@ -1894,6 +1908,7 @@ window.__ModuleLoader__.load({
       askSent: 'Sent question: {question}',
       askCancelRequesting: 'Asking the Host to stop; cancellation is not confirmed yet.',
       askCancelUnconfirmed: 'The connection stopped but cancellation was not confirmed; check the discussion for a partial answer before retrying.',
+      askCancelledConfirmed: 'Cancelled; the discussion record marks this answer as cancelled.',
       answerDone: 'Answered ({model}).',
       answerPartial: 'The answer ended at {finish} and may be incomplete.',
       historyCount: '{count} messages carried into this request',
@@ -4321,14 +4336,18 @@ window.__ModuleLoader__.load({
        * `saveReadingPoint()` / `returnToReading()`: leaving for the knowledge base remembers
        * where the reader was — the sentence, the node they had selected, and how far down the
        * reading surface they had scrolled — and coming back restores all three.
+       * @param restoredNode - Optional node already known to be current (e.g. a just-saved
+       *   entry replaces the stale miss snapshot it was created from, F04); without it the
+       *   render-scoped selection is captured, which may lag a state update made in the same
+       *   tick.
        */
-      function openKnowledge() {
+      function openKnowledge(restoredNode = undefined) {
         saveReadingPositionNow({}, true)
         toggleNavigation(false)
         const scroller = shortReading ? readingPaneRef.current : detailScrollRef.current
         returnPoint.current = {
           anchorId,
-          selectedNode,
+          selectedNode: restoredNode === undefined ? selectedNode : restoredNode,
           scroll: scroller?.scrollTop ?? 0,
         }
         setKnowledgeOpen(true)
@@ -5419,10 +5438,12 @@ window.__ModuleLoader__.load({
         try {
           const value = unwrap(await listDiscussion({ passageId }), t)
           if (currentRead(passageId, request)) { discussionLoadedFor.current = passageId; setDiscussion(value) }
+          return value
         } catch {
           // A panel from an older Host has no discussion endpoint yet; the rest of
           // the workbench keeps working rather than the whole reading failing.
           if (currentRead(passageId, request)) { discussionLoadedFor.current = passageId; setDiscussion({ branches: [], conclusions: [] }) }
+          return null
         }
       }
 
@@ -5558,8 +5579,17 @@ window.__ModuleLoader__.load({
           if (!mine()) return
           invalidateContextPreview()
           if (controller.signal.aborted) {
-            await loadDiscussion(passageId)
-            setAskStatus(t('askCancelUnconfirmed'))
+            // The record just re-read is authoritative: when the Host persisted this
+            // turn's message as cancelled, cancellation is confirmed instead of the
+            // panel claiming an unconfirmed state forever.
+            const latest = await loadDiscussion(passageId)
+            const messages = latest === null
+              ? []
+              : ((latest.branches ?? []).find((entry) => entry.branchId === branchId)?.messages ?? [])
+            const lastMessage = messages.length === 0 ? null : messages[messages.length - 1]
+            setAskStatus(lastMessage?.status === 'cancelled'
+              ? t('askCancelledConfirmed')
+              : t('askCancelUnconfirmed'))
           } else {
             pendingAnswerRevealRef.current = null
             setError(format(t, 'generationUnavailable', { reason: String(cause?.message ?? cause) }))
@@ -5837,10 +5867,39 @@ window.__ModuleLoader__.load({
           }
           void index
         }
-        for (const branch of discussion?.branches ?? []) {
+        const branches = discussion?.branches ?? []
+        for (const branch of branches) {
           nodes.push(branchNode(branch))
         }
+        // Stored conclusions get their own route entry hanging under the branch
+        // they were distilled from; without this the Host returns them but the
+        // panel has no way to reach them (F05).
+        for (const conclusion of discussion?.conclusions ?? []) {
+          nodes.push(conclusionNode(conclusion, branches))
+        }
         return nodes
+      }
+
+      /** One stored conclusion as a route node: reviewable, and tied to its source branch. */
+      function conclusionNode(conclusion, branches) {
+        const source = branches.find((entry) => entry.branchId === conclusion.branchId)
+        return {
+          id: conclusion.conclusionId,
+          anchorId: conclusion.anchorId,
+          // A conclusion whose source branch is unknown hangs off the sentence so
+          // it stays reachable instead of vanishing from the walk.
+          parentId: source?.branchId ?? `a-${conclusion.anchorId}`,
+          kind: 'knowledge',
+          title: t('confirmedConclusion'),
+          status: conclusion.status === 'confirmed'
+            ? t('conclusionStatusConfirmed')
+            : conclusion.status === 'superseded'
+              ? t('conclusionStatusSuperseded')
+              : t('conclusionStatusProposed'),
+          body: conclusion.text,
+          parentTitle: source?.title ?? '',
+          sourceBranchId: conclusion.branchId,
+        }
       }
 
       /** `pick(id)`: select the node, which means focusing its sentence. */
@@ -6164,7 +6223,10 @@ window.__ModuleLoader__.load({
             }
             return false
           }
-          if (value.branch?.id === undefined) {
+          // The discussion interface returns the public shape { kind, branchId };
+          // the old addBranch object ({ branch: { id } }) belongs to a different
+          // interface and is rejected by both codecs (F02).
+          if (typeof value.branchId !== 'string' || value.branchId === '') {
             setOperationError(setError, failureMessage, t('createDiscussionOperation'), 'Host returned no branch id')
             return false
           }
@@ -6176,7 +6238,7 @@ window.__ModuleLoader__.load({
           }
           invalidateContextPreview()
           setAnchorId(targetAnchor)
-          setSelectedNode({ id: value.branch.id, anchorId: targetAnchor, kind: 'discussion', title: value.branch.title ?? title })
+          setSelectedNode({ id: value.branchId, anchorId: targetAnchor, kind: 'discussion', title })
           setAskDraft(initialQuestion ?? '')
           setAskStatus(initialQuestion === null ? t('branchOpened') : t(kind === 'vocabulary' ? 'wordQuestionReady' : 'discussionQuestionReady'))
           return true
@@ -6327,8 +6389,18 @@ window.__ModuleLoader__.load({
             setLexiconEntryDraft({ ...draft, saving: false, error: t('entrySaveConflict') })
             return
           }
+          // The save succeeded: the stored entry, not the old miss snapshot, is
+          // what returning to the reading surface must restore (F04). The node is
+          // passed explicitly because the render-scoped `selectedNode` this closure
+          // sees still holds the stale lookup node.
+          const savedNode = {
+            id: `lookup-${mot}`, anchorId: draft.anchorId, kind: 'knowledge', title: mot,
+            status: t('entryStored'), body: definition, entryId: value.entryId,
+            miss: false, candidates: [], parentTitle: mot,
+          }
+          setSelectedNode(savedNode)
           setLexiconEntryDraft(null)
-          openKnowledge()
+          openKnowledge(savedNode)
           setKnowledgeTab('vocab')
           setKnowledgeEntryId(value.entryId)
           setKnowledgeFocusConjugationEntryId(draft.lemma.trim() === '' ? null : value.entryId)
@@ -6926,6 +6998,13 @@ window.__ModuleLoader__.load({
           )
         }
         if (node.kind === 'knowledge' && !(discussion?.branches ?? []).some((branch) => branch.branchId === node.id)) {
+          // A conclusion node knows the branch it was distilled from; "back" selects
+          // that branch instead of dropping the reader on the bare reading surface.
+          const backToSource = () => {
+            const source = (discussion?.branches ?? []).find((entry) => entry.branchId === node.sourceBranchId)
+            if (source === undefined) { setSelectedNode(null); return }
+            pickNode(branchNode(source))
+          }
           return h('div', null,
             syntaxLegend(),
             h('div', { className: 'sectionLabel' }, t('confirmedConclusion')),
@@ -6933,7 +7012,7 @@ window.__ModuleLoader__.load({
             h('div', { className: 'quote' }, `${t('conclusionSource')}${node.parentTitle ?? node.title}`),
             h('button', {
               className: 'small', type: 'button',
-              onClick: () => setSelectedNode(null),
+              onClick: backToSource,
             }, t('backToSourceDiscussion')),
           )
         }
@@ -7353,7 +7432,14 @@ window.__ModuleLoader__.load({
                 ),
               ),
               h('div', { className: 'readingActions', id: 'readingActions' },
-                h('button', { id: 'start', className: 'primary small', type: 'button', disabled: analysisBusy || backend === '' || model === '' || !isSentenceAnchorId(anchorId), onClick: analyseCurrent }, analysisBusy ? t('analyzing') : sentenceAnalysis?.kind === 'found' ? t('reanalyseSentence') : t('analyseTop')),
+                // The handler takes an optional confirmed preview; a raw click event
+                // must never occupy that parameter or the click dies before the
+                // preview request (F01). Wrap so the call carries no argument.
+                h('button', {
+                  id: 'start', className: 'primary small', type: 'button',
+                  disabled: analysisBusy || backend === '' || model === '' || !isSentenceAnchorId(anchorId),
+                  onClick: () => { void analyseCurrent() },
+                }, analysisBusy ? t('analyzing') : sentenceAnalysis?.kind === 'found' ? t('reanalyseSentence') : t('analyseTop')),
                 h('span', { className: 'selectedWord' }, selectedWord),
                 h('button', {
                   className: 'small', type: 'button',

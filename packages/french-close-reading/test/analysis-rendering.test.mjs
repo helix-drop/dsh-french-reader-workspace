@@ -150,3 +150,47 @@ test('a clause whose parent is absent still renders at the top level', () => {
   assert.match(builder, /if \(!seen\.has\(clause\.id\)\) rows\.push\(\{ clause, depth: 0 \}\)/u,
     'an orphan clause is rendered, never dropped')
 })
+
+test('ordered lists keep their source numbering across blank-line breaks (F06)', () => {
+  const markdown = [
+    '1. 先确定中心词。',
+    '',
+    '2. 再核对性数配合。',
+    '',
+    '3. 最后放回全句验证。',
+    '',
+    '4. 结论。',
+  ].join('\n')
+  const lists = plain(renderMarkdown(markdown)).filter((block) => block.type === 'ol')
+  assert.equal(lists.length, 4, 'each break starts its own list, as before')
+  assert.deepEqual(
+    lists.map((list) => (list.props.start === undefined ? 1 : list.props.start)),
+    [1, 2, 3, 4],
+    'every fragment carries the number the answer itself wrote',
+  )
+  assert.ok(lists.every((list) => list.children.length === 1))
+})
+
+test('a single interrupted ordered list is one list per fragment with its own start', () => {
+  const markdown = ['3. 第三项在先。', '', '4. 第四项随后。'].join('\n')
+  const lists = plain(renderMarkdown(markdown)).filter((block) => block.type === 'ol')
+  assert.deepEqual(lists.map((list) => list.props.start ?? 1), [3, 4])
+})
+
+test('inline code inside bold or italic renders as code, not literal backticks (F06)', () => {
+  const [heading] = renderMarkdown('### **Pourquoi le `e` ?**')
+  assert.equal(heading.type, 'h3')
+  const strong = plain(heading).children[0]
+  assert.equal(strong.type, 'strong')
+  assert.equal(strong.children[0], 'Pourquoi le ')
+  assert.equal(strong.children[1].type, 'code', 'the backticks became a code node')
+  assert.equal(strong.children[1].children[0], 'e')
+  assert.equal(strong.children[2], ' ?')
+  assert.doesNotMatch(JSON.stringify(plain(heading)), /`/u, 'no literal backtick survives')
+
+  const [paragraph] = renderMarkdown('*为什么用 `e` 而不是 `é`？*')
+  const em = plain(paragraph).children[0]
+  assert.equal(em.type, 'em')
+  assert.deepEqual(em.children.filter((child) => typeof child === 'object' && child !== null).map((child) => child.type),
+    ['code', 'code'], 'both code spans inside the emphasis parse')
+})
