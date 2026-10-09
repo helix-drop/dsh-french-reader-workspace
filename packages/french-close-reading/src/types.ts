@@ -84,11 +84,21 @@ export type CreateSelectionValue =
   | { kind: 'already-existed'; anchorId: string; excerpt: string; ranges: SelectionRange[] }
   | { kind: 'conflict'; reason: 'passage-unknown' | 'range-out-of-bounds' | 'range-not-integer' | 'ranges-out-of-range' }
 
+/** One exact sentence boundary displayed inside an import preview paragraph. */
+export interface ImportSentencePreview {
+  id: string
+  text: string
+  start: number
+  end: number
+}
+
 /** One paragraph as the import preview will store it. */
 export interface ImportBlockPreview {
   id: string
   sentences: number
   excerpt: string
+  /** Present when the Host supports complete sentence-boundary previews. */
+  sentenceDetails?: ImportSentencePreview[]
 }
 
 export interface ImportFlagView {
@@ -550,6 +560,36 @@ export interface LexiconLookup {
   candidates: LexiconView[]
 }
 
+/** Create one exact Mot entry from an explicit reader action, never from a lookup alone. */
+export interface CreateLexiconEntryRequest {
+  mot: string
+  partOfSpeech: string
+  lemma: string | null
+  forms: string[]
+  label: string
+  definition: string
+  /** Explicit reader-authored entries default to user; model-assisted drafts retain mixed provenance. */
+  provenance?: 'user' | 'mixed'
+  operationId: string
+  passageId: string
+  anchorId: string
+  occurrenceNote: string
+}
+
+export interface CreateLexiconOccurrenceValue {
+  kind: 'appended' | 'already-appended' | 'not-attempted' | 'failed'
+  reason: string | null
+}
+
+export type CreateLexiconEntryValue =
+  | { kind: 'created' | 'exists'; entryId: string; occurrence: CreateLexiconOccurrenceValue }
+  | {
+    kind: 'conflict'
+    entryId: null
+    reason: 'passage-unknown' | 'anchor-unknown' | 'mot-blank' | 'key-collision'
+    occurrence: CreateLexiconOccurrenceValue
+  }
+
 /** Which variant one anchor currently uses. */
 export interface Adoption {
   anchorId: string
@@ -599,6 +639,8 @@ export type {
   AskResult,
   BackendModelView,
   BackendStatus,
+  CancelAnalysisRequest,
+  CancelAnalysisValue,
   ConclusionView,
   ContextExtra,
   ContextMaterialView,
@@ -611,6 +653,10 @@ export type {
   AnalyseSentenceRequest,
   AnalyseSentenceResult,
   AnalysisCoverageValue,
+  AnalysisContextRelation,
+  AnalysisContextMaterial,
+  PreviewAnalysisContextRequest,
+  PreviewAnalysisContextValue,
   DiscussionView,
   FetchLexiconSourceRequest,
   FetchLexiconSourceValue,

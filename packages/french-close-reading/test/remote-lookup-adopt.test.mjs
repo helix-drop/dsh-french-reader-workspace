@@ -67,6 +67,77 @@ test('lookupMot refuses a request its schema rejects, before any lookup runs', a
   }
 })
 
+test('an exact Mot miss can be explicitly saved without overwriting an existing entry', async () => {
+  const { controller } = await withPassage()
+  const miss = await controller.lookupMotRemote({ mot: 'allée', partOfSpeech: null }, signal())
+  assert.equal(miss.found, false)
+
+  const request = {
+    mot: 'allée', partOfSpeech: 'participe passé', lemma: 'aller', forms: ['allées'],
+    label: 'forme verbale', definition: 'Participe passé féminin singulier de aller.',
+    operationId: uuid(), passageId: ids.passage, anchorId: 'p1.s1',
+    occurrenceNote: 'Ajout manuel depuis la lecture.',
+  }
+  const created = await controller.createLexiconEntryRemote(request, signal())
+  assert.equal(created.kind, 'created')
+  assert.equal(created.occurrence.kind, 'appended')
+  assert.ok(created.entryId)
+
+  const hit = await controller.lookupMotRemote({ mot: 'allée', partOfSpeech: null }, signal())
+  assert.equal(hit.found, true, 'saving the exact Mot turns the miss into an exact hit')
+  assert.equal(hit.entries[0].lemma, 'aller', 'the lemma remains separately stored for the conjugation card')
+  assert.equal(hit.entries[0].mot, 'allée', 'the exact reader form is not replaced by its lemma')
+  assert.equal(hit.entries[0].occurrences.length, 1)
+  assert.equal(hit.entries[0].occurrences[0].passageId, ids.passage)
+  assert.equal(hit.entries[0].occurrences[0].anchorId, 'p1.s1')
+  assert.match(hit.entries[0].occurrences[0].excerpt, /Il faut cultiver/u)
+
+  const retry = await controller.createLexiconEntryRemote(request, signal())
+  assert.equal(retry.kind, 'exists', 'a retried write does not create a second entry')
+  assert.equal(retry.occurrence.kind, 'already-appended', 'and the occurrence is idempotent')
+
+  const duplicate = await controller.createLexiconEntryRemote({
+    ...request, operationId: uuid(), definition: 'This must not replace the reader entry.',
+  }, signal())
+  assert.equal(duplicate.kind, 'exists')
+  assert.equal(duplicate.occurrence.kind, 'not-attempted', 'an unrelated duplicate never attaches a reading silently')
+  const authoritative = (await controller.lookupMotRemote({ mot: 'allée', partOfSpeech: null }, signal())).entries[0]
+  assert.equal(authoritative.senses[0].definition, 'Participe passé féminin singulier de aller.')
+  assert.equal(authoritative.occurrences.length, 1)
+})
+
+test('a model-assisted lexicon entry retains mixed provenance and an unverified reading note', async () => {
+  const { controller } = await withPassage()
+  const request = {
+    mot: 'visite', partOfSpeech: 'nom féminin', lemma: null, forms: [],
+    label: 'nom', definition: 'Action de rendre visite.', provenance: 'mixed',
+    operationId: uuid(), passageId: ids.passage, anchorId: 'p1.s1',
+    occurrenceNote: 'Modèle : suggestion non vérifiée ; source message-1.',
+  }
+  const created = await controller.createLexiconEntryRemote(request, signal())
+  assert.equal(created.kind, 'created')
+  const hit = await controller.lookupMotRemote({ mot: 'visite', partOfSpeech: null }, signal())
+  assert.equal(hit.entries[0].provenance, 'mixed')
+  assert.match(hit.entries[0].occurrences[0].note, /non vérifiée/u)
+  await assert.rejects(() => controller.createLexiconEntryRemote({ ...request, mot: 'autre', provenance: 'ai', operationId: uuid() }, signal()), refusedBadly)
+})
+
+test('createLexiconEntry refuses malformed boundaries and reports a vanished anchor', async () => {
+  const { controller } = await withPassage()
+  const valid = {
+    mot: 'allée', partOfSpeech: 'participe passé', lemma: 'aller', forms: [],
+    label: 'forme verbale', definition: 'Participe passé féminin singulier de aller.',
+    operationId: uuid(), passageId: ids.passage, anchorId: 'p1.s1',
+    occurrenceNote: 'Ajout manuel depuis la lecture.',
+  }
+  await assert.rejects(() => controller.createLexiconEntryRemote({ ...valid, extra: true }, signal()), refusedBadly)
+  await assert.rejects(() => controller.createLexiconEntryRemote({ ...valid, lemma: '' }, signal()), refusedBadly)
+  const moved = await controller.createLexiconEntryRemote({ ...valid, anchorId: 'p99.s99' }, signal())
+  assert.equal(moved.kind, 'conflict')
+  assert.equal(moved.reason, 'anchor-unknown')
+  assert.equal(moved.occurrence.kind, 'not-attempted')
+})
+
 test('adoptTranslation moves the pointer and is idempotent on the wire', async () => {
   const { controller } = await withPassage()
   const first = await controller.saveTranslation({

@@ -16,6 +16,13 @@ test('a clean source previews its boundaries and raises nothing', () => {
   assert.equal(preview.paragraphs, 2)
   assert.equal(preview.sentences, 3, 'the dialogue dash still starts a sentence')
   assert.deepEqual(preview.blocks.map((block) => block.id), ['p1', 'p2'])
+  assert.deepEqual(preview.blocks.map((block) => block.sentenceDetails.map((sentence) => sentence.text)), [
+    ['Le cœur a ses raisons.'], ['— Mais lequel ?', '— Le nôtre, dit-il.'],
+  ])
+  assert.deepEqual(preview.blocks.flatMap((block) => block.sentenceDetails.map((sentence) => sentence.id)), ['p1.s1', 'p2.s1', 'p2.s2'])
+  for (const sentence of preview.blocks.flatMap((block) => block.sentenceDetails)) {
+    assert.equal('Le cœur a ses raisons.\n\n— Mais lequel ? — Le nôtre, dit-il.'.slice(sentence.start, sentence.end), sentence.text)
+  }
   assert.deepEqual(preview.flags, [])
   assert.equal(preview.head.startsWith('Le cœur'), true)
 })
@@ -80,6 +87,7 @@ test('the preview writes nothing, and the tool asks for confirmation before savi
   const preview = await tool.execute({ action: 'preview', title: passageRequest.title, sourceText: passageRequest.sourceText })
   assert.equal(preview.ok, true)
   assert.equal(preview.detail.paragraphs, 2)
+  assert.deepEqual(preview.detail.blocks.map((block) => block.sentenceDetails.map((sentence) => sentence.id)), [['p1.s1'], ['p2.s1', 'p2.s2']])
   assert.equal(preview.detail.errors, 0)
   assert.match(preview.detail.note, /Nothing was stored/u)
   assert.equal(backing.writes.length, 0, 'a preview never touches storage')
@@ -119,6 +127,7 @@ test('the Remote preview is read-only and matches the tool preview', async () =>
   assert.equal(clean.sentences, 3)
   assert.deepEqual(clean.flags, [])
   assert.deepEqual(clean.blocks.map((block) => block.id), ['p1', 'p2'])
+  assert.deepEqual(clean.blocks.flatMap((block) => block.sentenceDetails?.map((sentence) => sentence.id) ?? []), ['p1.s1', 'p2.s1', 'p2.s2'])
   assert.equal(backing.writes.length, 0, 'the Remote preview writes nothing either')
 
   // Invalid requests are refused before the preview runs.

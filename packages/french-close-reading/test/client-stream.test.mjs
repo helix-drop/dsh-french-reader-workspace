@@ -45,8 +45,8 @@ test('the panel streams when it can and sends unary when it cannot', () => {
   assert.notEqual(at, -1)
   const body = source.slice(at, source.indexOf('/** The branch a turn on this anchor belongs to', at))
   assert.match(body, /typeof streamAsk === 'function'/u, 'the stream is used when the Host provides it')
-  assert.match(body, /receiveStream\(streamAsk\(request\)/u)
-  assert.match(body, /unwrap\(await ask\(request\), t\)/u, 'and the unary call is the fallback, not the only path')
+  assert.match(body, /receiveStream\(streamAsk\(request, controller\.signal\)/u)
+  assert.match(body, /unwrap\(await ask\(request, controller\.signal\), t\)/u, 'and the unary call is the fallback, not the only path')
   assert.match(body, /setStreamText\(''\)/u, 'the arriving text is cleared when the turn settles')
 })
 

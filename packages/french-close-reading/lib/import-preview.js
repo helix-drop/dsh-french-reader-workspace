@@ -94,6 +94,7 @@ export function previewImport(input) {
             id: paragraph.id,
             sentences: paragraph.sentences.length,
             excerpt: paragraph.text.length > 120 ? `${paragraph.text.slice(0, 120)}…` : paragraph.text,
+            sentenceDetails: paragraph.sentences.map(({ id, text, start, end }) => ({ id, text, start, end })),
         })),
         head: sourceText.slice(0, 200),
         tail: sourceText.length > 200 ? sourceText.slice(-200) : '',

@@ -41,16 +41,13 @@ test('clicking a sentence refuses to move the focus while text is selected', () 
     'a drag-select must not move the focus')
 })
 
-test('the per-sentence audio controls are present and honest, as in the prototype', () => {
-  // The prototype renders `▷ 发音` / `↻ 重生成` plus a `接口预留` label, and its handler
-  // reports that no provider is connected. The panel must do the same, not go quiet.
-  assert.match(navRow, /className: 'sentenceAudioMini'/u)
-  assert.match(navRow, /t\('audioGenerate'\)/u)
-  assert.match(navRow, /t\('audioRegenerateShort'\)/u)
-  assert.match(navRow, /t\('audioReserved'\)/u)
-  assert.match(source, /function requestSentenceAudio\(/u)
-  assert.match(source, /status: 'unconfigured'/u, 'the handler reports it is not wired')
-  assert.match(source, /2600/u, "the prototype's toast lifetime")
+test('unavailable audio controls are absent from ordinary reading and route rows', () => {
+  // Without an audio provider, disabled per-sentence buttons are noise rather than
+  // capability. Keep this honest by not rendering controls until an action works.
+  assert.doesNotMatch(navRow, /sentenceAudioMini|audioGenerate|audioRegenerateShort|audioReserved/u)
+  assert.doesNotMatch(source, /function requestSentenceAudio\(/u)
+  const readingActions = source.slice(source.indexOf("className: 'readingActions'"), source.indexOf("className: 'branchStrip'"))
+  assert.doesNotMatch(readingActions, /audioNotWired|audioGenerate/u)
 })
 
 test('only the paragraphs the prototype shows are rendered', () => {

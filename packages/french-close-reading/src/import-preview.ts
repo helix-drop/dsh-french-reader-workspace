@@ -28,13 +28,21 @@ export interface ImportFlag {
   detail: string
 }
 
+export interface ImportSentencePreview {
+  id: string
+  text: string
+  /** Absolute half-open character range into the exact source text. */
+  start: number
+  end: number
+}
+
 export interface ImportPreview {
   title: string
   characters: number
   paragraphs: number
   sentences: number
-  /** Paragraph boundaries as the segmenter will store them. */
-  blocks: { id: string; sentences: number; excerpt: string }[]
+  /** Paragraph and sentence boundaries as the segmenter will store them. */
+  blocks: { id: string; sentences: number; excerpt: string; sentenceDetails: ImportSentencePreview[] }[]
   head: string
   tail: string
   flags: ImportFlag[]
@@ -140,6 +148,7 @@ export function previewImport(input: { title: string; sourceText: string }): Imp
       id: paragraph.id,
       sentences: paragraph.sentences.length,
       excerpt: paragraph.text.length > 120 ? `${paragraph.text.slice(0, 120)}…` : paragraph.text,
+      sentenceDetails: paragraph.sentences.map(({ id, text, start, end }) => ({ id, text, start, end })),
     })),
     head: sourceText.slice(0, 200),
     tail: sourceText.length > 200 ? sourceText.slice(-200) : '',

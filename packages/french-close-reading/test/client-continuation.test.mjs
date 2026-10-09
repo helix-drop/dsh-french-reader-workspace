@@ -38,7 +38,7 @@ async function panel(services = {}, browser = {}) {
   const context = vm.createContext({
     window: { __ModuleLoader__: { load: (value) => { registration = value } } }, console,
     setTimeout: (...args) => setTimeout(...args).unref(), clearTimeout,
-    TextEncoder, crypto: webcrypto, sessionStorage: memoryStorage, localStorage: memoryStorage, ...browser,
+    TextEncoder, crypto: webcrypto, AbortController, sessionStorage: memoryStorage, localStorage: memoryStorage, ...browser,
   })
   vm.runInContext(source, context)
   const api = new Proxy(services, { get: (target, key) => target[key] ?? (async () => ({ ok: true, value: {} })) })
@@ -55,7 +55,7 @@ async function panel(services = {}, browser = {}) {
     remote: { frenchReader: api, $mount: async () => async () => {} },
   }
   await registration.factory(() => React).apply(ctx)
-  return { render() { stateIndex = 0; refIndex = 0; return component(props) }, values, effects, refs }
+  return { render() { stateIndex = 0; refIndex = 0; return component(props) }, values, effects, refs, storage, memoryStorage }
 }
 function all(node, predicate) {
   if (node == null || typeof node !== 'object') return []
@@ -102,6 +102,119 @@ test('knowledge navigation closes the route overlay before showing the library',
   const tree = p.render()
   assert.ok(button(tree, '打开路线'))
   assert.ok(all(tree, (node) => node.type === 'section' && node.props['aria-label'] === '知识库')[0])
+})
+
+test('continue reading restores the exact sentence, discussion branch and scroll position', async () => {
+  const point = { schemaVersion: 1, passageId: 'parent', title: '第 3 章', sourceRevision: 1,
+    anchorId: 'p1.s1', anchorText: 'Je lis.', branchId: 'b1', scrollTop: 72, book: 'Livre', chapter: 'Chapitre 1' }
+  const storage = new Map([['french-close-reading/last-position-v1', JSON.stringify(point)]])
+  const scroll = { scrollTop: 0 }
+  const p = await panel({
+    getPassage: async () => ok({ passage }),
+    getSegmentation: async () => ok({ segmentation: { paragraphs: [{ id: 'p1', text: 'Je lis.', start: 0, end: 7, sentences: [{ id: 'p1.s1', text: 'Je lis.', start: 0, end: 7 }] }] } }),
+    listDiscussion: async () => ok({ branches: [{ branchId: 'b1', anchorId: 'p1.s1', parentId: null, kind: 'note', title: '讨论', status: 'open' }], conclusions: [] }),
+    listAnalysis: async () => ok({ analysis: { covered: [] } }),
+  }, {
+    localStorage: { getItem: (key) => storage.get(key) ?? null, setItem: (key, value) => storage.set(key, value), removeItem: (key) => storage.delete(key) },
+    requestAnimationFrame: (callback) => callback(),
+  })
+  p.values.set(0, [passage])
+  const initialTree = p.render()
+  const resumeButton = button(initialTree, '继续上次阅读')
+  assert.ok(resumeButton, text(initialTree).slice(-400))
+  resumeButton.props.onClick()
+  await new Promise((resolve) => setImmediate(resolve))
+  p.render()
+  p.effects.filter((factory) => factory.toString().includes('loadDiscussion(activePassage.id)')).at(-1)()
+  await new Promise((resolve) => setImmediate(resolve))
+  const tree = p.render()
+  all(tree, (node) => node.props?.className === 'detailScroll')[0].props.ref.current = scroll
+  p.effects.filter((factory) => factory.toString().includes('point.anchorMatched') && factory.toString().includes('readingLoadedFor.current')).at(-1)()
+
+  assert.ok([...p.values.values()].includes('p1.s1'))
+  assert.ok([...p.values.values()].some((value) => value?.id === 'b1'))
+  assert.equal(scroll.scrollTop, 72)
+  assert.equal(JSON.parse(storage.get('french-close-reading/last-position-v1')).anchorId, 'p1.s1')
+})
+
+test('reading-position storage is read once per mounted reader', async () => {
+  let positionReads = 0
+  const p = await panel({}, { localStorage: { getItem: (key) => {
+    if (key === 'french-close-reading/last-position-v1') positionReads += 1
+    return null
+  }, setItem() {}, removeItem() {} } })
+  p.render(); p.render(); p.render()
+  assert.equal(positionReads, 1)
+})
+
+test('a revised source relocates a uniquely matching sentence before resuming', async () => {
+  const point = { schemaVersion: 1, passageId: 'parent', title: '第 3 章', sourceRevision: 1,
+    anchorId: 'p1.s1', anchorText: 'Je lis.', branchId: null, scrollTop: 88, book: '', chapter: '' }
+  const storage = new Map([['french-close-reading/last-position-v1', JSON.stringify(point)]])
+  const scroll = { scrollTop: 0 }
+  const currentPassage = { ...passage, sourceRevision: 2, sourceText: 'Bonjour.\n\nJe lis.' }
+  const p = await panel({
+    getPassage: async () => ok({ passage: currentPassage }),
+    getSegmentation: async () => ok({ segmentation: { paragraphs: [
+      { id: 'p1', text: 'Bonjour.', start: 0, end: 8, sentences: [{ id: 'p1.s1', text: 'Bonjour.', start: 0, end: 8 }] },
+      { id: 'p2', text: 'Je lis.', start: 10, end: 17, sentences: [{ id: 'p2.s1', text: 'Je lis.', start: 10, end: 17 }] },
+    ] } }),
+    listDiscussion: async () => ok({ branches: [], conclusions: [] }),
+    listAnalysis: async () => ok({ analysis: { covered: [] } }),
+  }, {
+    localStorage: { getItem: (key) => storage.get(key) ?? null, setItem: (key, value) => storage.set(key, value), removeItem: (key) => storage.delete(key) },
+    requestAnimationFrame: (callback) => callback(),
+  })
+  p.values.set(0, [currentPassage])
+  button(p.render(), '继续上次阅读').props.onClick()
+  await new Promise((resolve) => setImmediate(resolve))
+  p.render()
+  p.effects.filter((factory) => factory.toString().includes('loadDiscussion(activePassage.id)')).at(-1)()
+  await new Promise((resolve) => setImmediate(resolve))
+  const tree = p.render()
+  all(tree, (node) => node.props?.className === 'detailScroll')[0].props.ref.current = scroll
+  p.effects.filter((factory) => factory.toString().includes('point.anchorMatched') && factory.toString().includes('readingLoadedFor.current')).at(-1)()
+  const restored = p.render()
+  assert.ok([...p.values.values()].includes('p2.s1'))
+  assert.equal(scroll.scrollTop, 88)
+  assert.match(text(restored), /原文版本已更新/u)
+  const saved = JSON.parse(storage.get('french-close-reading/last-position-v1'))
+  assert.equal(saved.sourceRevision, 2)
+  assert.equal(saved.anchorId, 'p2.s1')
+})
+
+test('a revised source with no unique sentence match returns to the start with a warning', async () => {
+  const point = { schemaVersion: 1, passageId: 'parent', title: '第 3 章', sourceRevision: 1,
+    anchorId: 'p1.s1', anchorText: 'Je lis.', branchId: null, scrollTop: 72, book: '', chapter: '' }
+  const storage = new Map([['french-close-reading/last-position-v1', JSON.stringify(point)]])
+  const scroll = { scrollTop: 72 }
+  const currentPassage = { ...passage, sourceRevision: 2, sourceText: 'Bonjour. Salut.' }
+  const p = await panel({
+    getPassage: async () => ok({ passage: currentPassage }),
+    getSegmentation: async () => ok({ segmentation: { paragraphs: [{ id: 'p1', text: 'Bonjour. Salut.', start: 0, end: 15, sentences: [
+      { id: 'p1.s1', text: 'Bonjour.', start: 0, end: 8 }, { id: 'p1.s2', text: 'Salut.', start: 9, end: 15 },
+    ] }] } }),
+    listDiscussion: async () => ok({ branches: [], conclusions: [] }),
+    listAnalysis: async () => ok({ analysis: { covered: [] } }),
+  }, {
+    localStorage: { getItem: (key) => storage.get(key) ?? null, setItem: (key, value) => storage.set(key, value), removeItem: (key) => storage.delete(key) },
+    requestAnimationFrame: (callback) => callback(),
+  })
+  p.values.set(0, [currentPassage])
+  button(p.render(), '继续上次阅读').props.onClick()
+  await new Promise((resolve) => setImmediate(resolve))
+  p.render()
+  p.effects.filter((factory) => factory.toString().includes('loadDiscussion(activePassage.id)')).at(-1)()
+  await new Promise((resolve) => setImmediate(resolve))
+  const tree = p.render()
+  all(tree, (node) => node.props?.className === 'detailScroll')[0].props.ref.current = scroll
+  p.effects.filter((factory) => factory.toString().includes('point.anchorMatched') && factory.toString().includes('readingLoadedFor.current')).at(-1)()
+  const restored = p.render()
+
+  assert.ok([...p.values.values()].includes('p1.s1'))
+  assert.equal(scroll.scrollTop, 0, 'stale scroll offset is not applied')
+  assert.match(text(restored), /原文已修订，无法唯一定位上次句子/u)
+  assert.equal(JSON.parse(storage.get('french-close-reading/last-position-v1')).sourceRevision, 1, 'stale pointer is not silently rewritten')
 })
 
 test('a late passage response cannot replace the passage selected afterward', async () => {
@@ -233,8 +346,11 @@ test('filing a passage updates the tree and breadcrumbs, and continuation inheri
   enter(p.render(), '章节', 'Chapter 2')
   enter(p.render(), '段落序号', '7')
   button(p.render(), '保存位置').props.onClick()
+  p.values.set(19, { paragraphs: [{ id: 'p1', text: 'Je lis.', start: 0, end: 7, sentences: [{ id: 'p1.s1', text: 'Je lis.', start: 0, end: 7 }] }] })
   let tree = p.render()
   assert.match(text(tree), /Book A \/ Chapter 2 \/ 段落 7/u)
+  const routeChapter = all(tree, (node) => node.props?.className === 'chapterHeading')[0]
+  assert.match(text(routeChapter), /Chapter 2/u, 'route uses the saved chapter name instead of its generic ordinal')
   tree = await openNext(p)
   assert.equal(field(tree, '书名').props.value, 'Book A')
   assert.equal(field(tree, '章节').props.value, 'Chapter 2')
@@ -251,11 +367,11 @@ test('reading tools have one analyse action in the sentence workspace and no glo
   p.values.set(18, 'p1.s1')
   const tree = p.render()
   const header = all(tree, (node) => node.type === 'header')[0]
-  assert.equal(button(header, '解析'), undefined)
+  assert.equal(button(header, '预览材料并解析'), undefined)
   const workbench = all(tree, (node) => node.props?.className === 'sentenceWorkspace')[0]
-  assert.ok(button(workbench, '解析'))
-  assert.equal(all(tree, (node) => node.type === 'button' && text(node) === '解析').length, 1)
-  assert.equal(button(tree, '▷ 发音').props.disabled, true)
+  assert.ok(button(workbench, '预览材料并解析'))
+  assert.equal(all(tree, (node) => node.type === 'button' && text(node) === '预览材料并解析').length, 1)
+  assert.equal(button(tree, '▷ 发音'), undefined, 'no unusable pronunciation control remains in the reading toolbar')
   const context = all(tree, (node) => node.props?.className === 'readingSource')[0]
   assert.equal(context.type, 'details')
 })
@@ -786,6 +902,63 @@ function manualStream() {
   }
 }
 
+test('a stored answer opens its original context snapshot, never a recompiled preview', async () => {
+  const requests = []
+  let previewCalls = 0
+  const contextId = '00000000-0000-4000-8000-0000000000f1'
+  const message = {
+    messageId: 'm1', author: 'model', text: 'Elle lui répond.', contextId,
+    createdAt: '2026-01-02T03:04:05.000Z', extraction: null,
+  }
+  const p = await panel({
+    readContext: async (request) => {
+      requests.push(request)
+      return ok({
+        kind: 'found', contextId, fingerprint: 'saved-fingerprint', characters: 143,
+        backend: 'deepseek', model: 'deepseek-v4.1-flash',
+        materials: [{ kind: 'source', refId: 'p1.s1', reason: null, characters: 17, excerpt: 'La voilà. Elle lui répond.' }],
+        prompt: 'EXACT SAVED PROMPT: use the previous paragraph to resolve the pronouns.',
+      })
+    },
+    previewAsk: async () => { previewCalls += 1; return ok({}) },
+  })
+  openComposer(p, { ...discussionBranch('b1'), messages: [message] })
+  const answerActions = all(p.render(), (node) => node.props?.className === 'answerActions')[0]
+  button(answerActions, '查看当时材料').props.onClick()
+  await flush()
+
+  assert.equal(requests.length, 1)
+  assert.equal(requests[0].passageId, 'parent')
+  assert.equal(requests[0].contextId, contextId)
+  assert.equal(previewCalls, 0, 'history lookup does not compile new material')
+  const dialog = all(p.render(), (node) => node.props?.role === 'dialog' && node.props['aria-labelledby'] === 'sentContextTitle')[0]
+  assert.ok(dialog)
+  assert.match(text(dialog), /EXACT SAVED PROMPT/u)
+  assert.match(text(dialog), /La voilà\. Elle lui répond/u)
+  assert.match(text(dialog), /deepseek-v4\.1-flash/u)
+})
+
+test('a missing historical snapshot is explicit and is never replaced with a new preview', async () => {
+  let previewCalls = 0
+  const message = {
+    messageId: 'm-missing', author: 'model', text: 'Réponse.',
+    contextId: '00000000-0000-4000-8000-0000000000f2',
+    createdAt: '2026-01-02T03:04:05.000Z', extraction: null,
+  }
+  const p = await panel({
+    readContext: async () => ok({ kind: 'missing' }),
+    previewAsk: async () => { previewCalls += 1; return ok({}) },
+  })
+  openComposer(p, { ...discussionBranch('b1'), messages: [message] })
+  const answerActions = all(p.render(), (node) => node.props?.className === 'answerActions')[0]
+  button(answerActions, '查看当时材料').props.onClick()
+  await flush()
+
+  assert.equal(previewCalls, 0)
+  const dialog = all(p.render(), (node) => node.props?.role === 'dialog' && node.props['aria-labelledby'] === 'sentContextTitle')[0]
+  assert.match(text(dialog), /材料快照缺失/u)
+})
+
 test('a preview that answers after the reader switched passages changes nothing there', async () => {
   const slow = { ...passage, id: 'slow', title: 'Slow passage' }
   const fast = { ...passage, id: 'fast', title: 'Fast passage' }
@@ -934,16 +1107,140 @@ test('clicking a branch in the strip selects it and never creates a branch', asy
   assert.equal(all(strip(), (node) => node.type === 'button').length, 2)
 })
 
-test('the ＋讨论 button opens the title dialog and creates nothing by itself', async () => {
-  let created = 0
-  const p = await panel({ createBranch: async () => { created += 1; return ok({ kind: 'created', branchId: 'new' }) } })
+test('the ＋讨论 entry starts with a first question and an optional editable derived title', async () => {
+  const requests = []
+  const p = await panel({
+    createBranch: async (value) => {
+      requests.push(value)
+      if (requests.length === 1) throw new Error('temporary connection loss')
+      return ok({ kind: 'created', branch: { id: 'new-branch', title: value.title } })
+    },
+    listDiscussion: async () => ok({ branches: [branch], conclusions: [] }),
+  })
   p.values.set(18, 'p1.s1')
+  p.values.set(16, { paragraphs: [{ id: 'p1', text: 'Je lis.', start: 0, end: 7,
+    sentences: [{ id: 'p1.s1', text: 'Je lis.', start: 0, end: 7 }] }] })
   p.values.set(30, { branches: [], conclusions: [] })
   const strip = all(p.render(), (node) => node.props?.id === 'branchStrip')[0]
   button(strip, '＋ 讨论').props.onClick()
   await flush()
-  assert.equal(created, 0, 'opening the dialog is not a creation')
-  assert.notEqual(p.values.get(51), null, 'the branch dialog opened')
+  assert.equal(requests.length, 0, 'opening the first-question form is not a creation')
+  assert.notEqual(p.values.get(51), null, 'the first-question form opened')
+  let tree = p.render()
+  const questionInput = all(tree, (node) => node.type === 'textarea' && node.props.id === 'branchQuestionInput')[0]
+  const titleInput = all(tree, (node) => node.type === 'input' && node.props.id === 'branchInput')[0]
+  assert.ok(questionInput && titleInput)
+  assert.equal(titleInput.props.value, '', 'a title is not required before asking')
+  questionInput.props.onChange({ target: { value: '这里的 allée 是什么形式？' } })
+  tree = p.render()
+  const generatedTitleInput = all(tree, (node) => node.type === 'input' && node.props.id === 'branchInput')[0]
+  assert.equal(generatedTitleInput.props.value, '讨论 · 这里的 allée 是什么形式？')
+  generatedTitleInput.props.onChange({ target: { value: '自定义标题' } })
+  button(p.render(), '继续提问').props.onClick()
+  await flush()
+  assert.equal(requests.length, 1)
+  tree = p.render()
+  assert.equal(all(tree, (node) => node.type === 'textarea' && node.props.id === 'branchQuestionInput')[0].props.value,
+    '这里的 allée 是什么形式？', 'a failed create keeps the first question in the open form')
+  assert.match(text(tree), /无法确认讨论是否已创建/u)
+  assert.match(text(all(tree, (node) => node.type === 'details' && node.props.className === 'operationDiagnostic')[0]), /temporary connection loss/u)
+  button(tree, '继续提问').props.onClick()
+  await flush()
+  assert.equal(requests.length, 2)
+  assert.equal(requests[0].operationId, requests[1].operationId, 'an ambiguous retry reuses the same idempotency key')
+  assert.equal(requests[1].title, '自定义标题', 'the reader can edit the title derived from the first question')
+  assert.equal(requests[1].forkedFrom, null, 'a new root discussion is not attached to an unrelated parent')
+  assert.equal(p.values.get(50)?.id, 'new-branch', 'creation selects the new discussion')
+  assert.equal(p.values.get(31), '这里的 allée 是什么形式？', 'the first question becomes the composer draft')
+  tree = p.render()
+  assert.ok(all(tree, (node) => node.props?.className === 'composer')[0], 'the question composer opens immediately')
+})
+
+test('a first-question fork keeps the exact parent message and passage captured at open', async () => {
+  const requests = []
+  const branch = {
+    ...discussionBranch('parent-branch'),
+    messages: [
+      { messageId: 'm1', author: 'model', text: '第一轮回答', status: 'complete', backend: 'stub', model: 'stub-model' },
+      { messageId: 'm2', author: 'model', text: '第二轮回答', status: 'complete', backend: 'stub', model: 'stub-model' },
+    ],
+  }
+  const p = await panel({
+    createBranch: async (value) => { requests.push(value); return ok({ kind: 'created', branch: { id: 'child-branch', title: value.title } }) },
+    listDiscussion: async () => ok({ branches: [branch], conclusions: [] }),
+  })
+  p.values.set(30, { branches: [branch], conclusions: [] })
+  p.values.set(50, { id: 'parent-branch', anchorId: 'p1.s1', kind: 'discussion', title: branch.title })
+  button(p.render(), '⑂ 分叉').props.onClick()
+  let tree = p.render()
+  all(tree, (node) => node.type === 'textarea' && node.props.id === 'branchQuestionInput')[0]
+    .props.onChange({ target: { value: '为什么这里这样表达？' } })
+  p.values.set(30, { branches: [], conclusions: [] })
+  button(p.render(), '继续提问').props.onClick()
+  await flush()
+  assert.equal(requests.length, 1)
+  assert.equal(requests[0].passageId, 'parent')
+  assert.equal(requests[0].anchorId, 'p1.s1')
+  assert.equal(requests[0].parentId, 'parent-branch')
+  assert.equal(requests[0].forkedFrom.branchId, 'parent-branch')
+  assert.equal(requests[0].forkedFrom.messageId, 'm1')
+  assert.equal(p.values.get(31), '为什么这里这样表达？')
+  assert.equal(p.values.get(50)?.id, 'child-branch')
+})
+
+test('a failed conclusion save keeps the edit and exposes collapsed copyable diagnostics', async () => {
+  const requests = []
+  const branch = {
+    ...discussionBranch('b1'),
+    messages: [{ messageId: 'm1', author: 'model', text: '原回答', status: 'complete',
+      backend: 'stub', model: 'stub-model', contextId: null, createdAt: '2026-01-01T00:00:00.000Z' }],
+  }
+  const p = await panel({ recordConclusion: async (request) => { requests.push(request); throw new Error('gateway wire field mismatch') } })
+  p.values.set(30, { branches: [branch], conclusions: [] })
+  p.values.set(50, { id: 'b1', anchorId: 'p1.s1', kind: 'discussion', title: branch.title })
+  button(p.render(), '提炼结论').props.onClick()
+  let tree = p.render()
+  const editor = all(tree, (node) => node.type === 'textarea' && node.props.id === 'actionText')[0]
+  editor.props.onChange({ target: { value: '我编辑的结论' } })
+  button(p.render(), '确认').props.onClick()
+  await flush()
+  tree = p.render()
+  assert.equal(all(tree, (node) => node.type === 'textarea' && node.props.id === 'actionText')[0].props.value, '我编辑的结论')
+  assert.match(text(tree), /尚未确认结论是否保存；编辑内容仍保留/u)
+  assert.ok(button(tree, '用同一内容重试'))
+  button(tree, '用同一内容重试').props.onClick()
+  await flush()
+  assert.equal(requests.length, 2)
+  assert.equal(requests[0].operationId, requests[1].operationId, 'retrying unchanged content reuses its operation id')
+  tree = p.render()
+  all(tree, (node) => node.type === 'textarea' && node.props.id === 'actionText')[0]
+    .props.onChange({ target: { value: '更新后的结论' } })
+  button(p.render(), '确认').props.onClick()
+  await flush()
+  assert.equal(requests.length, 3)
+  assert.notEqual(requests[1].operationId, requests[2].operationId, 'editing after failure starts a distinct write')
+  assert.equal(requests[2].text, '更新后的结论')
+  tree = p.render()
+  const details = all(tree, (node) => node.type === 'details' && node.props.className === 'operationDiagnostic')[0]
+  assert.ok(details, 'technical information is available in a disclosure')
+  assert.equal(details.props.open, undefined, 'technical details stay collapsed by default')
+  assert.match(text(details), /gateway wire field mismatch/u)
+  assert.ok(button(details, '复制诊断'))
+})
+
+test('a failed branch-status update preserves the discussion and shows retryable diagnostics', async () => {
+  const branch = { ...discussionBranch('b1'), title: '分支一', status: 'open' }
+  const p = await panel({ setBranchState: async () => { throw new Error('status revision conflict') } })
+  p.values.set(30, { branches: [branch], conclusions: [] })
+  p.values.set(50, { id: 'b1', anchorId: 'p1.s1', kind: 'discussion', title: branch.title })
+  button(p.render(), '✓ 我已理解').props.onClick()
+  await flush()
+  const tree = p.render()
+  assert.match(text(tree), /未能确认理解状态是否已更新；讨论内容仍保留/u)
+  const details = all(tree, (node) => node.type === 'details' && node.props.className === 'operationDiagnostic')[0]
+  assert.ok(details)
+  assert.match(text(details), /status revision conflict/u)
+  assert.ok(button(details, '复制诊断'))
 })
 
 test('the preview dialog shows the actual split: paragraph blocks and flags', async () => {
@@ -951,7 +1248,10 @@ test('the preview dialog shows the actual split: paragraph blocks and flags', as
     listPassages: async () => ok({ items: [], hasMore: false }),
     previewImport: async () => ok({
       title: '段落 02', characters: 41, paragraphs: 1, sentences: 2,
-      blocks: [{ id: 'p1', sentences: 2, excerpt: 'Il vient de Paris. Nous lisons un livre.' }],
+      blocks: [{ id: 'p1', sentences: 2, excerpt: 'Il vient de Paris. Nous lisons un livre.', sentenceDetails: [
+        { id: 'p1.s1', text: 'Il vient de Paris.', start: 0, end: 18 },
+        { id: 'p1.s2', text: 'Nous lisons un livre.', start: 19, end: 40 },
+      ] }],
       flags: [{ code: 'double-space', severity: 'hint', detail: '有 1 处连续空格' }],
       head: 'Il vient de Paris. Nous lisons un livre.', tail: '',
     }),
@@ -962,7 +1262,10 @@ test('the preview dialog shows the actual split: paragraph blocks and flags', as
   const tree = p.render()
   assert.match(text(tree), /将切分为 1 段、2 句/u)
   assert.match(text(tree), /p1 · 2 句/u, 'the paragraph boundary is shown, not just counted')
-  assert.match(text(tree), /Il vient de Paris/u, 'with its excerpt')
+  const previewSentences = all(tree, (node) => node.props?.className === 'previewSentenceText').map(text)
+  assert.deepEqual(previewSentences, ['Il vient de Paris.', 'Nous lisons un livre.'], 'every full sentence is visible without excerpt truncation')
+  assert.deepEqual(all(tree, (node) => node.props?.className === 'previewExcerpt'), [], 'sentence details replace the truncated paragraph excerpt')
+  assert.ok(button(tree, '保存，继续当前段'), 'the confirmation action remains in the dialog DOM after preview')
   assert.match(text(tree), /连续空格/u, 'and the damage flags are shown')
 })
 
@@ -974,10 +1277,207 @@ test('a lookup miss says the lexicon is local and offers the library', async () 
   await flush()
   const result = all(p.render(), (node) => node.props?.className === 'lookupResult')[0]
   assert.ok(result, 'the miss view is shown')
-  assert.match(text(result), /未收藏/u)
+  assert.match(text(result), /本地词库未命中/u)
+  assert.doesNotMatch(text(result), /未收藏/u, 'the empty state is stated once without collector language')
   assert.match(text(result), /只读本地词库/u, 'the miss says what the lookup actually read')
   assert.ok(button(result, '打开知识库'), 'and offers the real next step')
+  assert.ok(button(result, '手动添加词条'), 'the reader can explicitly author an entry')
+  assert.ok(button(result, '在讨论中询问'), 'the reader can ask the current model about it')
   assert.ok(button(result, '← 返回解析'))
+})
+
+test('a reader-authored exact Mot is saved with the lemma and opens its entry card', async () => {
+  const requests = []
+  const p = await panel({
+    lookupMot: async () => ok({ found: false, entries: [], candidates: [] }),
+    createLexiconEntry: async (request) => {
+      requests.push(request)
+      return ok({ kind: 'created', entryId: 'entry-allée', occurrence: { kind: 'appended', reason: null } })
+    },
+  })
+  button(p.render(), '查词').props.onClick()
+  all(p.render(), (node) => node.props?.id === 'lookupInput')[0].props.onChange({ target: { value: 'allée' } })
+  button(p.render(), '查阅').props.onClick()
+  await flush()
+  const result = all(p.render(), (node) => node.props?.className === 'lookupResult')[0]
+  button(result, '手动添加词条').props.onClick()
+  const dialog = p.render()
+  assert.match(text(dialog), /此处只保存你填写的内容/u)
+  assert.equal(all(dialog, (node) => node.props?.id === 'entryExample')[0].props.readOnly, true, 'the current sentence is shown as the occurrence example')
+  all(dialog, (node) => node.props?.id === 'entryLemma')[0].props.onChange({ target: { value: 'aller' } })
+  all(dialog, (node) => node.props?.id === 'entryPartOfSpeech')[0].props.onChange({ target: { value: 'verbe' } })
+  all(dialog, (node) => node.props?.id === 'entryLabel')[0].props.onChange({ target: { value: 'participe passé' } })
+  all(dialog, (node) => node.props?.id === 'entryDefinition')[0].props.onChange({ target: { value: 'Participe passé féminin singulier de aller.' } })
+  all(dialog, (node) => node.props?.id === 'entryForms')[0].props.onChange({ target: { value: 'allées' } })
+  button(p.render(), '保存词条').props.onClick()
+  await flush()
+
+  assert.equal(requests.length, 1)
+  assert.equal(requests[0].mot, 'allée')
+  assert.equal(requests[0].lemma, 'aller')
+  assert.equal(requests[0].partOfSpeech, 'verbe')
+  assert.equal(requests[0].forms.join(','), 'allées')
+  assert.equal(requests[0].provenance, undefined, 'the Host marks an explicit panel entry as reader-authored')
+  assert.equal(p.values.get(43), true, 'the knowledge view opens after saving')
+  assert.equal(p.values.get(44), 'entry-allée', 'the exact created entry, not the lemma, is selected')
+})
+
+test('a new answer offers an in-place jump when the reader has scrolled away', async () => {
+  const branchId = 'b-discussion'
+  const original = {
+    branchId, anchorId: 'p1.s1', kind: 'discussion', title: '原讨论', parentId: null,
+    status: 'open', messages: [], historyCount: 0,
+  }
+  const answer = {
+    messageId: 'answer-new', author: 'model', text: '这是新回答。', status: 'complete',
+    backend: 'stub', model: 'stub-model', resolvedModel: 'stub-model', failure: null,
+    contextId: 'context-new', createdAt: '2026-01-01T00:00:00.000Z', extraction: null,
+  }
+  const updated = { ...original, messages: [
+    { messageId: 'question-new', author: 'user', text: '这一句怎么读？', status: null, createdAt: '2026-01-01T00:00:00.000Z' },
+    answer,
+  ], historyCount: 2 }
+  let asks = 0
+  const p = await panel({
+    streamAsk: () => (async function* () {
+      asks += 1
+      yield { kind: 'done', result: { ok: true, finish: 'stop', model: 'stub-model', resolvedModel: 'stub-model' } }
+    })(),
+    listDiscussion: async () => ok({ branches: [updated], conclusions: [] }),
+  })
+  p.values.set(30, { branches: [original], conclusions: [] })
+  p.values.set(50, { id: branchId, anchorId: 'p1.s1', kind: 'discussion', title: original.title })
+  openComposer(p, original, { preview: { ok: true, fingerprint: 'fingerprint-new', characters: 0, materials: [], prompt: '' } })
+  let tree = p.render()
+  const scroller = { scrollTop: 400, scrollHeight: 1000, clientHeight: 300 }
+  all(tree, (node) => node.props?.className === 'detailScroll')[0].props.ref.current = scroller
+  button(tree, '发送').props.onClick()
+  await flush()
+  assert.equal(p.values.get(14), '', 'the reviewed preview identity is current')
+  assert.equal(asks, 1, 'the reviewed context allows the turn to complete')
+  tree = p.render()
+  const revealEffect = p.effects.filter((factory) => factory.toString().includes('pendingAnswerRevealRef.current') && factory.toString().includes('previousMessageId')).at(-1)
+  assert.ok(revealEffect)
+  revealEffect()
+  tree = p.render()
+  assert.ok(button(tree, '新回答已生成 · 跳转到回答'), 'the new answer is announced without moving the reader unexpectedly')
+  assert.equal(all(tree, (node) => node.props?.id === 'discussion-message-answer-new').length, 1)
+})
+
+test('sentence analysis previews paragraph materials before a fingerprinted confirmation', async () => {
+  const previewCalls = [], generationCalls = []
+  const preview = {
+    ok: true, reason: null, anchorId: 'p2.s1', currentParagraphId: 'p2',
+    characterLimit: 3500, characters: 15,
+    materials: [
+      { paragraphId: 'p1', relation: 'previous', text: 'Avant.', start: 0, end: 6, included: false, reason: 'over-budget' },
+      { paragraphId: 'p2', relation: 'current', text: 'Je lis.', start: 8, end: 15, included: true, reason: 'included' },
+      { paragraphId: 'p3', relation: 'next', text: 'Après.', start: 17, end: 23, included: true, reason: 'included' },
+    ],
+    includedParagraphIds: ['p2', 'p3'], omittedParagraphIds: ['p1'], fingerprint: 'context-fingerprint',
+  }
+  const p = await panel({
+    previewAnalysisContext: async (request) => { previewCalls.push(request); return ok(preview) },
+    analyseSentence: async (request) => {
+      generationCalls.push(request)
+      return ok({ ok: true, covered: 1, missing: 0, failed: 0, stale: 0, model: 'stub-model', resolvedModel: 'stub-model' })
+    },
+    readSentenceAnalysis: async () => ok({ kind: 'found', analysis: { constituents: [] } }),
+    readAnalysisCoverage: async () => ok({ total: 1, covered: [], missing: ['p2.s1'], failed: [], stale: [] }),
+  })
+  p.values.set(16, { paragraphs: [
+    { id: 'p1', text: 'Avant.', start: 0, end: 6, sentences: [{ id: 'p1.s1', text: 'Avant.', start: 0, end: 6 }] },
+    { id: 'p2', text: 'Je lis.', start: 8, end: 15, sentences: [{ id: 'p2.s1', text: 'Je lis.', start: 8, end: 15 }] },
+    { id: 'p3', text: 'Après.', start: 17, end: 23, sentences: [{ id: 'p3.s1', text: 'Après.', start: 17, end: 23 }] },
+  ] })
+  p.values.set(18, 'p2.s1')
+  p.values.set(27, 'stub')
+  p.values.set(29, 'stub-model')
+  const startButton = all(p.render(), (node) => node.type === 'button' && node.props.id === 'start')[0]
+  startButton.props.onClick()
+  await flush()
+  assert.equal(previewCalls.length, 1)
+  assert.equal(generationCalls.length, 0, 'opening the preview never calls the model')
+  let tree = p.render()
+  assert.ok(text(tree).includes('本次解析材料'))
+  const currentMaterial = all(tree, (node) => node.type === 'label' && text(node).includes('当前段 · p2'))[0]
+  assert.ok(currentMaterial)
+  const currentCheckbox = currentMaterial.props.children[0]
+  assert.equal(currentCheckbox.props.disabled, true, 'the current paragraph is mandatory')
+  button(tree, '确认材料并生成解析').props.onClick()
+  await flush()
+  assert.equal(generationCalls.length, 1)
+  assert.deepEqual(generationCalls[0].paragraphIds, ['p2', 'p3'])
+  assert.equal(generationCalls[0].expectedFingerprint, 'context-fingerprint')
+})
+
+test('a vocabulary discussion answer can seed a confirmed, still-unverified lexicon draft', async () => {
+  const requests = []
+  const p = await panel({
+    createLexiconEntry: async (request) => {
+      requests.push(request)
+      return ok({ kind: 'created', entryId: 'entry-allée', occurrence: { kind: 'appended', reason: null } })
+    },
+  })
+  const message = {
+    messageId: 'message-vocab-1', author: 'model', text: 'Participe passé féminin singulier de aller.',
+    status: 'complete', backend: 'stub', model: 'stub-model', resolvedModel: 'stub-model', failure: null,
+    contextId: 'context-1', createdAt: '2026-01-01T00:00:00.000Z', extraction: null,
+  }
+  const branch = {
+    branchId: 'b-word', anchorId: 'p1.s1', kind: 'vocabulary', title: 'allée', parentId: null,
+    status: 'open', messages: [message], historyCount: 1,
+  }
+  p.values.set(30, { branches: [branch], conclusions: [] })
+  p.values.set(50, { id: 'b-word', anchorId: 'p1.s1', kind: 'knowledge', title: 'allée' })
+
+  let tree = p.render()
+  const node = all(tree, (entry) => entry.props?.className === 'discussionNode')[0]
+  button(node, '整理为词条').props.onClick()
+  tree = p.render()
+  assert.equal(all(tree, (entry) => entry.props?.id === 'entryMot')[0].props.value, 'allée')
+  assert.equal(all(tree, (entry) => entry.props?.id === 'entryMot')[0].props.readOnly, false, 'the exact Mot is user-confirmable')
+  assert.equal(all(tree, (entry) => entry.props?.id === 'entryDefinition')[0].props.value, message.text)
+  assert.match(text(tree), /未经独立核实/u)
+  all(tree, (entry) => entry.props?.id === 'entryPartOfSpeech')[0].props.onChange({ target: { value: 'verbe' } })
+  all(p.render(), (entry) => entry.props?.id === 'entryLabel')[0].props.onChange({ target: { value: 'participe passé' } })
+  button(p.render(), '保存词条').props.onClick()
+  await flush()
+  assert.equal(requests.length, 0, 'the model suggestion requires explicit confirmation')
+  assert.match(text(p.render()), /保存前请确认/u)
+
+  all(p.render(), (entry) => entry.type === 'input' && entry.props.type === 'checkbox')[0].props.onChange({ target: { checked: true } })
+  button(p.render(), '保存词条').props.onClick()
+  await flush()
+  assert.equal(requests.length, 1)
+  assert.equal(requests[0].mot, 'allée')
+  assert.equal(requests[0].provenance, 'mixed')
+  assert.match(requests[0].occurrenceNote, /message-vocab-1/u)
+  assert.match(requests[0].occurrenceNote, /未经独立核实/u)
+})
+
+test('asking about a miss creates a ready discussion without another title dialog', async () => {
+  const created = []
+  const branch = { branchId: 'b-word', anchorId: 'passage', kind: 'vocabulary', title: 'allée', parentId: null, messages: [] }
+  const p = await panel({
+    lookupMot: async () => ok({ found: false, entries: [], candidates: [] }),
+    createBranch: async (request) => { created.push(request); return ok({ kind: 'created', branch: { id: 'b-word', title: request.title } }) },
+    listDiscussion: async () => ok({ branches: [branch], conclusions: [] }),
+  })
+  button(p.render(), '查词').props.onClick()
+  all(p.render(), (node) => node.props?.id === 'lookupInput')[0].props.onChange({ target: { value: 'allée' } })
+  button(p.render(), '查阅').props.onClick()
+  await flush()
+  button(all(p.render(), (node) => node.props?.className === 'lookupResult')[0], '在讨论中询问').props.onClick()
+  await flush()
+
+  assert.equal(created.length, 1)
+  assert.equal(created[0].title, 'allée', 'the queried exact Mot remains available as the branch title')
+  assert.equal(created[0].kind, 'vocabulary')
+  assert.equal(created[0].anchorId, 'passage')
+  const tree = p.render()
+  assert.match(p.values.get(31), /原形、词性、在此句中的含义/u, 'the composer is prefilled with a focused question')
+  assert.ok(button(tree, '查看本次上下文'), 'the model turn still requires an explicit context review')
 })
 
 test('a lookup miss names each candidate and opens it with one click', async () => {

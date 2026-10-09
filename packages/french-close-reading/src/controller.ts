@@ -35,8 +35,10 @@ import {
   setGrammarMastery,
 } from './discussion-store.ts'
 import {
+  ANALYSIS_CONTEXT_CHARACTER_LIMIT,
   analysisPrompt,
   coverageOf,
+  selectAnalysisContext,
   parseAnalysisReply,
   publishAnalysisVersion,
   putSentenceAnalysis,
@@ -168,6 +170,10 @@ import type {
   AnalyseParagraphResult,
   AnalyseSentenceRequest,
   AnalyseSentenceResult,
+  PreviewAnalysisContextRequest,
+  PreviewAnalysisContextValue,
+  CancelAnalysisRequest,
+  CancelAnalysisValue,
   AnalysisCoverageValue,
   ReadAnalysisCoverageRequest,
   PublishAnalysisRequest,
@@ -222,6 +228,8 @@ import type {
   ListAnalysisValue,
   LexiconLookup,
   LookupMotRequest,
+  CreateLexiconEntryRequest,
+  CreateLexiconEntryValue,
   AdoptTranslationRequest,
   AdoptTranslationValue,
   LexiconView,
@@ -369,6 +377,37 @@ const lookupMotRequestSchema = z.object({
   partOfSpeech: z.string().max(40).nullable(),
 }).strict()
 
+const createLexiconEntryRequestSchema = z.object({
+  mot: z.string().trim().min(1).max(80),
+  partOfSpeech: z.string().trim().min(1).max(40),
+  lemma: z.string().trim().min(1).max(80).nullable(),
+  forms: z.array(z.string().trim().min(1).max(80)).max(50),
+  label: z.string().trim().min(1).max(80),
+  definition: z.string().trim().min(1).max(4000),
+  provenance: z.enum(['user', 'mixed']).optional(),
+  operationId: z.string().uuid(),
+  passageId: z.string().uuid(),
+  anchorId: anchorIdSchema,
+  occurrenceNote: z.string().trim().min(1).max(500),
+}).strict()
+
+const createLexiconOccurrenceValueSchema = z.object({
+  kind: z.enum(['appended', 'already-appended', 'not-attempted', 'failed']),
+  reason: z.string().nullable(),
+}).strict()
+
+const createLexiconEntryValueSchema = z.union([
+  z.object({
+    kind: z.enum(['created', 'exists']), entryId: z.string().uuid(),
+    occurrence: createLexiconOccurrenceValueSchema,
+  }).strict(),
+  z.object({
+    kind: z.literal('conflict'), entryId: z.null(),
+    reason: z.enum(['passage-unknown', 'anchor-unknown', 'mot-blank', 'key-collision']),
+    occurrence: createLexiconOccurrenceValueSchema,
+  }).strict(),
+])
+
 const adoptTranslationRequestSchema = z.object({
   passageId: z.string().uuid(),
   anchorId: anchorIdSchema,
@@ -397,12 +436,45 @@ const sentenceAnalysisRequestSchema = z.object({
   anchorId: anchorIdSchema,
 }).strict()
 
+const previewAnalysisContextRequestSchema = z.object({
+  passageId: z.string().uuid(),
+  anchorId: anchorIdSchema,
+  paragraphIds: z.array(z.string().min(1).max(32)).max(3).optional(),
+}).strict()
+
 const analyseSentenceRequestSchema = z.object({
   passageId: z.string().uuid(),
   anchorId: anchorIdSchema,
   backend: z.string().min(1).max(40),
   model: z.string().min(1).max(160),
   reasoningEffort: z.string().max(40).nullable(),
+  operationId: z.string().uuid(),
+  paragraphIds: z.array(z.string().min(1).max(32)).max(3).optional(),
+  expectedFingerprint: z.string().min(1).max(128).nullable().optional(),
+}).strict()
+
+async function analysisContextFingerprint(input: {
+  passageId: string
+  sourceRevision: number
+  segmentationRevision: number
+  anchorId: string
+  sentenceText: string
+  candidates: NonNullable<ReturnType<typeof selectAnalysisContext>>['candidates']
+}): Promise<string> {
+  const serialized = JSON.stringify({
+    passageId: input.passageId,
+    sourceRevision: input.sourceRevision,
+    segmentationRevision: input.segmentationRevision,
+    anchorId: input.anchorId,
+    sentenceText: input.sentenceText,
+    materials: input.candidates.filter((candidate) => candidate.included).map(({ paragraphId, relation, text }) => ({ paragraphId, relation, text })),
+  })
+  const digest = await globalThis.crypto.subtle.digest('SHA-256', new TextEncoder().encode(serialized))
+  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('')
+}
+
+const cancelAnalysisRequestSchema = z.object({
+  passageId: z.string().uuid(),
   operationId: z.string().uuid(),
 }).strict()
 
@@ -484,9 +556,45 @@ function stateOf(controller: object): ControllerState {
   return state
 }
 
+interface ActiveAnalysisOperation {
+  passageId: string
+  parentOperationId: string | null
+  controller: AbortController
+  /** Once the durable write starts, cancellation can no longer promise rollback. */
+  phase: 'generating' | 'committing'
+}
+
+interface PreparedAnalysisOperation {
+  active: ActiveAnalysisOperation
+  signal: AbortSignal
+  dispose: () => void
+}
+
+function linkAbortSignals(signals: readonly AbortSignal[]): { signal: AbortSignal; dispose: () => void } {
+  const controller = new AbortController()
+  const listeners: Array<{ signal: AbortSignal; listener: () => void }> = []
+  for (const signal of signals) {
+    if (signal.aborted) {
+      controller.abort(signal.reason)
+      break
+    }
+    const listener = () => controller.abort(signal.reason)
+    signal.addEventListener('abort', listener, { once: true })
+    listeners.push({ signal, listener })
+  }
+  return {
+    signal: controller.signal,
+    dispose: () => {
+      for (const { signal, listener } of listeners) signal.removeEventListener('abort', listener)
+    },
+  }
+}
+
 /** Host service behind the generated `ctx.remote.frenchReader` namespace. */
 export class FrenchReaderController extends TypertRemoteService {
   private writeTail: Promise<void> = Promise.resolve()
+  private readonly activeAnalyses = new Map<string, ActiveAnalysisOperation>()
+  private readonly queuedAnalysisCancellations = new Map<string, { passageId: string; expiresAt: number }>()
 
   /** The one storage table this plugin owns; the store modules take it as data. */
   private table(): RecordTable {
@@ -659,6 +767,35 @@ export class FrenchReaderController extends TypertRemoteService {
   }
 
   /**
+   * Explicitly revoke a sentence or paragraph analysis before its durable commit.
+   * The separate request does not depend on the original Remote transport's
+   * AbortSignal reaching the Host; `too-late` names the write boundary honestly.
+   */
+  @Remote('cancelAnalysis')
+  async cancelAnalysisRemote(request: CancelAnalysisRequest, signal: AbortSignal): Promise<CancelAnalysisValue> {
+    const parsed = cancelAnalysisRequestSchema.safeParse(request)
+    if (!parsed.success) throw badRequest('Invalid analysis-cancellation request', parsed.error.issues)
+    signal.throwIfAborted()
+
+    const targets = [...this.activeAnalyses.entries()]
+      .filter(([operationId, active]) => (operationId === parsed.data.operationId
+        || active.parentOperationId === parsed.data.operationId)
+        && active.passageId === parsed.data.passageId)
+    if (targets.some(([, active]) => active.phase === 'committing')) return { kind: 'too-late' }
+    if (targets.length > 0) {
+      for (const [, active] of targets) active.controller.abort()
+      return { kind: 'cancel-requested' }
+    }
+
+    const job = readGenerationJob(this.table(), 'analyse', parsed.data.operationId)
+    if (job !== undefined && job.passageId === parsed.data.passageId && job.status !== 'running') {
+      return { kind: 'already-finished' }
+    }
+    this.rememberAnalysisCancellation(parsed.data.passageId, parsed.data.operationId)
+    return { kind: 'cancel-queued' }
+  }
+
+  /**
    * How much of the passage is analysed, measured against the current sentences
    * rather than claimed.
    */
@@ -712,6 +849,42 @@ export class FrenchReaderController extends TypertRemoteService {
       },
       errors: value.errors ?? [],
       hints: value.hints ?? [],
+    }
+  }
+
+  /** Preview same-passage paragraph context before any sentence model call. */
+  @Remote('previewAnalysisContext')
+  async previewAnalysisContextRemote(request: PreviewAnalysisContextRequest, signal: AbortSignal): Promise<PreviewAnalysisContextValue> {
+    const parsed = previewAnalysisContextRequestSchema.safeParse(request)
+    if (!parsed.success) throw badRequest('Invalid analysis context preview request', parsed.error.issues)
+    signal.throwIfAborted()
+    const passage = this.readPassage(parsed.data.passageId)
+    if (passage === undefined) throw badRequest('Unknown passage', [{ passageId: parsed.data.passageId }])
+    const segmentation = this.readSegmentation(passage) ?? await this.serialize(() => this.persistSegmentation(passage))
+    const sentence = segmentation.paragraphs.flatMap((paragraph) => paragraph.sentences)
+      .find((entry) => entry.id === parsed.data.anchorId)
+    if (sentence === undefined) throw badRequest('Analysis context requires a sentence anchor', [{ anchorId: parsed.data.anchorId }])
+    const selection = selectAnalysisContext(segmentation.paragraphs, sentence.id, parsed.data.paragraphIds)
+    if (selection === null) throw badRequest('Analysis context paragraph could not be resolved', [{ anchorId: sentence.id }])
+    const fingerprint = selection.ok ? await analysisContextFingerprint({
+      passageId: passage.id,
+      sourceRevision: passage.sourceRevision,
+      segmentationRevision: segmentation.revision,
+      anchorId: sentence.id,
+      sentenceText: sentence.text,
+      candidates: selection.candidates,
+    }) : null
+    return {
+      ok: selection.ok,
+      reason: selection.reason,
+      anchorId: sentence.id,
+      currentParagraphId: selection.currentParagraphId,
+      characterLimit: ANALYSIS_CONTEXT_CHARACTER_LIMIT,
+      characters: selection.characters,
+      materials: selection.candidates,
+      includedParagraphIds: selection.includedParagraphIds,
+      omittedParagraphIds: selection.omittedParagraphIds,
+      fingerprint,
     }
   }
 
@@ -2466,6 +2639,93 @@ export class FrenchReaderController extends TypertRemoteService {
   }
 
   /**
+   * Create a reader-confirmed exact-Mot entry and record the source passage it came
+   * from. Model-assisted drafts may retain mixed provenance. The entry and occurrence are sequential durable writes, not a transaction;
+   * the result reports them separately so a partial outcome is never disguised.
+   */
+  @Remote('createLexiconEntry')
+  async createLexiconEntryRemote(request: CreateLexiconEntryRequest, signal: AbortSignal): Promise<CreateLexiconEntryValue> {
+    const parsed = createLexiconEntryRequestSchema.safeParse(request)
+    if (!parsed.success) throw badRequest('Invalid lexicon entry', parsed.error.issues)
+    const input = parsed.data
+    return this.serialize(async () => {
+      signal.throwIfAborted()
+      const passage = this.readPassage(input.passageId)
+      if (passage === undefined) {
+        return {
+          kind: 'conflict', entryId: null, reason: 'passage-unknown',
+          occurrence: { kind: 'not-attempted', reason: null },
+        }
+      }
+      const segmentation = this.readSegmentation(passage) ?? await this.persistSegmentation(passage)
+      const anchor = this.anchorRef(passage, segmentation, input.anchorId)
+      if (anchor === null) {
+        return {
+          kind: 'conflict', entryId: null, reason: 'anchor-unknown',
+          occurrence: { kind: 'not-attempted', reason: null },
+        }
+      }
+
+      const created = await createLexiconEntry(this.table(), {
+        mot: input.mot,
+        partOfSpeech: input.partOfSpeech,
+        lemma: input.lemma,
+        forms: input.forms,
+        definition: input.definition,
+        label: input.label,
+        provenance: input.provenance ?? 'user',
+        operationId: input.operationId,
+      })
+      if (created.created !== true && created.exists !== true) {
+        return {
+          kind: 'conflict', entryId: null,
+          reason: created.reason === 'mot-blank' ? 'mot-blank' : 'key-collision',
+          occurrence: { kind: 'not-attempted', reason: null },
+        }
+      }
+      if (created.entryId === undefined) {
+        return {
+          kind: 'conflict', entryId: null, reason: 'key-collision',
+          occurrence: { kind: 'not-attempted', reason: null },
+        }
+      }
+
+      const sameOperation = created.created === true
+        || readLexiconEntries(this.table()).some((entry) => entry.id === created.entryId && entry.operationId === input.operationId)
+      if (!sameOperation) {
+        return {
+          kind: 'exists', entryId: created.entryId,
+          occurrence: { kind: 'not-attempted', reason: null },
+        }
+      }
+
+      let occurrence: CreateLexiconEntryValue['occurrence']
+      try {
+        const appended = await appendLexiconOccurrence(this.table(), {
+          entryId: created.entryId,
+          passageId: input.passageId,
+          anchorId: input.anchorId,
+          excerpt: anchor.excerpt,
+          note: input.occurrenceNote,
+          operationId: await derivedOperationId(input.operationId, 'lexicon-occurrence'),
+        })
+        occurrence = appended.appended
+          ? { kind: 'appended', reason: null }
+          : appended.alreadyAppended === true
+            ? { kind: 'already-appended', reason: null }
+            : { kind: 'failed', reason: appended.reason ?? 'occurrence-refused' }
+      } catch {
+        occurrence = { kind: 'failed', reason: 'occurrence-write-failed' }
+      }
+      return {
+        kind: created.created === true ? 'created' : 'exists',
+        entryId: created.entryId,
+        occurrence,
+      }
+    })
+  }
+
+  /**
    * Adopt one translation variant for one anchor.
    *
    * Adoption moves the sentence pointer and records what it replaced; the paragraph's
@@ -2762,7 +3022,34 @@ export class FrenchReaderController extends TypertRemoteService {
     model: string
     reasoningEffort?: string | null
     operationId: string
-  }, signal: AbortSignal): Promise<AnalyseSentenceResult> {
+    parentOperationId?: string
+    paragraphIds?: string[]
+    expectedFingerprint?: string | null
+  }, callerSignal: AbortSignal): Promise<AnalyseSentenceResult> {
+    const prepared = this.prepareAnalysisOperation(
+      input.passageId, input.operationId, input.parentOperationId ?? null, callerSignal,
+    )
+    if (prepared === 'cancelled') return { ok: false, reason: 'cancelled' }
+    if (prepared === 'duplicate') return { ok: false, reason: 'operation-already-running' }
+    try {
+      return await this.runSentenceAnalysis(input, prepared.signal, prepared.active)
+    } finally {
+      this.finishAnalysisOperation(input.operationId, prepared)
+    }
+  }
+
+  private async runSentenceAnalysis(input: {
+    passageId: string
+    anchorId: string
+    backend: string
+    model: string
+    reasoningEffort?: string | null
+    operationId: string
+    parentOperationId?: string
+    paragraphIds?: string[]
+    expectedFingerprint?: string | null
+  }, signal: AbortSignal, active: ActiveAnalysisOperation): Promise<AnalyseSentenceResult> {
+    if (signal.aborted) return { ok: false, reason: 'cancelled' }
     const backend = this.backends().find((entry) => entry.id === input.backend)
     if (backend === undefined) return { ok: false, reason: 'backend-unknown' }
     const status = backend.available()
@@ -2785,13 +3072,37 @@ export class FrenchReaderController extends TypertRemoteService {
         hints: ['逐句解析以句子为锚点：请先点选某一句（pN.sM），而不是段落或整篇。'],
       }
     }
-    const paragraph = segmentation.paragraphs.find((entry) =>
-      entry.sentences.some((child) => child.id === input.anchorId))
-
+    const context = selectAnalysisContext(segmentation.paragraphs, sentence.id, input.paragraphIds)
+    if (context === null) return { ok: false, reason: 'analysis-context-unavailable' }
+    if (!context.ok) {
+      return {
+        ok: false,
+        reason: context.reason ?? 'analysis-context-invalid',
+        failure: `${context.characters}/${ANALYSIS_CONTEXT_CHARACTER_LIMIT} 字符`,
+        hints: ['当前段落必须完整提供；请在材料预览中减少相邻段落，不能截断段落。'],
+      }
+    }
+    if (input.paragraphIds !== undefined && typeof input.expectedFingerprint !== 'string') {
+      return { ok: false, reason: 'analysis-context-preview-required', hints: ['请先预览并确认本次材料。'] }
+    }
+    const fingerprint = await analysisContextFingerprint({
+      passageId: passage.id,
+      sourceRevision: passage.sourceRevision,
+      segmentationRevision: segmentation.revision,
+      anchorId: sentence.id,
+      sentenceText: sentence.text,
+      candidates: context.candidates,
+    })
+    if (typeof input.expectedFingerprint === 'string' && input.expectedFingerprint !== fingerprint) {
+      return { ok: false, reason: 'analysis-context-stale', hints: ['材料已变化，请重新预览并确认。'] }
+    }
+    const currentParagraph = context.candidates.find((candidate) => candidate.relation === 'current')!
     const prompt = analysisPrompt({
       sentence: sentence.text,
       anchorId: sentence.id,
-      paragraph: paragraph?.text ?? sentence.text,
+      paragraph: currentParagraph.text,
+      contextMaterials: context.candidates.filter((candidate) => candidate.included),
+      omittedParagraphIds: context.omittedParagraphIds,
     })
     // One job per attempt: whatever happens to this call — cancel, timeout,
     // restart, provider silence — the record answers "did it reach the provider,
@@ -2908,6 +3219,10 @@ export class FrenchReaderController extends TypertRemoteService {
           || currentSentence.text !== sentence.text) {
           return { stored: false as const, revised: true as const }
         }
+        // Cancellation and commit have one linearization point. Until this line,
+        // the explicit cancel endpoint may revoke the operation. Once the durable
+        // write starts, it returns `too-late` instead of promising rollback.
+        active.phase = 'committing'
         return putSentenceAnalysis(this.table(), parsed.analysis, sentence.text)
       })
       if ('cancelled' in stored && stored.cancelled === true) {
@@ -2980,6 +3295,26 @@ export class FrenchReaderController extends TypertRemoteService {
     model: string
     reasoningEffort?: string | null
     operationId: string
+  }, callerSignal: AbortSignal): Promise<AnalyseParagraphResult> {
+    const prepared = this.prepareAnalysisOperation(
+      input.passageId, input.operationId, null, callerSignal,
+    )
+    if (prepared === 'cancelled') return { ok: false, reason: 'cancelled' }
+    if (prepared === 'duplicate') return { ok: false, reason: 'operation-already-running' }
+    try {
+      return await this.runParagraphAnalysis(input, prepared.signal)
+    } finally {
+      this.finishAnalysisOperation(input.operationId, prepared)
+    }
+  }
+
+  private async runParagraphAnalysis(input: {
+    passageId: string
+    paragraphId: string
+    backend: string
+    model: string
+    reasoningEffort?: string | null
+    operationId: string
   }, signal: AbortSignal): Promise<AnalyseParagraphResult> {
     const passage = this.readPassage(input.passageId)
     if (passage === undefined) return { ok: false, reason: 'passage-unknown' }
@@ -3016,6 +3351,7 @@ export class FrenchReaderController extends TypertRemoteService {
         model: input.model,
         reasoningEffort: input.reasoningEffort ?? null,
         operationId: await derivedOperationId(input.operationId, anchorId),
+        parentOperationId: input.operationId,
       }, signal)
       if (value.ok === true) stored.push(anchorId)
       else failed.push({ anchorId, reason: value.reason })
@@ -3994,6 +4330,54 @@ export class FrenchReaderController extends TypertRemoteService {
       rows.push(record.payload)
     }
     return rows
+  }
+
+  private prepareAnalysisOperation(
+    passageId: string,
+    operationId: string,
+    parentOperationId: string | null,
+    callerSignal: AbortSignal,
+  ): PreparedAnalysisOperation | 'cancelled' | 'duplicate' {
+    this.pruneAnalysisCancellations()
+    const queued = this.queuedAnalysisCancellations.get(operationId)
+    if (queued !== undefined) {
+      this.queuedAnalysisCancellations.delete(operationId)
+      if (queued.passageId === passageId) return 'cancelled'
+    }
+    if (this.activeAnalyses.has(operationId)) return 'duplicate'
+
+    const controller = new AbortController()
+    const linked = linkAbortSignals([callerSignal, controller.signal])
+    const active: ActiveAnalysisOperation = {
+      passageId, parentOperationId, controller, phase: 'generating',
+    }
+    this.activeAnalyses.set(operationId, active)
+    return { active, signal: linked.signal, dispose: linked.dispose }
+  }
+
+  private finishAnalysisOperation(operationId: string, prepared: PreparedAnalysisOperation): void {
+    if (this.activeAnalyses.get(operationId) === prepared.active) this.activeAnalyses.delete(operationId)
+    prepared.dispose()
+  }
+
+  private rememberAnalysisCancellation(passageId: string, operationId: string): void {
+    this.pruneAnalysisCancellations()
+    while (this.queuedAnalysisCancellations.size >= 128) {
+      const oldest = this.queuedAnalysisCancellations.keys().next().value
+      if (oldest === undefined) break
+      this.queuedAnalysisCancellations.delete(oldest)
+    }
+    this.queuedAnalysisCancellations.set(operationId, {
+      passageId,
+      expiresAt: Date.now() + 120_000,
+    })
+  }
+
+  private pruneAnalysisCancellations(): void {
+    const now = Date.now()
+    for (const [operationId, pending] of this.queuedAnalysisCancellations) {
+      if (pending.expiresAt <= now) this.queuedAnalysisCancellations.delete(operationId)
+    }
   }
 
   private serialize<T>(operation: () => Promise<T>): Promise<T> {

@@ -51,6 +51,81 @@ window.__ModuleLoader__.load({
       }
     }
 
+    function diagnosticText(cause) {
+      if (typeof cause === 'string') return cause
+      if (cause !== null && typeof cause === 'object') {
+        const message = typeof cause.message === 'string' ? cause.message : ''
+        const name = typeof cause.name === 'string' ? cause.name : 'Error'
+        const stack = typeof cause.stack === 'string' ? cause.stack : ''
+        if (stack !== '' || (message !== '' && Object.keys(cause).length === 0)) {
+          return `${message === '' ? name : `${name}: ${message}`}${stack === '' ? '' : `\n${stack}`}`
+        }
+      }
+      try { return JSON.stringify(cause, null, 2) ?? String(cause) } catch { return String(cause) }
+    }
+
+    async function copyTextToClipboard(value) {
+      const clipboard = globalThis.navigator?.clipboard
+      if (clipboard?.writeText) {
+        await clipboard.writeText(value)
+        return true
+      }
+      const doc = globalThis.document
+      if (doc?.body === undefined || typeof doc.execCommand !== 'function') return false
+      const field = doc.createElement('textarea')
+      field.value = value
+      field.setAttribute('readonly', '')
+      field.style.position = 'fixed'
+      field.style.opacity = '0'
+      doc.body.appendChild(field)
+      field.select()
+      const copied = doc.execCommand('copy')
+      field.remove()
+      return copied === true
+    }
+
+    function diagnosticView(t, diagnostic, onCopy) {
+      if (diagnostic === null || diagnostic === undefined) return null
+      return h('details', { className: 'operationDiagnostic' },
+        h('summary', null, `${diagnostic.operation} · ${t('diagnosticDetails')}`),
+        h('pre', { className: 'diagnosticText' }, diagnostic.detail),
+        h('button', { type: 'button', className: 'small quiet', onClick: onCopy },
+          diagnostic.copied ? t('diagnosticCopied') : t('copyDiagnostic')),
+        diagnostic.copyFailed === true ? h('span', { className: 'hint', role: 'status' }, t('diagnosticCopyFailed')) : null,
+      )
+    }
+
+    const OPERATION_ERROR_MARKER = '\\u0000french-reader-diagnostic:'
+    function encodeOperationError(message, operation, detail, copied = false, copyFailed = false) {
+      return `${message}${OPERATION_ERROR_MARKER}${JSON.stringify({ operation, detail, copied, copyFailed })}`
+    }
+    function decodeOperationError(value) {
+      const split = String(value ?? '').indexOf(OPERATION_ERROR_MARKER)
+      if (split < 0) return { message: String(value ?? ''), diagnostic: null }
+      const message = String(value).slice(0, split)
+      try {
+        const diagnostic = JSON.parse(String(value).slice(split + OPERATION_ERROR_MARKER.length))
+        return { message, diagnostic: typeof diagnostic?.detail === 'string' ? diagnostic : null }
+      } catch { return { message: String(value), diagnostic: null } }
+    }
+    function setOperationError(setError, message, operation, cause) {
+      setError(encodeOperationError(message, operation, diagnosticText(cause)))
+    }
+    function errorBlock(t, value, setError) {
+      if (value === '') return null
+      const parsed = decodeOperationError(value)
+      const diagnostic = parsed.diagnostic
+      const copy = diagnostic === null ? null : async () => {
+        let copied = false
+        try { copied = await copyTextToClipboard(diagnostic.detail) } catch { copied = false }
+        setError(encodeOperationError(parsed.message, diagnostic.operation, diagnostic.detail, copied, !copied))
+      }
+      return h('div', { className: 'errorBlock' },
+        h('p', { className: 'error', role: 'alert' }, parsed.message),
+        diagnostic === null ? null : diagnosticView(t, diagnostic, copy),
+      )
+    }
+
     /** A strict codec: the registry rejects any other mode for parameter codecs. */
     function strict(typeSymbol, check) {
       return { mode: 'strict', typeSymbol, create: () => schemaOf(check, typeSymbol) }
@@ -257,10 +332,152 @@ window.__ModuleLoader__.load({
       return pieces
     }
 
+    function markdownInline(source) {
+      const text = String(source ?? '')
+      const token = /(`[^`\n]+`|\*\*[^*\n]+\*\*|__[^_\n]+__|\*[^*\n]+\*|_[^_\n]+_)/gu
+      const output = []
+      let cursor = 0
+      let index = 0
+      for (const match of text.matchAll(token)) {
+        if (match.index > cursor) output.push(text.slice(cursor, match.index))
+        const value = match[0]
+        const key = `inline-${index++}`
+        if (value.startsWith('`')) output.push(h('code', { key }, value.slice(1, -1)))
+        else if (value.startsWith('**') || value.startsWith('__')) {
+          output.push(h('strong', { key }, value.slice(2, -2)))
+        } else {
+          output.push(h('em', { key }, value.slice(1, -1)))
+        }
+        cursor = match.index + value.length
+      }
+      if (cursor < text.length) output.push(text.slice(cursor))
+      return output
+    }
+
+    function markdownLineChildren(lines) {
+      return lines.flatMap((line, index) => index === 0
+        ? markdownInline(line)
+        : [h('br', { key: `line-${index}` }), ...markdownInline(line)])
+    }
+
+    function splitMarkdownTableRow(line) {
+      let value = line.trim()
+      if (value.startsWith('|')) value = value.slice(1)
+      if (value.endsWith('|')) value = value.slice(0, -1)
+      return value.split('|').map((cell) => cell.trim())
+    }
+
+    function isMarkdownTableDelimiter(line) {
+      const cells = splitMarkdownTableRow(line)
+      return cells.length > 0 && cells.every((cell) => /^:?-{3,}:?$/u.test(cell))
+    }
+
+    function renderMarkdown(markdown) {
+      const lines = String(markdown ?? '').replace(/\r\n?/gu, '\n').split('\n')
+      const blocks = []
+      const fenceAt = (line) => /^ {0,3}(`{3,}|~{3,})(.*)$/u.exec(line)
+      const headingAt = (line) => /^ {0,3}(#{1,6})\s+(.+?)\s*#*\s*$/u.exec(line)
+      const listAt = (line) => /^\s*(?:[-+*]\s+|\d+[.)]\s+)/u.test(line)
+      const quoteAt = (line) => /^ {0,3}>\s?/u.test(line)
+      const ruleAt = (line) => /^ {0,3}(?:-{3,}|\*{3,}|_{3,})\s*$/u.test(line)
+      const tableAt = (index) => index + 1 < lines.length
+        && lines[index].includes('|') && isMarkdownTableDelimiter(lines[index + 1])
+      const startsBlock = (index) => {
+        const line = lines[index]
+        return line.trim() === '' || fenceAt(line) !== null || headingAt(line) !== null
+          || quoteAt(line) || listAt(line) || ruleAt(line) || tableAt(index)
+      }
+
+      let lineIndex = 0
+      while (lineIndex < lines.length) {
+        const line = lines[lineIndex]
+        if (line.trim() === '') { lineIndex += 1; continue }
+
+        const fence = fenceAt(line)
+        if (fence !== null) {
+          const marker = fence[1][0]
+          const markerText = marker.repeat(fence[1].length)
+          const language = fence[2].trim().split(/\s/u)[0] ?? ''
+          const code = []
+          lineIndex += 1
+          while (lineIndex < lines.length) {
+            const candidate = lines[lineIndex].trim()
+            if (candidate.startsWith(markerText) && candidate.slice(markerText.length).trim() === '') break
+            code.push(lines[lineIndex++])
+          }
+          if (lineIndex < lines.length) lineIndex += 1
+          const safeLanguage = /^[A-Za-z0-9_-]+$/u.test(language) ? language : ''
+          blocks.push(h('pre', { key: `block-${blocks.length}` }, h('code', {
+            className: safeLanguage === '' ? undefined : `language-${safeLanguage}`,
+          }, code.join('\n'))))
+          continue
+        }
+
+        const heading = headingAt(line)
+        if (heading !== null) {
+          blocks.push(h(`h${heading[1].length}`, { key: `block-${blocks.length}` }, ...markdownInline(heading[2])))
+          lineIndex += 1
+          continue
+        }
+
+        if (ruleAt(line)) {
+          blocks.push(h('hr', { key: `block-${blocks.length}` }))
+          lineIndex += 1
+          continue
+        }
+
+        if (quoteAt(line)) {
+          const quoted = []
+          while (lineIndex < lines.length && quoteAt(lines[lineIndex])) {
+            quoted.push(lines[lineIndex++].replace(/^ {0,3}>\s?/u, ''))
+          }
+          blocks.push(h('blockquote', { key: `block-${blocks.length}` },
+            h('p', null, ...markdownLineChildren(quoted))))
+          continue
+        }
+
+        if (tableAt(lineIndex)) {
+          const header = splitMarkdownTableRow(lines[lineIndex++])
+          lineIndex += 1 // separator row
+          const rows = []
+          while (lineIndex < lines.length && lines[lineIndex].includes('|') && lines[lineIndex].trim() !== '') {
+            rows.push(splitMarkdownTableRow(lines[lineIndex++]))
+          }
+          const tableHead = h('thead', null, h('tr', null, ...header.map((cell, index) =>
+            h('th', { key: `head-${index}` }, ...markdownInline(cell)))))
+          const tableBody = h('tbody', null, ...rows.map((row, rowIndex) => h('tr', { key: `row-${rowIndex}` },
+            ...header.map((_, cellIndex) => h('td', { key: `cell-${cellIndex}` },
+              ...markdownInline(row[cellIndex] ?? ''))))))
+          blocks.push(h('table', { key: `block-${blocks.length}` }, tableHead, tableBody))
+          continue
+        }
+
+        if (listAt(line)) {
+          const ordered = /^\s*\d+[.)]\s+/u.test(line)
+          const items = []
+          const itemPattern = ordered ? /^\s*\d+[.)]\s+/u : /^\s*[-+*]\s+/u
+          while (lineIndex < lines.length && listAt(lines[lineIndex])
+            && /^\s*\d+[.)]\s+/u.test(lines[lineIndex]) === ordered) {
+            items.push(lines[lineIndex++].replace(itemPattern, ''))
+          }
+          const tag = ordered ? 'ol' : 'ul'
+          blocks.push(h(tag, { key: `block-${blocks.length}` }, ...items.map((item, index) =>
+            h('li', { key: `item-${index}` }, ...markdownInline(item)))))
+          continue
+        }
+
+        const paragraph = [line]
+        lineIndex += 1
+        while (lineIndex < lines.length && !startsBlock(lineIndex)) paragraph.push(lines[lineIndex++])
+        blocks.push(h('p', { key: `block-${blocks.length}` }, ...markdownLineChildren(paragraph)))
+      }
+      return blocks
+    }
+
     function contextPreviewIdentity(passageId, requestId, branchId, backend, model, question) {
       return JSON.stringify([passageId, requestId, branchId, backend, model, question.trim()])
     }
-    const internals = { measureSelection, paragraphOffsetBefore, tokenForRole, renderConstituents, contextPreviewIdentity, conjugationPersonLabel, mergeShelf, mergeContinuationLinks, ConjugationView, KnowledgeEntry, GrammarDetail }
+    const internals = { measureSelection, paragraphOffsetBefore, tokenForRole, renderConstituents, renderMarkdown, contextPreviewIdentity, conjugationPersonLabel, mergeShelf, mergeContinuationLinks, ConjugationView, KnowledgeEntry, GrammarDetail }
 
     const TYPES = '@local/french-close-reading/types#'
     const remoteContribution = {
@@ -525,6 +742,49 @@ window.__ModuleLoader__.load({
               reason: S.oneOf(S.lit('branch-unknown'), S.lit('passage-unknown')),
             }),
           )),
+        },
+        {
+          id: '@local/french-close-reading#frenchReader/cancelAnalysis',
+          service: 'frenchReader',
+          namespace: 'frenchReader',
+          method: 'cancelAnalysis',
+          invocation: { kind: 'direct' },
+          parameters: [{
+            name: 'request', wire: 'request', source: 'json',
+            codec: strict(`${TYPES}CancelAnalysisRequest`, S.obj({ passageId: S.str, operationId: S.str })),
+          }],
+          cancellation: { parameter: 'signal' },
+          result: strict(`${TYPES}CancelAnalysisValue`, S.oneOf(
+            S.obj({ kind: S.lit('cancel-requested') }),
+            S.obj({ kind: S.lit('cancel-queued') }),
+            S.obj({ kind: S.lit('too-late') }),
+            S.obj({ kind: S.lit('already-finished') }),
+          )),
+        },
+        {
+          id: '@local/french-close-reading#frenchReader/previewAnalysisContext',
+          service: 'frenchReader',
+          namespace: 'frenchReader',
+          method: 'previewAnalysisContext',
+          invocation: { kind: 'direct' },
+          parameters: [{
+            name: 'request', wire: 'request', source: 'json',
+            codec: strict(`${TYPES}PreviewAnalysisContextRequest`, S.obj({
+              passageId: S.str, anchorId: S.str, paragraphIds: S.opt(S.arr(S.str)),
+            })),
+          }],
+          cancellation: { parameter: 'signal' },
+          result: strict(`${TYPES}PreviewAnalysisContextValue`, S.obj({
+            ok: S.bool,
+            reason: S.nilable(S.oneOf(S.lit('current-paragraph-too-long'), S.lit('selected-context-too-long'), S.lit('selection-invalid'))),
+            anchorId: S.str, currentParagraphId: S.str, characterLimit: S.num, characters: S.num,
+            materials: S.arr(S.obj({
+              paragraphId: S.str, relation: S.oneOf(S.lit('previous'), S.lit('current'), S.lit('next')),
+              text: S.str, start: S.num, end: S.num, included: S.bool,
+              reason: S.oneOf(S.lit('included'), S.lit('not-selected'), S.lit('over-budget')),
+            })),
+            includedParagraphIds: S.arr(S.str), omittedParagraphIds: S.arr(S.str), fingerprint: S.nilable(S.str),
+          })),
         },
         {
           id: '@local/french-close-reading#frenchReader/readAnalysisCoverage',
@@ -963,6 +1223,41 @@ window.__ModuleLoader__.load({
           })),
         },
         {
+          /** Explicit exact-Mot creation; lookup itself remains read-only. */
+          id: '@local/french-close-reading#frenchReader/createLexiconEntry',
+          service: 'frenchReader',
+          namespace: 'frenchReader',
+          method: 'createLexiconEntry',
+          invocation: { kind: 'direct' },
+          parameters: [{
+            name: 'request', wire: 'request', source: 'json',
+            codec: strict(`${TYPES}CreateLexiconEntryRequest`, S.obj({
+              mot: S.str, partOfSpeech: S.str, lemma: S.nilable(S.str),
+              forms: S.arr(S.str), label: S.str, definition: S.str,
+              provenance: S.opt(S.oneOf(S.lit('user'), S.lit('mixed'))),
+              operationId: S.str, passageId: S.str, anchorId: S.str, occurrenceNote: S.str,
+            })),
+          }],
+          cancellation: { parameter: 'signal' },
+          result: strict(`${TYPES}CreateLexiconEntryValue`, S.oneOf(
+            S.obj({
+              kind: S.oneOf(S.lit('created'), S.lit('exists')), entryId: S.str,
+              occurrence: S.obj({
+                kind: S.oneOf(S.lit('appended'), S.lit('already-appended'), S.lit('not-attempted'), S.lit('failed')),
+                reason: S.nilable(S.str),
+              }),
+            }),
+            S.obj({
+              kind: S.lit('conflict'), entryId: S.nil,
+              reason: S.oneOf(S.lit('passage-unknown'), S.lit('anchor-unknown'), S.lit('mot-blank'), S.lit('key-collision')),
+              occurrence: S.obj({
+                kind: S.oneOf(S.lit('appended'), S.lit('already-appended'), S.lit('not-attempted'), S.lit('failed')),
+                reason: S.nilable(S.str),
+              }),
+            }),
+          )),
+        },
+        {
           /** Adopt one variant for one anchor; the overall translation is not rewritten. */
           id: '@local/french-close-reading#frenchReader/adoptTranslation',
           service: 'frenchReader',
@@ -1026,7 +1321,10 @@ window.__ModuleLoader__.load({
           cancellation: { parameter: 'signal' },
           result: strict(`${TYPES}ImportPreviewValue`, S.obj({
             title: S.str, characters: S.num, paragraphs: S.num, sentences: S.num,
-            blocks: S.arr(S.obj({ id: S.str, sentences: S.num, excerpt: S.str })),
+            blocks: S.arr(S.obj({
+              id: S.str, sentences: S.num, excerpt: S.str,
+              sentenceDetails: S.opt(S.arr(S.obj({ id: S.str, text: S.str, start: S.num, end: S.num }))),
+            })),
             flags: S.arr(S.obj({
               code: S.str,
               severity: S.oneOf(S.lit('error'), S.lit('hint')),
@@ -1163,6 +1461,11 @@ window.__ModuleLoader__.load({
       organizePassage: '归类与排序', saveLocation: '保存位置', sourceReading: '原文全文', learningTools: '句子学习',
       shelfWelcome: '从书籍目录开始阅读', shelfWelcomeHint: '展开书籍与章节，选择段落。新内容按书籍归类，段落序号在章节内接续。',
       shelfEmpty: '尚未添加书籍。添加书籍后，可在章节内录入第一段。', shelfLocal: '目录归类保存在本机',
+      continueReading: '继续上次阅读', resumeLocation: '上次阅读：{book} · {chapter} · {title}',
+      resumeUnavailable: '上次阅读的原文已不可用；请从目录选择段落。',
+      resumeSourceChanged: '原文已修订，无法唯一定位上次句子；已回到开头，请重新选择位置。',
+      resumeRelocated: '原文版本已更新，已按相同句子恢复位置。',
+      resumeBranchMissing: '已恢复句子位置，但上次讨论分支已不可用。',
       locationConflict: '本章已有相同段落序号，请修改序号。', bookRequired: '请填写书名。', readingSettings: '显示设置',
       addToChapter: '录入段落', libraryActions: '段落管理', sourceSelectHint: '展开查看上下文，点击句子切换。',
       panel: '法语精读', brandSub: 'FRENCH CLOSE READING · 原文为锚，逐层精读',
@@ -1180,7 +1483,7 @@ window.__ModuleLoader__.load({
       source: '法语原文', sourcePlaceholder: '在这里粘贴法语原文……',
       sourceHelp: '每段最多 20,000 字符。段落按空行切分，句子保留法文排版细节（缩写、对话破折号、引号间距）。',
       preview: '预览切分', confirmSave: '确认保存', editAgain: '返回修改',
-      previewing: '正在预览切分…', saving: '正在安全保存…', saved: '已保存；原文基线保持不变。',
+      previewing: '正在预览切分…', saving: '正在安全保存…', retrySaveSame: '用同一内容重试', saved: '已保存；原文基线保持不变。',
       alreadySaved: '这次保存已在先前请求中完成，已恢复原记录。',
       previewTitle: '切分预览（尚未保存）', previewClean: '未发现编码或排版问题。',
       previewReady: '预览已生成：确认分段与标记后再保存。',
@@ -1203,16 +1506,29 @@ window.__ModuleLoader__.load({
       readingPaneTitle: '原文', readingEyebrow: 'TEXTE D’ÉTUDE',
       benchHint: '点击左侧的句子或段落，这里即切换到对应锚点的译文与讨论。',
       analysisSection: '逐句解析', analysisNeedsSentence: '选中一句话再生成解析；段落与整篇不逐句解析。',
+      analysisContextTitle: '本次解析材料', analysisContextDescription: '仅使用同一篇的当前段与相邻段；当前段必须完整发送。可取消勾选相邻段，超出 3,500 字上限时不会截断段落，也不会自动带入后续续读段。',
+      analysisContextLoading: '正在读取本次材料…', analysisContextFailed: '无法读取材料：{reason}',
+      analysisContextBudget: '已选 {characters}/{limit} 字符',
+      analysisContextCurrentTooLong: '当前段落有 {characters} 字，超过 {limit} 字上限；为避免静默截断，不能生成。',
+      analysisContextSelectionTooLong: '所选材料共 {characters} 字，超过 {limit} 字上限；请取消勾选相邻段。',
+      analysisContextSelectionInvalid: '材料选择已失效，请重新预览。', analysisContextStale: '材料已变化或预览已过期；请重新预览并确认。',
+      analysisContextPrevious: '前一段', analysisContextCurrent: '当前段', analysisContextNext: '后一段',
+      analysisContextIncluded: '将发送', analysisContextOverBudget: '默认因预算省略', analysisContextNotSelected: '未选择',
+      analysisContextConfirm: '确认材料并生成解析',
       analysisStage: '等待模型返回', analysisStageElapsed: '{stage} · 已用时 {seconds} 秒',
-      analysisCancelled: '已取消这次解析：即使模型稍后返回，其结果也不会写入。需要这句的解析时请重新点击解析。',
-      analysisTimedOut: '等待 {seconds} 秒未返回，已停止等待。超时结果不会写入，可重新点击解析重试。',
-      analyseSentence: '生成这句的解析', reanalyseSentence: '重新生成解析', analyzing: '解析中…',
+      analysisCancelled: '宿主已确认取消：这次解析不会写入。需要这句的解析时请重新点击解析。',
+      analysisCancelRequesting: '正在请求宿主取消…',
+      analysisCancelTooLate: '解析已进入保存阶段，无法撤销；正在确认最终结果。',
+      analysisCancelFailed: '未能确认取消，解析仍在运行。请重试或等待当前结果。',
+      analysisTimedOut: '等待超过 {seconds} 秒，已停止等待；请检查句子状态后再决定是否重试。',
+      conclusionSaveFailed: '尚未确认结论是否保存；编辑内容仍保留。可用同一内容重试。',
+      analyseSentence: '预览材料并生成解析', reanalyseSentence: '预览材料并重新解析', analyzing: '解析中…',
       // The prototype's reading-pane wording, which differs by location from the
       // detail pane's button: 解析这句 in the text, 查看解析 once it exists.
-      analyseThisSentence: '解析这句', viewAnalysis: '查看解析',
+      analyseThisSentence: '预览材料并解析这句', viewAnalysis: '查看解析',
       paragraphLabel: '段落 {index}', sentenceMark: '当前 · 第 {index} 句',
       // Reading toolbar and route controls.
-      analyseTop: '解析', navToggle: '打开路线', navTitle: '原文 · 路线',
+      analyseTop: '预览材料并解析', navToggle: '打开路线', navTitle: '原文 · 路线',
       navZoomOut: '缩小', navZoomIn: '放大', navCollapse: '收起路线',
       nextPassage: '录入下一段', startNextPassage: '开始下一段', nextPassageHint: '标题自动接续段落编号，可手动修改。保存后继续学习当前段。',
       saveNextPassage: '保存，继续当前段', nextPassageSaved: '下一段已保存，准备好后即可开始。', resumeReading: '返回当前段',
@@ -1244,7 +1560,7 @@ window.__ModuleLoader__.load({
       masteryFilter: '掌握状态筛选', masteryAll: '全部状态', masteryLearning: '在学', masteryReviewing: '熟悉',
       masteryKnown: '已掌握', masteryUnknown: '未设', scopeFilter: '出现范围筛选', scopeAll: '全部',
       scopeSentence: '当前句', noMatchingEntry: '没有匹配条目', exampleCount: '{count} 条例句',
-      knowledgePolicyNote: '语法知识在问答后自动积累；词条由查词与讨论收入，均为本地记录。',
+      knowledgePolicyNote: '语法知识在问答后自动积累；词条仅在读者明确保存后收入，均为本地记录。',
       knowledgeLoading: '读取中…', knowledgeNotFound: '未找到该知识条目。', knowledgeRetry: '重试读取',
       contentUser: '读者填写', contentMixed: '混合来源',
       conjBaseCount: '{count} 个语音基底', conjModeLabel: '变位显示方式',
@@ -1259,21 +1575,41 @@ window.__ModuleLoader__.load({
       askPlaceholder: '提问……', contextNotCompiled: '尚未编译上下文；按下按钮会先给出将要发送的内容。',
       modelNotConnected: '未连接模型',
       modelFallback: '记住的模型 {model} 已不可用，已回退到默认模型。',
-      newBranch: '新分支', newPassage: '新建段落', archivePassage: '归档', archiveDone: '已归档。', restorePassage: '恢复', restoreDone: '已恢复到段落列表。', passageList: '段落列表', archivedPassages: '已归档段落', noArchivedPassages: '没有已归档段落。', noPassageYet: '还没有段落。',
+      newBranch: '新讨论', newPassage: '新建段落', archivePassage: '归档', archiveDone: '已归档。', restorePassage: '恢复', restoreDone: '已恢复到段落列表。', passageList: '段落列表', archivedPassages: '已归档段落', noArchivedPassages: '没有已归档段落。', noPassageYet: '还没有段落。',
       previewSummary: '将切分为 {paragraphs} 段、{sentences} 句。',
-      previewBlockMeta: '{id} · {sentences} 句', previewFlagClean: '没有发现编码或排版标记。',
+      previewBlockMeta: '{id} · {sentences} 句', previewSentenceMeta: '{id} · 原文偏移 [{start}, {end})', previewFlagClean: '没有发现编码或排版标记。',
       titleField: '标题',
       branchFrom: '来源：', branchFromSentence: '第 {index} 句',
-      branchTitleRequired: '请输入分支标题', branchNamePlaceholder: '分支标题', lookupRequired: '请输入原文词形或短语',
+      discussionStartEyebrow: '开始讨论', branchQuestionField: '第一个问题', branchQuestionPlaceholder: '从这句话开始，你想了解什么？',
+      branchQuestionRequired: '请输入第一个问题', branchTitleOptional: '标题（可选）',
+      branchDialogTitlePlaceholder: '留空则根据问题生成', branchTitleGeneratedHint: '标题会根据第一个问题自动生成，也可以自行修改。',
+      branchTitleDefault: '讨论 · {excerpt}', branchTitleChild: '续问 · {excerpt}', createAndContinue: '继续提问',
+      branchTitleRequired: '请输入分支标题', branchNamePlaceholder: '分支标题', branchSaveFailed: '无法确认讨论是否已创建；首个问题仍保留。再次继续会用同一操作标识重试。', branchCreateConflict: '创建讨论遇到冲突；原有讨论仍保留。请检查列表后重新创建。', wordDiscussionSaveFailed: '无法确认词汇讨论是否已创建；查询结果仍保留。再次点击会用同一操作标识重试。', branchStateSaveFailed: '未能确认理解状态是否已更新；讨论内容仍保留。可再次点击按钮重试。', lookupRequired: '请输入原文词形或短语',
       lookupPlaceholder: '原文词形或短语', lookupSubmit: '查阅', conversationCancel: '取消',
       cancel: '取消', create: '创建', confirm: '确认',
       conclusionField: '结论内容', conclusionRequired: '请输入结论内容',
       conclusionDialogDescription: '编辑后确认，生成独立结论，不改写原回答。Ctrl / ⌘ + Enter 确认。',
       conclusionSaved: '结论已保存', dialogTooLong: '最多输入 {max} 个字符',
-      entryStored: '已有词条', entryNotStored: '未收藏', lookupMiss: '未收藏 · 相关原形 {count} 条（不自动合并）',
+      entryStored: '已有词条', entryNotStored: '本地词库未命中', lookupMiss: '相关原形 {count} 条（不自动合并）',
       lookupCandidates: '相关词条（逐条点开确认）',
-      lookupMissAdvice: '查词只读本地词库，没有联网词典：词库随查词命中与讨论收录增长。可以打开知识库浏览已有词条；动词词条的卡片里有按原形抓取的变位读音数据。',
-      lookupOpenLibrary: '打开知识库',
+      lookupMissAdvice: '查词只读本地词库，没有联网词典。你可以手动添加词条，或先在讨论中询问；只有明确保存的内容才会进入词库。动词词条卡片可按原形主动抓取变位数据。',
+      lookupOpenLibrary: '打开知识库', lookupAddEntry: '手动添加词条', lookupAskWord: '在讨论中询问', lookupOpenEntry: '打开词条卡片',
+       wordDiscussionTitle: '查词讨论：{mot}', wordDiscussionPrompt: '请用中文解释法语词形「{mot}」的原形、词性、在此句中的含义与相关配合；区分确定事实和待查证项。',
+       wordQuestionReady: '讨论已准备好；先查看本次上下文，再发送问题。',
+       discussionQuestionReady: '问题已预填；查看本次上下文后即可发送。',
+       viewSentContext: '查看当时材料', jumpToNewAnswer: '新回答已生成 · 跳转到回答', sentContextTitle: '这条回答所用的历史材料', sentContextLoading: '正在读取已保存材料…',
+       sentContextMissing: '这条回答的材料快照缺失，未用新材料替代。', sentContextFailed: '无法读取这条回答的材料；原回答未改变，可稍后重试。',
+       sentContextMeta: '{backend} · {model} · {characters} 字符 · 回答于 {time}', sentContextPromptLabel: '当时发送的完整提示词',
+       createEntryTitle: '添加本地词条',
+        addSuggestedEntry: '整理为词条', modelEntryUnverified: '下方释义来自模型回答，可能有误。请核对并编辑原文词形、原形、词性、标签和释义；例句会关联当前原文。保存后仍标记为模型建议、未经独立核实。',
+        modelEntryConfirmation: '我已检查并编辑该模型建议；仍保留“未经独立核实”标记。', modelEntryConfirmationRequired: '保存前请确认你已检查模型建议。',
+        modelAnswerTooLong: '回答超过释义字段 4000 字符上限，未截断填入；请手动整理一条释义。', createEntryHint: '此处只保存你填写的内容；查词不联网，也不会自动推测原形或释义。',
+       exactMotField: '原文词形（精确 Mot）', lemmaField: '原形（可选）', partOfSpeechField: '词性', senseLabelField: '义项标签',
+       definitionField: '释义', entryExampleField: '当前阅读句（保存时自动关联）', relatedFormsField: '相关形式（逗号分隔，可选）', saveEntry: '保存词条',
+       entryOccurrenceNote: '从当前阅读中的本地查词手动收录。', entryAiOccurrenceNote: '模型讨论建议，未经独立核实；来源消息 {messageId}，由读者核对后收录。', entrySaved: '词条已保存。',
+       entrySavedContextFailed: '词条已保存，但本次阅读上下文未能保存；请在词条卡片中确认。',
+       entryAlreadyExists: '该词形和词性已有词条；已打开现有条目，未覆盖内容。',
+       entrySaveConflict: '词条未保存：当前原文或位置已变化，返回阅读后重试。', entrySaveFailed: '词条保存失败；表单内容已保留，可以重试。', entryFieldsRequired: '请填写词性、义项标签和释义。',
       analyseParagraph: '生成本段缺的 {count} 句解析（每句一次模型调用）',
       paragraphComplete: '本段解析已齐', paragraphNothingMissing: '这一段没有缺解析的句子。',
       paragraphDone: '本段完成：{stored}/{asked} 句写入成功，{failed} 句被门禁拒绝。',
@@ -1289,6 +1625,7 @@ window.__ModuleLoader__.load({
       kind_syntax: '句法事实', kind_context: '语境解释', kind_rhetoric: '修辞解读', kind_unverified: '待查证',
       discussionSection: '分支讨论',
       backendLabel: '后端', modelLabel: '模型', noModels: '（没有可用模型）',
+       analysisSettings: '模型设置', analysisModelSummary: '{backend} · {model}',
       unavailable: '不可用', singleFlightHint: '该后端一次只跑一个任务。',
       startBranch: '在当前锚点开一个讨论分支', branchOpened: '分支已建立。',
       noDiscussion: '还没有讨论分支。',
@@ -1302,6 +1639,10 @@ window.__ModuleLoader__.load({
       branchFirst: '先在这个锚点建立一个讨论分支。', questionRequired: '请输入问题。', previewAgain: '问题、分支或模型已变化，请重新预览本次上下文。',
       previewRefused: '本次上下文无法发送：{reason}',
       askFailed: '本次生成未完成：{reason} {failure}',
+      askWaiting: '正在等待 {model} · 已用时 {seconds} 秒',
+      askSent: '已发送问题：{question}',
+      askCancelRequesting: '正在请求宿主停止；状态尚未确认。',
+      askCancelUnconfirmed: '连接已停止，但取消状态尚未确认；请检查讨论记录中的部分回答后再重试。',
       answerDone: '已回答（{model}）。',
       answerPartial: '回答结束于 {finish}，可能不完整。',
       historyCount: '本次请求携带 {count} 条历史',
@@ -1311,7 +1652,10 @@ window.__ModuleLoader__.load({
       sourceLabel: '来源', sectionLabel: '章节', sourceNone: '（未选择）',
       fetchSource: '获取该来源', sourceRefused: '本次未发起获取：{reason}',
       mastery_learning: '在学', mastery_reviewing: '复习中', mastery_known: '已掌握',
-      masteryDone: '学习状态已改为 {mastery}（{kind}）。', masteryConflict: '学习状态未修改（{reason}）：条目已变化，请刷新后重试。',
+      masteryDone: '学习状态已改为 {mastery}（{kind}）。', masteryConflict: '学习状态未修改：条目已变化，请刷新后重试。',
+       masterySaveFailed: '未能确认学习状态是否已更新；条目内容仍保留。请刷新确认状态后再决定是否重试。',
+       conclusionOperation: '保存结论', branchStateOperation: '更新讨论理解状态', createDiscussionOperation: '创建讨论', masteryOperation: '更新语法点学习状态',
+       diagnosticDetails: '查看技术诊断', copyDiagnostic: '复制诊断', diagnosticCopied: '已复制诊断', diagnosticCopyFailed: '复制失败；可手动选择并复制下方内容。',
       translationSection: '译文', translationEmpty: '尚无译文', versions: '{count} 个版本',
       translationPlaceholder: '在这里写下该锚点的译文……',
       saveTranslation: '保存译文', translationSaved: '译文已保存（追加为新版本）。',
@@ -1328,7 +1672,7 @@ window.__ModuleLoader__.load({
       knowledgeTitle: '词汇库与语法库',
       knowledgeHint: '精读中积累的词汇与语法条目；歧义候选需要你决定归属。',
       tabLexicon: '词汇库', tabGrammar: '语法库', tabConjugation: '变位',
-      answerTruncated: '（因长度截断，未完成）', answerCancelled: '（已取消）',
+      answerTruncated: '（因长度截断，未完成）', answerCancelled: '（已取消；收到的内容已作为部分回答保存）',
       extractionAdded: '本次已自动收入 {count} 条语法点',
       extractionNone: '本次回答未提出可复用的语法点',
       extractionUnusable: '语法块无法解析，未收入：{reason}',
@@ -1366,6 +1710,11 @@ window.__ModuleLoader__.load({
       organizePassage: 'Organize and order', saveLocation: 'Save location', sourceReading: 'Full source text', learningTools: 'Sentence tools',
       shelfWelcome: 'Read from your book library', shelfWelcomeHint: 'Expand a book and chapter to open a passage. Add new text within its chapter.',
       shelfEmpty: 'Add a book, then enter the first passage in its chapter.', shelfLocal: 'Organization is saved on this device',
+      continueReading: 'Continue reading', resumeLocation: 'Last read: {book} · {chapter} · {title}',
+      resumeUnavailable: 'The last passage is no longer available; choose a passage from the library.',
+      resumeSourceChanged: 'The source changed and the last sentence could not be located uniquely; returned to the start. Choose a position again.',
+      resumeRelocated: 'The source changed; restored the position by matching the same sentence.',
+      resumeBranchMissing: 'The sentence was restored, but its previous discussion branch is unavailable.',
       locationConflict: 'This paragraph number is already in use in this chapter.', bookRequired: 'Enter a book title.', readingSettings: 'Display',
       addToChapter: 'Add passage', libraryActions: 'Passage management', sourceSelectHint: 'Expand for context; select a sentence to focus it.',
       panel: 'French Close Reading', brandSub: 'FRENCH CLOSE READING · the source is the anchor',
@@ -1382,7 +1731,7 @@ window.__ModuleLoader__.load({
       source: 'French source', sourcePlaceholder: 'Paste the French source here…',
       sourceHelp: 'Up to 20,000 characters per passage. Paragraphs split on blank lines; sentences keep French typography details.',
       preview: 'Preview split', confirmSave: 'Confirm and save', editAgain: 'Back to editing',
-      previewing: 'Previewing segmentation…', saving: 'Saving durably…', saved: 'Saved; the source baseline is unchanged.',
+      previewing: 'Previewing segmentation…', saving: 'Saving durably…', retrySaveSame: 'Retry with the same text', saved: 'Saved; the source baseline is unchanged.',
       alreadySaved: 'This save had already completed; the original record was restored.',
       previewTitle: 'Split preview (nothing saved yet)', previewClean: 'No encoding or typography problems found.',
       previewReady: 'Preview ready: check the boundaries and flags, then save.',
@@ -1405,13 +1754,26 @@ window.__ModuleLoader__.load({
       readingPaneTitle: 'Text', readingEyebrow: 'TEXTE D’ÉTUDE',
       benchHint: 'Click a sentence or paragraph on the left; its translation and discussion appear here.',
       analysisSection: 'Sentence analysis', analysisNeedsSentence: 'Select a sentence to analyse; paragraphs and the whole passage are not analysed sentence by sentence.',
+      analysisContextTitle: 'Materials for this analysis', analysisContextDescription: 'Only the current and adjacent paragraphs from this passage are available. The current paragraph is mandatory and sent whole. Uncheck adjacent paragraphs as needed; over 3,500 characters, a paragraph is never silently truncated, and continuation passages are never added.',
+      analysisContextLoading: 'Loading these materials…', analysisContextFailed: 'Could not load materials: {reason}',
+      analysisContextBudget: 'Selected: {characters}/{limit} characters',
+      analysisContextCurrentTooLong: 'The current paragraph has {characters} characters, over the {limit}-character limit. Analysis is refused rather than silently truncating it.',
+      analysisContextSelectionTooLong: 'The selected materials have {characters} characters, over the {limit}-character limit. Uncheck an adjacent paragraph.',
+      analysisContextSelectionInvalid: 'This material selection is no longer valid. Preview again.', analysisContextStale: 'The materials changed or this preview expired. Preview and confirm again.',
+      analysisContextPrevious: 'Previous paragraph', analysisContextCurrent: 'Current paragraph', analysisContextNext: 'Next paragraph',
+      analysisContextIncluded: 'Included', analysisContextOverBudget: 'Omitted by default budget', analysisContextNotSelected: 'Not selected',
+      analysisContextConfirm: 'Confirm materials and analyse',
       analysisStage: 'Waiting for the model', analysisStageElapsed: '{stage} · {seconds}s elapsed',
-      analysisCancelled: 'Cancelled: even if the model answers later, nothing from this run will be stored. Press Analyse again when you want it.',
-      analysisTimedOut: 'No reply after {seconds}s; the run was cancelled and nothing was stored. Press Analyse to retry.',
-      analyseSentence: 'Analyse this sentence', reanalyseSentence: 'Re-analyse', analyzing: 'Analysing…',
-      analyseThisSentence: 'Analyse this sentence', viewAnalysis: 'View analysis',
+      analysisCancelled: 'The Host confirmed cancellation; this analysis will not be stored. Press Analyse again when you want it.',
+      analysisCancelRequesting: 'Asking the Host to cancel…',
+      analysisCancelTooLate: 'The analysis has entered its save stage and cannot be rolled back; confirming the final result.',
+      analysisCancelFailed: 'Cancellation was not confirmed; the analysis is still running. Retry or wait for its result.',
+      analysisTimedOut: 'Waited more than {seconds}s and stopped waiting; check the sentence state before retrying.',
+      conclusionSaveFailed: 'Could not confirm whether the conclusion was saved; your edit is retained. Retry with the same text.',
+      analyseSentence: 'Preview materials and analyse', reanalyseSentence: 'Preview materials and re-analyse', analyzing: 'Analysing…',
+      analyseThisSentence: 'Preview materials and analyse this sentence', viewAnalysis: 'View analysis',
       paragraphLabel: 'Paragraph {index}', sentenceMark: 'Current · sentence {index}',
-      analyseTop: 'Analyse', navToggle: 'Open route', navTitle: 'Text · route',
+      analyseTop: 'Preview materials and analyse', navToggle: 'Open route', navTitle: 'Text · route',
       navZoomOut: 'Zoom out', navZoomIn: 'Zoom in', navCollapse: 'Close route',
       nextPassage: 'Add next passage', startNextPassage: 'Read next passage', nextPassageHint: 'The paragraph number advances automatically. You can edit the title. Saving keeps the current passage open.',
       saveNextPassage: 'Save and keep reading', nextPassageSaved: 'Next passage saved. Start it when ready.', resumeReading: 'Back to current passage',
@@ -1445,7 +1807,7 @@ window.__ModuleLoader__.load({
       masteryLearning: 'Learning', masteryReviewing: 'Familiar', masteryKnown: 'Known', masteryUnknown: 'unset',
       scopeFilter: 'Filter by where it appears', scopeAll: 'Anywhere', scopeSentence: 'This sentence',
       noMatchingEntry: 'No matching entry', exampleCount: '{count} example(s)',
-      knowledgePolicyNote: 'Grammar accumulates automatically after a turn; words are filed by lookup and discussion. Everything stays local.',
+      knowledgePolicyNote: 'Grammar accumulates after a turn; a word enters the lexicon only when the reader explicitly saves it. Everything stays local.',
       knowledgeLoading: 'Loading…', knowledgeNotFound: 'Knowledge entry not found.', knowledgeRetry: 'Retry loading',
       contentUser: 'written by the reader', contentMixed: 'mixed sources',
       conjBaseCount: '{count} phonetic base(s)', conjModeLabel: 'How the conjugation is shown',
@@ -1462,23 +1824,43 @@ window.__ModuleLoader__.load({
       askPlaceholder: 'Ask…', contextNotCompiled: 'No context compiled yet; the button shows what would be sent first.',
       modelNotConnected: 'no model connected',
       modelFallback: 'The saved model {model} is no longer available; back to the default.',
-      newBranch: 'New branch', newPassage: 'New passage', archivePassage: 'Archive', archiveDone: 'Archived.', restorePassage: 'Restore', restoreDone: 'Restored to the passage list.', passageList: 'Passage list', archivedPassages: 'Archived passages', noArchivedPassages: 'No archived passages.',
+      newBranch: 'New discussion', newPassage: 'New passage', archivePassage: 'Archive', archiveDone: 'Archived.', restorePassage: 'Restore', restoreDone: 'Restored to the passage list.', passageList: 'Passage list', archivedPassages: 'Archived passages', noArchivedPassages: 'No archived passages.',
       noPassageYet: 'No passage yet.', sourceTextLabel: 'French source',
       previewSummary: 'Will be split into {paragraphs} paragraph(s) and {sentences} sentence(s).',
-      previewBlockMeta: '{id} · {sentences} sentence(s)', previewFlagClean: 'No encoding or typography flags.',
+      previewBlockMeta: '{id} · {sentences} sentence(s)', previewSentenceMeta: '{id} · source offsets [{start}, {end})', previewFlagClean: 'No encoding or typography flags.',
       titleField: 'Title',
       branchFrom: 'From: ', branchFromSentence: 'Sentence {index}',
-      branchTitleRequired: 'Enter a branch title', branchNamePlaceholder: 'Branch title', lookupRequired: 'Enter the word or phrase from the text',
+      discussionStartEyebrow: 'START A DISCUSSION', branchQuestionField: 'First question', branchQuestionPlaceholder: 'What would you like to understand from this sentence?',
+      branchQuestionRequired: 'Enter the first question', branchTitleOptional: 'Title (optional)',
+      branchDialogTitlePlaceholder: 'Leave blank to derive a title from the question', branchTitleGeneratedHint: 'A title is generated from the first question; you can edit it.',
+      branchTitleDefault: 'Discussion · {excerpt}', branchTitleChild: 'Follow-up · {excerpt}', createAndContinue: 'Continue to question',
+      branchTitleRequired: 'Enter a branch title', branchNamePlaceholder: 'Branch title', branchSaveFailed: 'Could not confirm whether the discussion was created; your first question is retained. Continuing again reuses the same operation id.', branchCreateConflict: 'Discussion creation conflicted; existing discussions are preserved. Check the list before creating it again.', wordDiscussionSaveFailed: 'Could not confirm whether the vocabulary discussion was created; the lookup result remains available. Clicking again reuses the same operation id.', branchStateSaveFailed: 'Could not confirm whether the discussion state changed; its content is still here. Click the status button again to retry.', lookupRequired: 'Enter the word or phrase from the text',
       lookupPlaceholder: 'Word or phrase from the text', lookupSubmit: 'Look up',
       cancel: 'Cancel', create: 'Create', confirm: 'Confirm',
       conclusionField: 'Conclusion', conclusionRequired: 'Enter the conclusion',
       conclusionDialogDescription: 'Edit, then confirm: the conclusion is stored on its own and never rewrites the answer. Ctrl / ⌘ + Enter confirms.',
       conclusionSaved: 'Conclusion saved', dialogTooLong: 'At most {max} characters',
-      entryStored: 'entry on file', entryNotStored: 'not collected',
-      lookupMiss: 'not collected · {count} related forms (never merged automatically)',
+      entryStored: 'entry on file', entryNotStored: 'not in the local lexicon',
+      lookupMiss: '{count} related forms (never merged automatically)',
       lookupCandidates: 'Related entries (open each to confirm)',
-      lookupMissAdvice: 'Lookup reads the local lexicon only — no network dictionary. The lexicon grows through hits and discussion. Open the library to browse stored entries; a verb entry’s card carries pronunciation data fetched by lemma.',
-      lookupOpenLibrary: 'Open the library',
+      lookupMissAdvice: 'Lookup reads only the local lexicon — no network dictionary. You can add an entry yourself or ask about the word in a discussion; only content you explicitly save enters the lexicon. A verb card can fetch conjugation data by lemma when you choose.',
+      lookupOpenLibrary: 'Open the library', lookupAddEntry: 'Add an entry', lookupAskWord: 'Ask in a discussion', lookupOpenEntry: 'Open entry card',
+       wordDiscussionTitle: 'Word lookup: {mot}', wordDiscussionPrompt: 'Explain in Chinese the lemma, part of speech, meaning in this sentence, and relevant agreement for French form “{mot}”. Separate verified facts from points to check.',
+       wordQuestionReady: 'Discussion ready. Review this context before sending the question.',
+       discussionQuestionReady: 'Your question is ready; review this context before sending it.',
+       viewSentContext: 'View materials sent with this answer', jumpToNewAnswer: 'New answer · jump to it', sentContextTitle: 'Historical materials for this answer', sentContextLoading: 'Loading the saved materials…',
+       sentContextMissing: 'The saved context snapshot for this answer is unavailable; no new context was substituted.', sentContextFailed: 'Could not read this answer’s materials. The answer is unchanged; you can retry later.',
+       sentContextMeta: '{backend} · {model} · {characters} characters · answered {time}', sentContextPromptLabel: 'Full prompt sent at the time',
+       createEntryTitle: 'Add a local entry',
+        addSuggestedEntry: 'Prepare vocabulary entry', modelEntryUnverified: 'The definition below comes from a model answer and may be wrong. Check and edit the exact French form, lemma, part of speech, label, and definition; the current source sentence will be attached as an example. It will remain marked as a model suggestion that has not been independently verified.',
+        modelEntryConfirmation: 'I checked and edited this model suggestion; keep the unverified marker.', modelEntryConfirmationRequired: 'Confirm that you checked the model suggestion before saving.',
+        modelAnswerTooLong: 'The answer exceeds the 4,000-character definition limit; it was not truncated into the form. Write a concise definition manually.', createEntryHint: 'Only the details you enter are stored here. Lookup does not use a network dictionary or guess the lemma or meaning.',
+       exactMotField: 'Exact form from the text (Mot)', lemmaField: 'Lemma (optional)', partOfSpeechField: 'Part of speech', senseLabelField: 'Sense label',
+       definitionField: 'Definition', entryExampleField: 'Current sentence (linked when saved)', relatedFormsField: 'Related forms (comma-separated, optional)', saveEntry: 'Save entry',
+       entryOccurrenceNote: 'Manually collected from a local lookup in this reading.', entryAiOccurrenceNote: 'Model discussion suggestion; not independently verified. Source message {messageId}; reviewed by the reader before saving.', entrySaved: 'Entry saved.',
+       entrySavedContextFailed: 'Entry saved, but its reading context was not. Check the entry card.',
+       entryAlreadyExists: 'This exact form and part of speech already has an entry. The existing entry is open; nothing was overwritten.',
+       entrySaveConflict: 'Entry not saved: the source or reading position changed. Return to the passage and retry.', entrySaveFailed: 'Entry could not be saved. Your form is still here; you can retry.', entryFieldsRequired: 'Enter the part of speech, sense label, and definition.' ,
       analyseParagraph: 'Analyse the {count} sentences this paragraph is missing (one model call each)',
       paragraphComplete: 'This paragraph is complete', paragraphNothingMissing: 'Nothing is missing in this paragraph.',
       paragraphDone: 'Paragraph done: {stored}/{asked} stored, {failed} refused by the gate.',
@@ -1494,6 +1876,7 @@ window.__ModuleLoader__.load({
       kind_syntax: 'syntax', kind_context: 'context', kind_rhetoric: 'rhetoric', kind_unverified: 'to verify',
       discussionSection: 'Discussion',
       backendLabel: 'Backend', modelLabel: 'Model', noModels: '(no model available)',
+       analysisSettings: 'Model settings', analysisModelSummary: '{backend} · {model}',
       unavailable: 'unavailable', singleFlightHint: 'This backend runs one task at a time.',
       startBranch: 'Open a discussion branch on this anchor', branchOpened: 'Branch opened.',
       noDiscussion: 'No discussion branch yet.',
@@ -1507,6 +1890,10 @@ window.__ModuleLoader__.load({
       branchFirst: 'Open a discussion branch on this anchor first.', questionRequired: 'Enter a question.', previewAgain: 'The question, branch or model changed. Preview the context again.',
       previewRefused: 'This context cannot be sent: {reason}',
       askFailed: 'The turn did not finish: {reason} {failure}',
+      askWaiting: 'Waiting for {model} · {seconds}s elapsed',
+      askSent: 'Sent question: {question}',
+      askCancelRequesting: 'Asking the Host to stop; cancellation is not confirmed yet.',
+      askCancelUnconfirmed: 'The connection stopped but cancellation was not confirmed; check the discussion for a partial answer before retrying.',
       answerDone: 'Answered ({model}).',
       answerPartial: 'The answer ended at {finish} and may be incomplete.',
       historyCount: '{count} messages carried into this request',
@@ -1516,7 +1903,10 @@ window.__ModuleLoader__.load({
       sourceLabel: 'Source', sectionLabel: 'Section', sourceNone: '(none selected)',
       fetchSource: 'Fetch this source', sourceRefused: 'Nothing was requested: {reason}',
       mastery_learning: 'Learning', mastery_reviewing: 'Reviewing', mastery_known: 'Known',
-      masteryDone: 'Mastery set to {mastery} ({kind}).', masteryConflict: 'Mastery was not changed ({reason}); the entry changed. Reload and retry.',
+      masteryDone: 'Mastery set to {mastery} ({kind}).', masteryConflict: 'Mastery was not changed; the entry changed. Reload and retry.',
+       masterySaveFailed: 'Could not confirm whether the learning state changed; the entry content is preserved. Reload to verify before retrying.',
+       conclusionOperation: 'Save conclusion', branchStateOperation: 'Update discussion state', createDiscussionOperation: 'Create discussion', masteryOperation: 'Update grammar mastery',
+       diagnosticDetails: 'View technical details', copyDiagnostic: 'Copy diagnostic', diagnosticCopied: 'Diagnostic copied', diagnosticCopyFailed: 'Copy failed; select and copy the text below manually.',
       translationSection: 'Translation', translationEmpty: 'No translation yet', versions: '{count} version(s)',
       translationPlaceholder: 'Write the translation for this anchor here…',
       saveTranslation: 'Save translation', translationSaved: 'Translation saved as a new version.',
@@ -1533,7 +1923,7 @@ window.__ModuleLoader__.load({
       knowledgeTitle: 'Vocabulary and grammar',
       knowledgeHint: 'Entries accumulated while reading; ambiguous candidates wait for your decision.',
       tabLexicon: 'Vocabulary', tabGrammar: 'Grammar', tabConjugation: 'Conjugation',
-      answerTruncated: '(truncated at the length limit; unfinished)', answerCancelled: '(cancelled)',
+      answerTruncated: '(truncated at the length limit; unfinished)', answerCancelled: '(cancelled; received text was saved as a partial answer)',
       extractionAdded: 'Filed {count} grammar point(s) from this answer',
       extractionNone: 'This answer proposed no reusable grammar point',
       extractionUnusable: 'The grammar block could not be read, so nothing was filed: {reason}',
@@ -1667,6 +2057,18 @@ window.__ModuleLoader__.load({
 
     const styles = `
       .fr-page{box-sizing:border-box;min-height:100%;height:100%;overflow:auto;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);font:14px/1.55 Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+      .fr-root .answer{white-space:normal;overflow-wrap:anywhere}
+      .fr-root .askRunStatus{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin-top:8px;padding:8px 10px;border:1px solid var(--dsw-alias-border-l1);border-radius:8px;background:var(--dsw-alias-bg-layer-2)}
+      .fr-root .askQuestion{flex-basis:100%;margin:0;white-space:pre-wrap;color:var(--dsw-alias-label-secondary)}
+      .fr-root .answer p{margin:0 0 .75em;white-space:normal}
+      .fr-root .answer h1,.fr-root .answer h2,.fr-root .answer h3,.fr-root .answer h4,.fr-root .answer h5,.fr-root .answer h6{margin:.85em 0 .35em;line-height:1.3}
+      .fr-root .answer ul,.fr-root .answer ol{margin:.4em 0 .75em;padding-left:1.5em}
+      .fr-root .answer blockquote{margin:.65em 0;padding:.35em .8em;border-left:3px solid var(--dsw-alias-border-l1);border-radius:0 8px 8px 0;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary)}
+      .fr-root .answer pre{margin:.7em 0;padding:10px 12px;overflow:auto;white-space:pre-wrap;border-radius:8px;background:var(--dsw-alias-bg-layer-2);font:12px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace}
+      .fr-root .answer code{padding:.1em .3em;border-radius:4px;background:var(--dsw-alias-bg-layer-2);font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace}
+      .fr-root .answer pre code{padding:0;background:transparent}
+      .fr-root .answer table{display:block;max-width:100%;overflow:auto;border-collapse:collapse;margin:.65em 0}
+      .fr-root .answer th,.fr-root .answer td{border:1px solid var(--dsw-alias-border-l1);padding:6px 8px;text-align:left;vertical-align:top}
       .fr-shell{max-width:1240px;margin:0 auto;padding:clamp(16px,2.5vw,32px);display:flex;flex-direction:column;gap:18px}
       .fr-top{display:flex;align-items:center;justify-content:space-between;gap:16px}
       .fr-brand{display:flex;align-items:center;gap:12px;min-width:0}
@@ -1715,6 +2117,11 @@ window.__ModuleLoader__.load({
       .fr-buttonQuiet:hover:not(:disabled){color:var(--dsw-alias-label-primary)}
       .fr-status{font-size:12px;margin:0;color:var(--dsw-alias-state-success-primary)}
       .fr-error{font-size:12px;margin:0;color:var(--dsw-alias-state-error-primary)}
+      .fr-root .errorBlock{display:flex;flex-direction:column;align-items:flex-start;gap:6px;margin:6px 0}
+      .fr-root .errorBlock>.error{margin:0;color:var(--dsw-alias-state-error-primary)}
+      .fr-root .operationDiagnostic{max-width:100%;padding:7px 10px;border:1px solid var(--dsw-alias-border-l1);border-radius:9px;background:var(--dsw-alias-bg-layer-2);font-size:11px}
+      .fr-root .operationDiagnostic summary{cursor:pointer;color:var(--dsw-alias-label-secondary);font-weight:600}
+      .fr-root .diagnosticText{max-height:220px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;font:11px/1.5 ui-monospace,SFMono-Regular,monospace;color:var(--dsw-alias-label-secondary)}
       .fr-previewBox{border:1px solid var(--dsw-alias-border-l1);border-radius:12px;background:var(--dsw-alias-bg-layer-2);padding:11px 13px;display:flex;flex-direction:column;gap:8px}
       .fr-previewMeta{font-size:11px;color:var(--dsw-alias-label-secondary)}
       .fr-flagList{display:flex;flex-direction:column;gap:4px;margin:0;padding:0;list-style:none}
@@ -1848,6 +2255,8 @@ window.__ModuleLoader__.load({
       .fr-root.bookLayout .bookDirectory{position:absolute;left:0;top:46px;bottom:0;width:270px;z-index:4;display:flex;flex-direction:column;border-right:1px solid var(--line);background:var(--paper)}
       .fr-root.bookLayout .bookDirectory.hiddenDirectory{display:none}
       .fr-root .directoryHead{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:18px 14px;border-bottom:1px solid var(--line);font-size:13px}
+      .fr-root .directoryResume{display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;gap:8px;padding:10px 14px;border-bottom:1px solid var(--line);background:var(--pale)}
+      .fr-root .directoryResume small{min-width:0;color:var(--muted);font-size:10px;line-height:1.4;overflow-wrap:anywhere}
       .fr-root .directoryTree{flex:1;min-height:0;overflow:auto;padding:15px 10px}
       .fr-root .shelfBook{margin-bottom:18px}.fr-root .shelfBook>summary{font-weight:650;font-size:13px;padding:8px 5px;cursor:pointer;overflow-wrap:anywhere}
       .fr-root .shelfChapter{margin:3px 0 8px 12px;border-left:1px solid var(--line);padding-left:10px}
@@ -1868,16 +2277,16 @@ window.__ModuleLoader__.load({
       .fr-root.bookLayout .modalBackdrop{position:absolute;inset:0;min-height:0}
       .fr-root.bookLayout .modal{width:min(560px,100%);max-height:100%;min-height:0;overflow:auto}
       .fr-root.bookLayout .modal.switcher{width:min(840px,100%)}
-      .fr-root.bookLayout .continuationBar{min-height:82px;padding:18px 28px;gap:10px}.fr-root .passageHeading{min-width:0;flex:1}.fr-root .bookBreadcrumb{font-size:11px;color:var(--muted);margin-bottom:8px;overflow-wrap:anywhere}.fr-root.bookLayout .currentPassageTitle{font-size:17px;color:var(--ink);display:block;white-space:normal;line-height:1.5}
+      .fr-root.bookLayout .continuationBar{min-height:82px;padding:18px 28px;gap:10px}.fr-root .passageHeading{min-width:0;flex:1}.fr-root .bookBreadcrumb{font-size:11px;color:var(--muted);margin-bottom:8px;min-width:0;max-width:100%}.fr-root .bookBreadcrumb>summary{cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;list-style:none}.fr-root .bookBreadcrumb>summary::-webkit-details-marker{display:none}.fr-root .bookBreadcrumb[open]>summary{white-space:normal;overflow-wrap:anywhere}.fr-root .bookBreadcrumbFull{padding:4px 0;white-space:normal;overflow-wrap:anywhere;color:var(--muted)}.fr-root.bookLayout .currentPassageTitle{font-size:17px;color:var(--ink);display:block;white-space:normal;line-height:1.5;overflow-wrap:anywhere}
       .fr-root.bookLayout .crumb{padding:9px 28px;font-size:11px;border-bottom:1px solid var(--line)}
       .fr-root .readingSource{padding-bottom:14px;border-bottom:1px solid var(--line)}.fr-root .sourceSectionHead{display:flex;align-items:baseline;gap:12px;justify-content:space-between;color:var(--muted);font-size:11px;flex-wrap:wrap}.fr-root .sourceSectionHead strong{font-size:12px;color:var(--ink)}
       .fr-root .sourceParagraph.quote{font:20px/1.9 Georgia,serif;margin:20px 0 0}.fr-root .readingSentence{border-radius:3px;cursor:pointer}.fr-root .readingSentence:hover{background:var(--pale)}.fr-root .readingSentence.selected{background:var(--pale);box-shadow:0 2px 0 var(--green)}.fr-root .readingSentence:focus-visible{outline:2px solid var(--green);outline-offset:3px}
       .fr-root .sentenceWorkspace{padding:12px 0 18px;border-bottom:1px solid var(--line);margin-bottom:24px}.fr-root .sentenceWorkspace .paneHead{padding:0;height:auto;min-height:36px}.fr-root .sentenceWorkspace .readingActions{padding:10px 0;min-height:0;border:0;gap:8px;flex-wrap:wrap}.fr-root .sentenceWorkspace .branchStrip{padding:2px 0;min-height:0;border:0}
-      .fr-root .sentenceWorkspace .readingActions button{min-height:32px}.fr-root .sentenceWorkspace .readingActions select{margin-left:auto;min-height:32px}.fr-root .locationFields{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) 90px;gap:12px}.fr-root .locationFields .kbField{min-width:0}.fr-root .locationFields input{width:100%;min-width:0}.fr-root .locationFields datalist{display:none}
+      .fr-root .sentenceWorkspace .readingActions button{min-height:32px}.fr-root .sentenceWorkspace .readingActions select{margin-left:0;min-height:32px}.fr-root .analysisSettings{display:flex;align-items:center;gap:8px;min-width:0;max-width:100%}.fr-root .analysisSettings>summary{cursor:pointer;list-style:none;max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;color:var(--muted)}.fr-root .analysisSettings>summary::-webkit-details-marker{display:none}.fr-root .analysisSettings[open]{flex-wrap:wrap;padding:5px 8px;border:1px solid var(--line);border-radius:8px;background:var(--paper)}.fr-root .analysisSettingField{display:inline-flex;align-items:center;gap:5px;font-size:10px;color:var(--muted)}.fr-root .analysisSettingField select{margin:0!important;min-height:30px;max-width:180px}.fr-root .locationFields{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) 90px;gap:12px}.fr-root .locationFields .kbField{min-width:0}.fr-root .locationFields input{width:100%;min-width:0}.fr-root .locationFields datalist{display:none}
       @container (max-width:959px){.fr-root.bookLayout[data-directory='open'] .workspace{margin-left:0;width:100%}.fr-root.bookLayout[data-directory='open'] .shelfWelcome{margin-left:0}.fr-root.bookLayout .bookDirectory{width:min(310px,calc(100% - 30px));box-shadow:12px 0 25px var(--fr-c71);z-index:10}.fr-root.bookLayout .workspace[data-view='focus']>.detailPane{width:100%}.fr-root.bookLayout .compactTop{height:auto;min-height:62px;max-height:none;flex-wrap:wrap;padding:8px 12px;gap:8px}.fr-root.bookLayout .compactTop .topLeft{flex-wrap:wrap;gap:6px}.fr-root.bookLayout .workspace{height:calc(100% - 62px)}.fr-root.bookLayout .continuationBar{padding:15px 20px;flex-wrap:wrap}.fr-root.bookLayout .continuationBar .quiet{padding-left:0}.fr-root.bookLayout .bookDirectory{top:62px}}
       @container (max-width:560px){.fr-root.bookLayout .continuationBar .passageHeading{flex-basis:100%}.fr-root .shelfWelcome .frontDoorInner{padding:50px 22px}.fr-root.bookLayout .detailScroll{padding:20px}.fr-root .sourceParagraph.quote{font-size:18px}.fr-root .locationFields{grid-template-columns:minmax(0,1fr) 80px}.fr-root .locationFields .kbField:first-child{grid-column:1/-1}.fr-root .sentenceWorkspace .readingActions select{margin-left:0;max-width:100%}.fr-root.bookLayout .compactTop .title{display:none}.fr-root.bookLayout .compactTop button{padding:5px 6px;font-size:10px}.fr-root.bookLayout .compactTop .topActions{gap:4px}.fr-root.bookLayout .continuationBar .currentPassageTitle{font-size:16px}}
       .fr-root .readingSource>summary.sourceSectionHead{display:list-item;cursor:pointer;padding:4px 0;font-size:11px}.fr-root .readingSource>summary span{margin-left:15px}.fr-root .sentenceWorkspace .readingActions button.primary{background:var(--green);color:var(--paper);border:1px solid var(--green);padding:5px 12px}.fr-root .sentenceWorkspace .readingActions button.primary:disabled{opacity:.45}
-      .fr-root .previewDetail{margin:10px 0 4px;border-top:1px solid var(--line)}.fr-root .previewBlock{padding:8px 0;border-bottom:1px solid var(--line)}.fr-root .previewExcerpt{margin-top:4px;white-space:pre-wrap;overflow-wrap:anywhere;font:13px/1.7 Georgia,serif}.fr-root .previewFlagClean{margin:8px 0 0}
+      .fr-root.bookLayout .modal.switcher .passageComposer .modalFoot{position:sticky;bottom:0;z-index:2;background:var(--paper);border-top:1px solid var(--line);padding-top:10px;padding-bottom:max(10px,env(safe-area-inset-bottom,0px))}.fr-root .modelEntryConfirm{display:flex;align-items:flex-start;gap:9px}.fr-root .modelEntryConfirm input{width:auto;min-width:auto;margin-top:3px}.fr-root .modelEntryNotice{padding:8px 12px;background:var(--pale);border-left:2px solid var(--green);margin:12px 0}.fr-root .previewDetail{margin:10px 0 4px;border-top:1px solid var(--line)}.fr-root .previewBlock{padding:8px 0;border-bottom:1px solid var(--line)}.fr-root .previewExcerpt,.fr-root .previewSentenceText{margin-top:4px;white-space:pre-wrap;overflow-wrap:anywhere;font:13px/1.7 Georgia,serif}.fr-root .previewSentence{padding:4px 0;border-top:1px dotted var(--line)}.fr-root .previewSentenceText{margin-top:2px}.fr-root .previewFlagClean{margin:8px 0 0}.fr-root .analysisContextMaterial{display:grid;grid-template-columns:18px minmax(0,1fr);gap:8px 10px;padding:12px 0;border-bottom:1px solid var(--line)}.fr-root .analysisContextMaterial input{grid-row:span 2;width:auto;min-width:auto;margin-top:3px}.fr-root .analysisContextMaterialLabel{font-size:11px;color:var(--muted)}.fr-root .analysisContextMaterial .previewExcerpt{grid-column:2;margin-top:0}.fr-root .analysisContextModal .modalFoot{position:sticky;bottom:0;background:var(--paper);padding:12px 0 max(8px,env(safe-area-inset-bottom,0px));border-top:1px solid var(--line)}
       .fr-root .previewPrompt{max-height:240px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;line-height:1.7;padding:10px;border:1px solid var(--line);border-radius:6px;margin:6px 0 0}
     `
 
@@ -1886,6 +2295,27 @@ window.__ModuleLoader__.load({
     }
 
     const SHELF_KEY = 'french-close-reading/bookshelf-v1'
+    const LAST_READING_KEY = 'french-close-reading/last-position-v1'
+    function cleanReadingPosition(value) {
+      if (value === null || typeof value !== 'object' || Array.isArray(value)
+        || value.schemaVersion !== 1
+        || typeof value.passageId !== 'string' || typeof value.title !== 'string'
+        || !Number.isSafeInteger(value.sourceRevision) || value.sourceRevision < 1
+        || typeof value.anchorId !== 'string' || typeof value.anchorText !== 'string'
+        || typeof value.scrollTop !== 'number' || !Number.isFinite(value.scrollTop) || value.scrollTop < 0
+        || !(value.branchId === null || typeof value.branchId === 'string')) return null
+      return {
+        schemaVersion: 1, passageId: value.passageId, title: value.title,
+        sourceRevision: value.sourceRevision, anchorId: value.anchorId, anchorText: value.anchorText,
+        branchId: value.branchId, scrollTop: value.scrollTop,
+        book: typeof value.book === 'string' ? value.book : '',
+        chapter: typeof value.chapter === 'string' ? value.chapter : '',
+      }
+    }
+    function readLastReadingPosition() {
+      try { return cleanReadingPosition(JSON.parse(localStorage.getItem(LAST_READING_KEY) ?? 'null')) }
+      catch { return null }
+    }
     function cleanShelf(value) {
       if (!value || !Array.isArray(value.books) || !value.placements || typeof value.placements !== 'object' || Array.isArray(value.placements)) {
         return { books: [], placements: {} }
@@ -2533,18 +2963,19 @@ window.__ModuleLoader__.load({
             operationId: createUuid(),
           }), t)
           if (value.kind === 'conflict') {
-            setError(format(t, 'masteryConflict', { reason: value.reason }))
             try {
               const latest = unwrap(await listGrammar({ scope: 'all' }), t)
               const current = (latest.entries ?? []).find((item) => item.entryId === entry.entryId) ?? null
               setEntry(current)
               setNotFound(current === null)
             } catch { /* Keep the conflict visible; the retry button can refresh again. */ }
+            setOperationError(setError, t('masterySaveFailed'), t('masteryOperation'), value.reason)
             return
           }
+          setError('')
           setEntry({ ...entry, mastery: next, revision: value.revision })
         } catch (cause) {
-          setError(String(cause?.message ?? cause))
+          setOperationError(setError, t('masterySaveFailed'), t('masteryOperation'), cause)
         } finally {
           setBusy(false)
         }
@@ -2570,7 +3001,7 @@ window.__ModuleLoader__.load({
           isWord || entry === null ? null : h('span', null, entry.contentStatus === 'ai-unverified'
             ? t('contentAiUnverified')
             : entry.contentStatus)),
-        error === '' ? null : h('p', { className: 'error', role: 'alert' }, error),
+        errorBlock(t, error, setError),
         !loading && (error !== '' || notFound)
           ? h('button', { type: 'button', className: 'small', onClick: () => setReloadTick((tick) => tick + 1) }, t('knowledgeRetry'))
           : null,
@@ -2580,7 +3011,7 @@ window.__ModuleLoader__.load({
       )
     }
 
-    function KnowledgeSection({ t, listLexicon, listGrammar, renderLexicon, resolveGrammarCandidate, entry, extraForSection, tab = 'lexicon',
+    function KnowledgeSection({ t, listLexicon, listGrammar, renderLexicon, resolveGrammarCandidate, entry, extraForSection, tab = 'lexicon', focusConjugation = false,
       listLexiconSources, fetchLexiconSource, setGrammarMastery, readConjugation, fetchConjugation }) {
       // `tab` arrives from the library as `vocab`/`grammar`; this component's
       // branches speak `lexicon`/`grammar`. Normalise once — comparing the raw
@@ -2625,6 +3056,17 @@ window.__ModuleLoader__.load({
         if (card !== null && card.entryId === entry.entryId) return
         void openCard(entry, false)
       }, [detail, kind, entry?.entryId])
+
+      useEffect(() => {
+        if (focusConjugation !== true || !detail || kind !== 'lexicon' || card?.entryId !== entry?.entryId) return
+        if (typeof document === 'undefined') return
+        const target = document.querySelector('.conjugationView')
+        if (target === null) return
+        const reduce = typeof window !== 'undefined'
+          && typeof window.matchMedia === 'function'
+          && window.matchMedia('(prefers-reduced-motion: reduce)').matches
+        target.scrollIntoView({ block: 'start', behavior: reduce ? 'auto' : 'smooth' })
+      }, [focusConjugation, detail, kind, card?.entryId, entry?.entryId])
 
       // The declared sources are a property of the Host, not of one entry.
       useEffect(() => {
@@ -2678,11 +3120,14 @@ window.__ModuleLoader__.load({
           const value = unwrap(await setGrammarMastery({
             entryId: entry.entryId, mastery, expectedRevision: null, operationId: createUuid(),
           }), t)
-          if (value.kind === 'conflict') setError(format(t, 'saveConflict', { reason: value.reason }))
-          else setStatus(format(t, 'masteryDone', { mastery, kind: value.kind }))
+          if (value.kind === 'conflict') {
+            setOperationError(setError, t('masterySaveFailed'), t('masteryOperation'), value.reason)
+            return
+          }
+          setStatus(format(t, 'masteryDone', { mastery, kind: value.kind }))
           await load('grammar')
         } catch (cause) {
-          setError(format(t, 'knowledgeUnavailable', { reason: String(cause?.message ?? cause) }))
+          setOperationError(setError, t('masterySaveFailed'), t('masteryOperation'), cause)
         } finally {
           setBusy(false)
         }
@@ -2707,7 +3152,7 @@ window.__ModuleLoader__.load({
       const entries = kind === 'lexicon' ? (lexicon?.entries ?? []) : (grammar?.entries ?? [])
 
       return h('div', { className: 'fr-knowledge' },
-        error === '' ? null : h('p', { className: 'fr-error', role: 'alert' }, error),
+        errorBlock(t, error, setError),
         status === '' ? null : h('p', { className: 'fr-status', role: 'status' }, status),
         detail || kind === 'conjugation' ? null : (entries.length === 0 && !busy
           ? h('div', { className: 'fr-empty' }, kind === 'lexicon' ? t('noLexicon') : t('noGrammar'))
@@ -2896,7 +3341,7 @@ window.__ModuleLoader__.load({
       )
     }
 
-    function PassagePage({t, listPassages, listArchivedPassages, getPassage, createPassage, exportPassages, exportLibrary, importLibrary, previewImport, listLexicon, listGrammar, renderLexicon, resolveGrammarCandidate, listLexiconSources, fetchLexiconSource, setGrammarMastery, readConjugation, fetchConjugation, readSentenceAnalysis, readAnalysisCoverage, analyseSentence, analyseParagraph, publishAnalysis, createSelection, getSegmentation, listAnalysis, saveTranslation, addBranch, listBackends, listBackendModels, previewAsk, ask, streamAsk, listDiscussion, createBranch, setBranchState, onClose, lookupMot, recordConclusion, archivePassage, restorePassage}) {
+    function PassagePage({t, listPassages, listArchivedPassages, getPassage, createPassage, exportPassages, exportLibrary, importLibrary, previewImport, listLexicon, listGrammar, renderLexicon, resolveGrammarCandidate, listLexiconSources, fetchLexiconSource, setGrammarMastery, readConjugation, fetchConjugation, readSentenceAnalysis, readAnalysisCoverage, previewAnalysisContext, analyseSentence, analyseParagraph, cancelAnalysis, publishAnalysis, createSelection, getSegmentation, listAnalysis, saveTranslation, addBranch, listBackends, listBackendModels, previewAsk, readContext, ask, streamAsk, listDiscussion, createBranch, setBranchState, onClose, lookupMot, createLexiconEntry, recordConclusion, archivePassage, restorePassage}) {
       const [items, setItems] = useState([])
       const [archivedItems, setArchivedItems] = useState([])
       const [showArchived, setShowArchived] = useState(false)
@@ -2961,8 +3406,20 @@ window.__ModuleLoader__.load({
         }
       }, [listArchivedPassages, t])
 
-      const openPassage = useCallback(async (id) => {
+      const openPassage = useCallback(async (id, resume = false) => {
+        if (!resume) {
+          pendingResumeRef.current = null
+          setResumeMessage('')
+        }
         const request = ++passageRequest.current
+        if (resume && pendingResumeRef.current?.passageId === id) pendingResumeRef.current.request = request
+        historyContextRequest.current += 1
+        setHistoryContext(null)
+        analysisContextRequestRef.current += 1
+        setAnalysisContextDialog(null)
+        pendingAnswerRevealRef.current = null
+        answerRevealAutoScrollRef.current = false
+        setNewAnswerMessageId(null)
         setSelectedId(id)
         setLoadingPassage(true)
         setError('')
@@ -2975,6 +3432,7 @@ window.__ModuleLoader__.load({
           if (request !== passageRequest.current) return
           displayedPassage.current = null
           setActivePassage(null)
+          if (resume) { pendingResumeRef.current = null; setResumeMessage('resumeUnavailable'); setDirectoryOpen(true) }
           setError(String(cause?.message ?? cause))
         } finally {
           if (request === passageRequest.current) setLoadingPassage(false)
@@ -3204,6 +3662,8 @@ window.__ModuleLoader__.load({
           await Promise.all([refreshList(0), refreshArchived()])
           if (displayedPassage.current === item.id) {
             passageRequest.current += 1
+            historyContextRequest.current += 1
+            setHistoryContext(null)
             displayedPassage.current = null
             setActivePassage(null)
             setSelectedId('')
@@ -3379,6 +3839,12 @@ window.__ModuleLoader__.load({
       const [draftLocation, setDraftLocation] = useState({ book: '', chapter: '', number: 1 })
       const [shelfError, setShelfError] = useState('')
       const directorySize = useRef(null)
+      const [askRun, setAskRun] = useState(null)
+      const [askTick, setAskTick] = useState(0)
+      const [lexiconEntryDraft, setLexiconEntryDraft] = useState(null)
+      const [historyContext, setHistoryContext] = useState(null)
+      const [knowledgeFocusConjugationEntryId, setKnowledgeFocusConjugationEntryId] = useState(null)
+      const [resumeMessage, setResumeMessage] = useState('')
       // Discard reads from an earlier selection, including A -> B -> A.
       const passageRequest = useRef(0)
       const displayedPassage = useRef(activePassage?.id ?? null)
@@ -3388,9 +3854,68 @@ window.__ModuleLoader__.load({
       const askPreviewPending = useRef(false)
       const modelRequest = useRef(0)
       const focusedAnchor = useRef(anchorId)
+      const askAbortRef = useRef(null)
+      const askRunSeq = useRef(0)
+      const branchCreateLock = useRef(false)
+      const historyContextRequest = useRef(0)
+      const pendingResumeRef = useRef(null)
+      const positionSaveTimer = useRef(null)
+      const ignorePositionScrollUntil = useRef(0)
+      const readingLoadedFor = useRef(null)
+      const discussionLoadedFor = useRef(null)
+      const lastReadingPointInitializer = useRef(undefined)
+      if (lastReadingPointInitializer.current === undefined) lastReadingPointInitializer.current = readLastReadingPosition()
+      const [lastReadingPoint, setLastReadingPoint] = useState(lastReadingPointInitializer.current)
+      const [newAnswerMessageId, setNewAnswerMessageId] = useState(null)
+      const [analysisContextDialog, setAnalysisContextDialog] = useState(null)
+      const lastReadingPointRef = useRef(lastReadingPoint)
+      const analysisContextRequestRef = useRef(0)
+      const pendingAnswerRevealRef = useRef(null)
+      const answerRevealAutoScrollRef = useRef(false)
+      const wordBranchOperationsRef = useRef(new Map())
       focusedAnchor.current = anchorId
       function currentRead(passageId, request) {
         return passageRequest.current === request && displayedPassage.current === passageId
+      }
+      function persistReadingPosition(overrides = {}, announce = false) {
+        if (activePassage === null) return null
+        const savedAnchor = overrides.anchorId ?? anchorId
+        const sentence = sentenceList().find((entry) => entry.id === savedAnchor)
+        const anchorText = sentence?.text ?? (savedAnchor === 'passage' ? activePassage.sourceText.slice(0, 500) : '')
+        const node = Object.prototype.hasOwnProperty.call(overrides, 'selectedNode') ? overrides.selectedNode : selectedNode
+        const scroller = shortReading ? readingPaneRef.current : detailScrollRef.current
+        const placement = shelf.placements[activePassage.id]
+        const point = cleanReadingPosition({
+          schemaVersion: 1, passageId: activePassage.id, title: activePassage.title ?? '',
+          sourceRevision: Number.isSafeInteger(activePassage.sourceRevision) ? activePassage.sourceRevision : 1,
+          anchorId: savedAnchor, anchorText,
+          branchId: node?.kind === 'discussion' && typeof node.id === 'string' ? node.id : null,
+          scrollTop: Number.isFinite(overrides.scrollTop) ? Math.max(0, overrides.scrollTop) : Math.max(0, scroller?.scrollTop ?? 0),
+          book: placement?.book ?? '', chapter: placement?.chapter ?? '',
+        })
+        if (point === null) return null
+        lastReadingPointRef.current = point
+        try { localStorage.setItem(LAST_READING_KEY, JSON.stringify(point)) } catch { /* The reader remains usable without local persistence. */ }
+        if (announce) {
+          setLastReadingPoint(point)
+          setResumeMessage('')
+        }
+        return point
+      }
+      function saveReadingPositionNow(overrides = {}, announce = false) {
+        if (positionSaveTimer.current !== null) clearTimeout(positionSaveTimer.current)
+        positionSaveTimer.current = null
+        return persistReadingPosition(overrides, announce)
+      }
+      function queueReadingPosition(event) {
+        if (Date.now() < ignorePositionScrollUntil.current) return
+        const scrollTop = event?.currentTarget?.scrollTop
+        if (!Number.isFinite(scrollTop)) return
+        if (positionSaveTimer.current !== null) clearTimeout(positionSaveTimer.current)
+        positionSaveTimer.current = setTimeout(() => {
+          positionSaveTimer.current = null
+          persistReadingPosition({ scrollTop })
+        }, 180)
       }
       function invalidateContextPreview() {
         contextPreviewRequest.current += 1
@@ -3401,7 +3926,15 @@ window.__ModuleLoader__.load({
         }
       }
       function showBookshelf() {
+        saveReadingPositionNow({}, true)
         invalidateContextPreview()
+        historyContextRequest.current += 1
+        setHistoryContext(null)
+        analysisContextRequestRef.current += 1
+        setAnalysisContextDialog(null)
+        pendingAnswerRevealRef.current = null
+        answerRevealAutoScrollRef.current = false
+        setNewAnswerMessageId(null)
         passageRequest.current += 1
         displayedPassage.current = null
         setLoadingPassage(false)
@@ -3500,7 +4033,7 @@ window.__ModuleLoader__.load({
       useEffect(() => {
         if (branchDialog === null || typeof document === 'undefined') return
         const opener = document.activeElement
-        rootRef.current?.querySelector('#branchInput')?.focus({ preventScroll: true })
+        rootRef.current?.querySelector('#branchQuestionInput')?.focus({ preventScroll: true })
         return () => { if (opener?.isConnected) opener.focus?.({ preventScroll: true }) }
       }, [branchDialog !== null])
       // `gesture*` has no React synthetic event, so the stage binds it directly; the same
@@ -3570,6 +4103,19 @@ window.__ModuleLoader__.load({
       useModalFocus(lookupOpen, '[aria-labelledby="lookupTitle"]')
       useModalFocus(actionDialog !== null, '[aria-labelledby="actionDialogTitle"]')
       useModalFocus(switcherOpen, '[aria-labelledby="switchTitle"]')
+      function resumeLastReading() {
+        const point = cleanReadingPosition(lastReadingPointRef.current ?? lastReadingPoint)
+        if (point === null || !items.some((item) => item.id === point.passageId)) {
+          pendingResumeRef.current = null
+          setResumeMessage('resumeUnavailable')
+          return
+        }
+        pendingResumeRef.current = point
+        setResumeMessage('')
+        setKnowledgeOpen(false)
+        setDirectoryOpen(false)
+        void openPassage(point.passageId, true)
+      }
       function bookDirectory() {
         const rows = (book, chapter) => items.filter((item) => {
           const loc = shelf.placements[item.id]
@@ -3582,10 +4128,17 @@ window.__ModuleLoader__.load({
               h('span', { className: 'shelfPassageText' }, h('span', null, item.title || t('untitled')), h('small', null, item.excerpt ?? ''))),
             h('button', { className: 'shelfOrganize', type: 'button', title: t('organizePassage'), 'aria-label': `${t('organizePassage')} · ${item.title}`,
               onClick: () => { setError(''); setLocationDialog({ passageId: item.id, ...(shelf.placements[item.id] ?? { book: '', chapter: '', number: 1 }) }) } }, '···')))
+        const canResume = lastReadingPoint !== null && items.some((item) => item.id === lastReadingPoint.passageId)
         return h('aside', { className: `bookDirectory${directoryOpen ? '' : ' hiddenDirectory'}`, 'aria-label': t('shelfTitle'), id: 'book-directory' },
           h('div', { className: 'directoryHead' }, h('strong', null, t('shelfTitle')),
             h('button', { className: 'small', type: 'button', onClick: () => { setError(''); setLocationDialog({ book: '', chapter: '', number: 1 }) } }, t('newBook'))),
-          h('div', { className: 'directoryTree' },
+          lastReadingPoint === null ? null : h('div', { className: 'directoryResume' },
+            h('button', { className: 'small primary', type: 'button', disabled: !canResume, onClick: resumeLastReading }, t('continueReading')),
+            h('small', null, canResume ? format(t, 'resumeLocation', {
+              book: lastReadingPoint.book || t('unfiled'), chapter: lastReadingPoint.chapter || t('noChapter'), title: lastReadingPoint.title,
+            }) : t('resumeUnavailable'))),
+          resumeMessage === '' ? null : h('p', { className: 'hint', role: 'status' }, t(resumeMessage)),
+          h('div', { className: 'directoryTree' }, 
             loadingList ? h('p', { className: 'hint' }, t('loading')) : null,
             shelf.books.map((book) => h('details', { key: book.name, className: 'shelfBook', open: true },
               h('summary', null, book.name),
@@ -3770,6 +4323,7 @@ window.__ModuleLoader__.load({
        * reading surface they had scrolled — and coming back restores all three.
        */
       function openKnowledge() {
+        saveReadingPositionNow({}, true)
         toggleNavigation(false)
         const scroller = shortReading ? readingPaneRef.current : detailScrollRef.current
         returnPoint.current = {
@@ -3997,19 +4551,40 @@ window.__ModuleLoader__.load({
             listAnalysis({ passageId: passage.id }).then((result) => unwrap(result, t)),
           ])
           if (!currentRead(passage.id, request)) return
-          setSegmentation(segments.segmentation ?? null)
+          const nextSegmentation = segments.segmentation ?? null
+          readingLoadedFor.current = passage.id
+          setSegmentation(nextSegmentation)
           setAnalysis(stored.analysis ?? null)
-          setAnchorId(segments.segmentation?.paragraphs?.[0]?.sentences?.[0]?.id ?? 'passage')
+          let nextAnchorId = nextSegmentation?.paragraphs?.[0]?.sentences?.[0]?.id ?? 'passage'
+          const pending = pendingResumeRef.current
+          if (pending?.passageId === passage.id) {
+            const sentences = (nextSegmentation?.paragraphs ?? []).flatMap((paragraph) => paragraph.sentences ?? [])
+            const byId = sentences.find((sentence) => sentence.id === pending.anchorId)
+            const exactById = byId?.text === pending.anchorText ? byId : null
+            const exactMatches = pending.anchorText === '' ? [] : sentences.filter((sentence) => sentence.text === pending.anchorText)
+            const exact = exactById ?? (exactMatches.length === 1 ? exactMatches[0] : null)
+            const sourceRevision = Number.isSafeInteger(passage.sourceRevision) ? passage.sourceRevision : 1
+            nextAnchorId = exact?.id ?? (pending.anchorId === 'passage' && sourceRevision === pending.sourceRevision ? 'passage' : nextAnchorId)
+            pendingResumeRef.current = {
+              ...pending, request, restoreAnchorId: nextAnchorId,
+              anchorMatched: exact !== null || (pending.anchorId === 'passage' && sourceRevision === pending.sourceRevision),
+              sourceChanged: sourceRevision !== pending.sourceRevision,
+            }
+          }
+          setAnchorId(nextAnchorId)
           setDrafts({})
         } catch (cause) {
           if (!currentRead(passage.id, request)) return
           setSegmentation(null)
           setAnalysis(null)
+          if (pendingResumeRef.current?.passageId === passage.id) { pendingResumeRef.current = null; setResumeMessage('resumeUnavailable') }
           setError(String(cause?.message ?? cause))
         }
       }, [getSegmentation, listAnalysis, t])
 
       useEffect(() => {
+        readingLoadedFor.current = null
+        discussionLoadedFor.current = null
         setSelectedNode(null)
         setBranchDialog(null)
         setLookupOpen(false)
@@ -4040,9 +4615,74 @@ window.__ModuleLoader__.load({
         setStreamText('')
       }, [activePassage, loadReading])
 
+      useEffect(() => {
+        const point = pendingResumeRef.current
+        const passageId = activePassage?.id
+        if (point === null || point === undefined || point.passageId !== passageId
+          || segmentation === null || readingLoadedFor.current !== passageId
+          || discussionLoadedFor.current !== passageId) return
+        pendingResumeRef.current = null
+        let restoredNode = null
+        let message = point.anchorMatched ? '' : 'resumeSourceChanged'
+        if (point.anchorMatched && point.branchId !== null) {
+          const branch = (discussion?.branches ?? []).find((entry) => entry.branchId === point.branchId && entry.anchorId === point.restoreAnchorId)
+          if (branch !== undefined) restoredNode = branchNode(branch)
+          else message = 'resumeBranchMissing'
+        }
+        if (message === '' && point.sourceChanged) message = 'resumeRelocated'
+        setAnchorId(point.restoreAnchorId)
+        setSelectedNode(restoredNode)
+        setResumeMessage(message)
+        ignorePositionScrollUntil.current = Date.now() + 350
+        requestAnimationFrame(() => {
+          if (activePassage?.id !== point.passageId || passageRequest.current !== point.request) return
+          const scroller = shortReading ? readingPaneRef.current : detailScrollRef.current
+          const scrollTop = point.anchorMatched ? point.scrollTop : 0
+          if (scroller !== null && scroller !== undefined) scroller.scrollTop = scrollTop
+          if (point.anchorMatched) {
+            saveReadingPositionNow({ anchorId: point.restoreAnchorId, selectedNode: restoredNode, scrollTop }, true)
+            if (message !== '') setResumeMessage(message)
+          }
+        })
+      }, [activePassage?.id, segmentation, discussion, shortReading])
+
       // The backend list is a property of the Host, not of one passage, so it is
       // read once when the panel opens.
       useEffect(() => { loadBackends() }, [])
+
+      // New model answers are revealed in the shared reading scroll. If the reader
+      // was already at the tail, follow the answer; otherwise pin a jump action in
+      // the passage bar instead of yanking them away from the sentence they were on.
+      useEffect(() => {
+        const pending = pendingAnswerRevealRef.current
+        if (pending === null || pending.passageId !== activePassage?.id) return
+        const branch = (discussion?.branches ?? []).find((entry) => entry.branchId === pending.branchId)
+        if (branch === undefined) return
+        const previousIndex = pending.previousMessageId === null
+          ? -1
+          : branch.messages.findIndex((message) => message.messageId === pending.previousMessageId)
+        const fresh = branch.messages.slice(previousIndex + 1).reverse().find((message) =>
+          message.author === 'model' && message.status !== 'failed' && message.text !== '')
+        if (fresh === undefined) return
+        const scrollTop = detailScrollRef.current?.scrollTop ?? pending.scrollTop
+        answerRevealAutoScrollRef.current = pending.nearBottom && Math.abs(scrollTop - pending.scrollTop) < 24
+        pendingAnswerRevealRef.current = null
+        setNewAnswerMessageId(fresh.messageId)
+      }, [discussion, activePassage?.id])
+
+      useEffect(() => {
+        const messageId = newAnswerMessageId
+        if (messageId === null || !answerRevealAutoScrollRef.current) return
+        answerRevealAutoScrollRef.current = false
+        const reveal = () => {
+          const target = typeof document === 'undefined' ? null : document.getElementById(`discussion-message-${messageId}`)
+          if (target === null) return
+          target.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' })
+          setNewAnswerMessageId((current) => current === messageId ? null : current)
+        }
+        if (typeof requestAnimationFrame === 'function') requestAnimationFrame(reveal)
+        else reveal()
+      }, [newAnswerMessageId])
 
       // The analysis of whatever sentence is currently in focus. It is a read:
       // nothing here generates anything.
@@ -4112,19 +4752,34 @@ window.__ModuleLoader__.load({
         setAnalysisStatus(kind === 'status' ? text : '')
       }
 
-      function beginAnalysisRun(timeoutMs) {
+      function beginAnalysisRun(timeoutMs, identity) {
         const runId = analysisRunSeq.current + 1
         analysisRunSeq.current = runId
         analysisCancelledRef.current = false
         analysisTimedOutRef.current = false
         const controller = new AbortController()
+        // Cleanup and timeout paths can still identify the operation even if the
+        // component state has already been torn down.
+        controller.operationId = identity.operationId
+        controller.passageId = identity.passageId
         analysisAbortRef.current = controller
         analysisBusyRef.current = true
         const timer = setTimeout(() => {
           analysisTimedOutRef.current = true
-          controller.abort()
+          void cancelAnalysis({ passageId: identity.passageId, operationId: identity.operationId })
+            .then((result) => {
+              const value = unwrap(result, t)
+              if (analysisRunSeq.current !== runId) return
+              if (value.kind === 'cancel-requested' || value.kind === 'cancel-queued') {
+                controller.abort()
+              } else {
+                analysisTimedOutRef.current = false
+                reportAnalysis('status', t('analysisCancelTooLate'), identity.passageId, identity.anchorId)
+              }
+            })
+            .catch(() => { controller.abort() })
         }, timeoutMs)
-        setAnalysisRun({ runId, startedAt: Date.now(), timeoutSeconds: Math.round(timeoutMs / 1000) })
+        setAnalysisRun({ runId, startedAt: Date.now(), timeoutSeconds: Math.round(timeoutMs / 1000), ...identity })
         return {
           runId,
           controller,
@@ -4162,11 +4817,43 @@ window.__ModuleLoader__.load({
         }
       }
 
-      /** `取消`: abort the run. A cancelled reply is refused downstream, so
-       *  nothing partial is ever stored. */
+      /** Ask the Host to revoke the operation before aborting this Remote call. */
       function cancelAnalysisRun() {
+        const run = analysisRun
+        const controller = analysisAbortRef.current
+        if (run === null || controller === null || run.cancelPending === true) return
         analysisCancelledRef.current = true
-        analysisAbortRef.current?.abort()
+        setAnalysisRun((current) => current?.runId === run.runId
+          ? { ...current, cancelPending: true }
+          : current)
+        reportAnalysis('status', t('analysisCancelRequesting'), run.passageId, run.anchorId)
+        void (async () => {
+          try {
+            const value = unwrap(await cancelAnalysis({
+              passageId: run.passageId,
+              operationId: run.operationId,
+            }), t)
+            if (analysisRunSeq.current !== run.runId) return
+            if (value.kind === 'cancel-requested' || value.kind === 'cancel-queued') {
+              // The Host has now fenced the durable commit; aborting the original
+              // call is safe and promptly releases this panel's busy state.
+              controller.abort()
+              return
+            }
+            analysisCancelledRef.current = false
+            setAnalysisRun((current) => current?.runId === run.runId
+              ? { ...current, cancelPending: false }
+              : current)
+            reportAnalysis('status', t('analysisCancelTooLate'), run.passageId, run.anchorId)
+          } catch {
+            if (analysisRunSeq.current !== run.runId) return
+            analysisCancelledRef.current = false
+            setAnalysisRun((current) => current?.runId === run.runId
+              ? { ...current, cancelPending: false }
+              : current)
+            reportAnalysis('error', t('analysisCancelFailed'), run.passageId, run.anchorId)
+          }
+        })()
       }
 
       // Navigating away cancels the run the panel is showing: 解析中 must never
@@ -4176,8 +4863,21 @@ window.__ModuleLoader__.load({
         cancelAnalysisRun()
       }, [activePassage, anchorId])
 
-      // Closing the panel ends the run too; the Host stops at the abort.
-      useEffect(() => () => { analysisAbortRef.current?.abort() }, [])
+      // Closing the panel also asks the Host to fence the write before the
+      // transport is aborted; a completed commit is left intact and reported
+      // through the next read rather than mislabeled as cancelled.
+      useEffect(() => () => {
+        const discussionController = askAbortRef.current
+        discussionController?.abort()
+        const controller = analysisAbortRef.current
+        if (controller === null || controller === undefined) return
+        void cancelAnalysis({ passageId: controller.passageId, operationId: controller.operationId })
+          .then((result) => {
+            const value = unwrap(result, t)
+            if (value.kind === 'cancel-requested' || value.kind === 'cancel-queued') controller.abort()
+          })
+          .catch(() => controller.abort())
+      }, [])
 
       // One tick per second while a run is on, so elapsed time stays visible.
       useEffect(() => {
@@ -4185,6 +4885,18 @@ window.__ModuleLoader__.load({
         const timer = setInterval(() => setAnalysisTick((tick) => tick + 1), 1000)
         return () => clearInterval(timer)
       }, [analysisBusy])
+
+      useEffect(() => {
+        if (!askBusy) return undefined
+        const timer = setInterval(() => setAskTick((tick) => tick + 1), 1000)
+        return () => clearInterval(timer)
+      }, [askBusy])
+
+      useEffect(() => {
+        if (askRun === null) return
+        if (activePassage?.id !== askRun.passageId || anchorId !== askRun.anchorId
+          || selectedNode?.id !== askRun.branchId) cancelAsk()
+      }, [activePassage, anchorId, selectedNode, askRun])
 
       /**
        * Generate what one paragraph is missing.
@@ -4210,11 +4922,14 @@ window.__ModuleLoader__.load({
           reportStatus('')
           // One bounded call per missing sentence: the Host asks them one by one.
           const missing = (coverage?.missing ?? []).filter((id) => id.startsWith(`${paragraphId}.`)).length
-          run = beginAnalysisRun(ANALYSIS_TIMEOUT_MS * Math.max(1, missing))
+          const operationId = createUuid()
+          run = beginAnalysisRun(ANALYSIS_TIMEOUT_MS * Math.max(1, missing), {
+            kind: 'paragraph', passageId, anchorId: paragraphId, operationId,
+          })
           setAnalysisBusy(true)
           const value = unwrap(await analyseParagraph({
             passageId, paragraphId, backend, model,
-            reasoningEffort: null, operationId: createUuid(),
+            reasoningEffort: null, operationId,
           }, run.controller.signal), t)
           if (!run.isCurrent()) {
             // Cancelled or superseded mid-flight: no result is committed, but a
@@ -4263,12 +4978,63 @@ window.__ModuleLoader__.load({
         return /^p[0-9]+\.s[0-9]+$/u.test(id)
       }
 
-      /** Which paragraph, if any, the current anchor belongs to. */
+      function closeAnalysisContextPreview() {
+        analysisContextRequestRef.current += 1
+        setAnalysisContextDialog(null)
+      }
 
+      async function openAnalysisContextPreview() {
+        if (activePassage === null || !isSentenceAnchorId(anchorId)) return
+        const passageId = activePassage.id
+        const passageRequestId = passageRequest.current
+        const sentenceId = anchorId
+        const requestId = ++analysisContextRequestRef.current
+        setAnalysisContextDialog({ passageId, anchorId: sentenceId, status: 'loading', preview: null, error: '' })
+        try {
+          const preview = unwrap(await previewAnalysisContext({ passageId, anchorId: sentenceId }), t)
+          if (analysisContextRequestRef.current !== requestId || !currentRead(passageId, passageRequestId) || focusedAnchor.current !== sentenceId) return
+          setAnalysisContextDialog({ passageId, anchorId: sentenceId, status: 'ready', preview, error: '' })
+        } catch (cause) {
+          if (analysisContextRequestRef.current !== requestId || !currentRead(passageId, passageRequestId) || focusedAnchor.current !== sentenceId) return
+          setAnalysisContextDialog({ passageId, anchorId: sentenceId, status: 'failed', preview: null, error: String(cause?.message ?? cause) })
+        }
+      }
 
-      /** Generate the analysis of the sentence in focus, through the chosen backend. */
-      async function analyseCurrent() {
+      async function updateAnalysisContextSelection(paragraphIds) {
+        const dialog = analysisContextDialog
+        if (dialog === null || dialog.status === 'loading') return
+        const requestId = ++analysisContextRequestRef.current
+        const passageRequestId = passageRequest.current
+        setAnalysisContextDialog({ ...dialog, status: 'loading', error: '' })
+        try {
+          const preview = unwrap(await previewAnalysisContext({
+            passageId: dialog.passageId, anchorId: dialog.anchorId, paragraphIds,
+          }), t)
+          if (analysisContextRequestRef.current !== requestId || !currentRead(dialog.passageId, passageRequestId)
+            || focusedAnchor.current !== dialog.anchorId) return
+          setAnalysisContextDialog({ ...dialog, status: 'ready', preview, error: '' })
+        } catch (cause) {
+          if (analysisContextRequestRef.current !== requestId || !currentRead(dialog.passageId, passageRequestId)
+            || focusedAnchor.current !== dialog.anchorId) return
+          setAnalysisContextDialog({ ...dialog, status: 'failed', error: String(cause?.message ?? cause) })
+        }
+      }
+
+      useModalFocus(analysisContextDialog !== null, '[aria-labelledby="analysisContextTitle"]')
+      useEffect(() => {
+        if (analysisContextDialog !== null
+          && (analysisContextDialog.passageId !== activePassage?.id || analysisContextDialog.anchorId !== anchorId)) {
+          closeAnalysisContextPreview()
+        }
+      }, [analysisContextDialog, activePassage?.id, anchorId])
+
+      /** Generate the analysis only from the exact materials the reader reviewed. */
+      async function analyseCurrent(confirmedContext = null) {
         if (activePassage === null || backend === '' || model === '') return
+        if (confirmedContext === null) { await openAnalysisContextPreview(); return }
+        if (confirmedContext.ok !== true || typeof confirmedContext.fingerprint !== 'string'
+          || confirmedContext.anchorId !== anchorId) return
+        closeAnalysisContextPreview()
         if (analysisBusyRef.current) return
         const passageId = activePassage.id
         // Feedback from this run is stamped to its passage and sentence, so it
@@ -4281,11 +5047,16 @@ window.__ModuleLoader__.load({
         try {
           reportError('')
           reportStatus('')
-          run = beginAnalysisRun(ANALYSIS_TIMEOUT_MS)
+          const operationId = createUuid()
+          run = beginAnalysisRun(ANALYSIS_TIMEOUT_MS, {
+            kind: 'sentence', passageId, anchorId, operationId,
+          })
           setAnalysisBusy(true)
           const value = unwrap(await analyseSentence({
             passageId, anchorId, backend, model,
-            reasoningEffort: null, operationId: createUuid(),
+            reasoningEffort: null, operationId,
+            paragraphIds: confirmedContext.includedParagraphIds,
+            expectedFingerprint: confirmedContext.fingerprint,
           }, run.controller.signal), t)
           if (!run.isCurrent()) {
             // Cancelled or superseded mid-flight: a late success is not shown,
@@ -4295,9 +5066,15 @@ window.__ModuleLoader__.load({
             return
           }
           if (value.ok !== true) {
-            // A refused analysis is refused with the gate's own reason: the panel
-            // shows what was wrong instead of displaying an unusable parse.
-            reportError(format(t, 'analysisRefused', { reason: value.reason, detail: value.failure ?? '' }))
+            if (value.reason === 'cancelled') {
+              reportStatus(t('analysisCancelled'))
+            } else {
+              // A refused analysis is refused with the gate's own reason: the panel
+              // shows what was wrong instead of displaying an unusable parse.
+              reportError(value.reason === 'analysis-context-stale' || value.reason === 'analysis-context-preview-required'
+                ? t('analysisContextStale')
+                : format(t, 'analysisRefused', { reason: value.reason, detail: value.failure ?? '' }))
+            }
           } else {
             reportStatus(format(t, 'analysisDone', {
               covered: value.covered, missing: value.missing, failed: value.failed, stale: value.stale,
@@ -4478,7 +5255,7 @@ window.__ModuleLoader__.load({
        * is the dialog's cancel, when there is a dialog to cancel out of.
        */
       function passageComposer(extraButtons = []) {
-        return h('form', { onSubmit: submit },
+        return h('form', { className: 'passageComposer', onSubmit: submit },
           locationFields(draftLocation, setDraftLocation),
           h('label', { className: 'kbField' },
             h('span', null, t('titleField')),
@@ -4504,7 +5281,13 @@ window.__ModuleLoader__.load({
             // and the damage flags; both are rendered here.
             (preview.blocks ?? []).map((block) => h('div', { key: block.id, className: 'previewBlock' },
               h('span', { className: 'kbLabel' }, format(t, 'previewBlockMeta', { id: block.id, sentences: block.sentences })),
-              h('div', { className: 'previewExcerpt' }, block.excerpt))),
+              (block.sentenceDetails ?? []).length > 0
+                ? block.sentenceDetails.map((sentence) => h('div', { key: sentence.id, className: 'previewSentence' },
+                  h('span', { className: 'kbLabel' }, format(t, 'previewSentenceMeta', {
+                    id: sentence.id, start: sentence.start, end: sentence.end,
+                  })),
+                  h('div', { className: 'previewSentenceText' }, sentence.text)))
+                : h('div', { className: 'previewExcerpt' }, block.excerpt))),
             (preview.flags ?? []).length === 0
               ? h('p', { className: 'hint previewFlagClean' }, t('previewFlagClean'))
               : (preview.flags ?? []).map((flag, index) => h('p', {
@@ -4579,7 +5362,7 @@ window.__ModuleLoader__.load({
 
       function closeButton() {
         return h('button', {
-          className: 'fr-button fr-buttonQuiet', type: 'button', onClick: onClose,
+          className: 'fr-button fr-buttonQuiet', type: 'button', onClick: () => { saveReadingPositionNow({}, true); onClose() },
           title: t('close'), 'aria-label': t('close'),
         }, '×')
       }
@@ -4635,11 +5418,11 @@ window.__ModuleLoader__.load({
         const request = passageRequest.current
         try {
           const value = unwrap(await listDiscussion({ passageId }), t)
-          if (currentRead(passageId, request)) setDiscussion(value)
+          if (currentRead(passageId, request)) { discussionLoadedFor.current = passageId; setDiscussion(value) }
         } catch {
           // A panel from an older Host has no discussion endpoint yet; the rest of
           // the workbench keeps working rather than the whole reading failing.
-          if (currentRead(passageId, request)) setDiscussion({ branches: [], conclusions: [] })
+          if (currentRead(passageId, request)) { discussionLoadedFor.current = passageId; setDiscussion({ branches: [], conclusions: [] }) }
         }
       }
 
@@ -4695,8 +5478,19 @@ window.__ModuleLoader__.load({
         }
       }
 
+      function cancelAsk() {
+        const run = askRun
+        const controller = askAbortRef.current
+        if (run === null || controller === null || controller.signal.aborted || run.cancelPending === true) return
+        setAskRun((current) => current?.runId === run.runId ? { ...current, cancelPending: true } : current)
+        setAskStatus(t('askCancelRequesting'))
+        // Ask cancellation is out-of-band on the Remote call. Until its terminal
+        // frame arrives, the UI says "requesting" and does not claim no answer was saved.
+        controller.abort()
+      }
+
       async function sendTurn(target) {
-        if (activePassage === null || backend === '' || model === '') return
+        if (activePassage === null || backend === '' || model === '' || askBusy) return
         const question = askDraft.trim()
         if (question === '') return
         const branchId = branchFor(target)
@@ -4709,28 +5503,45 @@ window.__ModuleLoader__.load({
           setError(t('previewAgain'))
           return
         }
-        const mine = () => currentRead(passageId, requestId)
+        const runId = askRunSeq.current + 1
+        askRunSeq.current = runId
+        const controller = new AbortController()
+        askAbortRef.current = controller
+        const operationId = createUuid()
+        const mine = () => currentRead(passageId, requestId) && askRunSeq.current === runId
         setAskBusy(true)
+        setAskRun({ runId, startedAt: Date.now(), model, question, passageId, anchorId: target, branchId })
+        setAskTick(0)
         setError('')
         setAskStatus('')
         setStreamText('')
+        const priorBranch = (discussion?.branches ?? []).find((entry) => entry.branchId === branchId)
+        const priorModelMessage = [...(priorBranch?.messages ?? [])].reverse().find((entry) => entry.author === 'model')
+        const readingScroller = detailScrollRef.current
+        const readingScrollTop = readingScroller?.scrollTop ?? 0
+        pendingAnswerRevealRef.current = {
+          passageId, branchId, previousMessageId: priorModelMessage?.messageId ?? null,
+          nearBottom: readingScroller === null || readingScroller === undefined
+            || readingScroller.scrollHeight - readingScrollTop - readingScroller.clientHeight < 180,
+          scrollTop: readingScrollTop,
+        }
         const request = {
           passageId, branchId, question,
           backend, model, reasoningEffort: null, extras: [],
-          operationId: createUuid(),
+          operationId,
           expectedFingerprint: contextPreview.fingerprint,
         }
         try {
           // A streamed turn shows the answer while it is written and always ends with a
           // terminal frame; a Host that cannot stream still answers in one piece.
-          // Every frame lands only while this turn still belongs to the displayed
-          // passage: a late delta from another passage's turn never writes here.
+          // Every frame is fenced to this turn's passage and identity.
           const onDelta = (update) => { if (mine()) setStreamText(update) }
           const value = typeof streamAsk === 'function'
-            ? await receiveStream(streamAsk(request), t, onDelta)
-            : unwrap(await ask(request), t)
+            ? await receiveStream(streamAsk(request, controller.signal), t, onDelta)
+            : unwrap(await ask(request, controller.signal), t)
           if (!mine()) return
           if (value.ok !== true) {
+            pendingAnswerRevealRef.current = null
             invalidateContextPreview()
             setError(format(t, 'askFailed', { reason: value.reason, failure: value.failure ?? '' }))
           } else {
@@ -4738,16 +5549,26 @@ window.__ModuleLoader__.load({
             invalidateContextPreview()
             setAskStatus(value.finish === 'stop'
               ? format(t, 'answerDone', { model: value.resolvedModel ?? value.model })
-              : format(t, 'answerPartial', { finish: value.finish }))
+              : value.finish === 'cancelled'
+                ? t('answerCancelled')
+                : format(t, 'answerPartial', { finish: value.finish }))
           }
           await loadDiscussion(passageId)
         } catch (cause) {
           if (!mine()) return
           invalidateContextPreview()
-          setError(format(t, 'generationUnavailable', { reason: String(cause?.message ?? cause) }))
+          if (controller.signal.aborted) {
+            await loadDiscussion(passageId)
+            setAskStatus(t('askCancelUnconfirmed'))
+          } else {
+            pendingAnswerRevealRef.current = null
+            setError(format(t, 'generationUnavailable', { reason: String(cause?.message ?? cause) }))
+          }
         } finally {
           if (mine()) {
             setAskBusy(false)
+            setAskRun(null)
+            if (askAbortRef.current === controller) askAbortRef.current = null
             // The stored message is authoritative from here on.
             setStreamText('')
           }
@@ -4771,14 +5592,19 @@ window.__ModuleLoader__.load({
 
       async function markBranch(branchId, status) {
         if (activePassage === null) return
+        setError('')
         try {
           const value = unwrap(await setBranchState({
             passageId: activePassage.id, branchId, status, title: null,
           }), t)
-          if (value.kind === 'conflict') setError(format(t, 'saveConflict', { reason: value.reason }))
+          if (value.kind === 'conflict') {
+            setOperationError(setError, t('branchStateSaveFailed'), t('branchStateOperation'), value.reason)
+            return
+          }
+          setError('')
           await loadDiscussion(activePassage.id)
         } catch (cause) {
-          setError(format(t, 'generationUnavailable', { reason: String(cause?.message ?? cause) }))
+          setOperationError(setError, t('branchStateSaveFailed'), t('branchStateOperation'), cause)
         }
       }
 
@@ -4900,7 +5726,9 @@ window.__ModuleLoader__.load({
         const connectors = []
         let y = 30
         let lastBottom = null
-        chapters.push({ index: 1, title: format(t, 'chapterLabel', { index: 1 }), y })
+        const placedChapter = activePassage === null ? '' : (shelf.placements[activePassage.id]?.chapter ?? '').trim()
+        const unnamedChapter = placedChapter === '' || [t('noChapter'), '未分章', 'No chapter'].includes(placedChapter)
+        chapters.push({ index: 1, title: unnamedChapter ? format(t, 'chapterLabel', { index: 1 }) : placedChapter, y })
         y += 85
         for (const [index, paragraph] of paragraphs.entries()) {
           const rows = paragraph.sentences.map((sentence) => navRowHeight(sentence.id))
@@ -5043,6 +5871,7 @@ window.__ModuleLoader__.load({
         invalidateContextPreview()
         setAnchorId(node.anchorId)
         setSelectedNode(node)
+        saveReadingPositionNow({ anchorId: node.anchorId, selectedNode: node })
       }
 
       /**
@@ -5051,10 +5880,12 @@ window.__ModuleLoader__.load({
        */
       function selectSentence(sentenceId) {
         invalidateContextPreview()
-        setAnchorId(sentenceId)
-        setSelectedNode((coverage?.covered ?? []).includes(sentenceId)
+        const nextNode = (coverage?.covered ?? []).includes(sentenceId)
           ? { id: `a-${sentenceId}`, anchorId: sentenceId, parentId: null, kind: 'analysis', title: t('analysisTitle'), status: '' }
-          : null)
+          : null
+        setAnchorId(sentenceId)
+        setSelectedNode(nextNode)
+        saveReadingPositionNow({ anchorId: sentenceId, selectedNode: nextNode })
       }
 
       /** One sentence row: ordinal, text (constituent-coloured when it is the anchor), audio row. */
@@ -5093,17 +5924,6 @@ window.__ModuleLoader__.load({
                 className: 'constituent',
                 style: { color: tokenForRole(piece.role) },
               }, piece.text))),
-          ),
-          h('div', { className: 'sentenceAudioMini' },
-            h('button', {
-              type: 'button', disabled: true, 'aria-label': format(t, 'audioSentence', { index: rowIndex + 1 }),
-              onClick: () => requestSentenceAudio(sentence.id, 'generate'),
-            }, t('audioGenerate')),
-            h('button', {
-              type: 'button', disabled: true, 'aria-label': format(t, 'audioRegenerateSentence', { index: rowIndex + 1 }),
-              onClick: () => requestSentenceAudio(sentence.id, 'regenerate'),
-            }, t('audioRegenerateShort')),
-            h('span', null, t('audioReserved')),
           ),
         )
       }
@@ -5189,20 +6009,6 @@ window.__ModuleLoader__.load({
         )
       }
 
-      /**
-       * Per-sentence audio.
-       *
-       * The prototype keeps these controls present and says so out loud: no provider is
-       * connected, so the button reports that instead of pretending to queue anything.
-       */
-      function requestSentenceAudio(anchorIdOfSentence, action) {
-        showToast(format(t, 'audioNotWiredSentence', {
-          index: sentenceOrdinal(anchorIdOfSentence),
-          action: action === 'regenerate' ? t('audioRegenerate') : t('audioGenerate'),
-        }))
-        return { status: 'unconfigured' }
-      }
-
       /** The 1-based position of a sentence in the passage, as the prototype labels it. */
       function sentenceOrdinal(id) {
         const all = (segmentation?.paragraphs ?? []).flatMap((paragraph) => paragraph.sentences)
@@ -5275,23 +6081,47 @@ window.__ModuleLoader__.load({
       }
 
       /** `openBranch(parent, cut)`: the hint names the source, or the sentence. */
-      function openBranchDialog(parentId, cut) {
+      function suggestedBranchTitle(question, parentId, targetAnchor = anchorId) {
+        const text = String(question ?? '').replace(/\s+/gu, ' ').trim()
+        const excerpt = text.slice(0, 62) || sentenceText(targetAnchor).replace(/\s+/gu, ' ').trim().slice(0, 62) || t('wholePassage')
         const parent = (discussion?.branches ?? []).find((branch) => branch.branchId === parentId)
-        setBranchDialog({ parentId, cut })
+        return parent === undefined
+          ? format(t, 'branchTitleDefault', { excerpt })
+          : format(t, 'branchTitleChild', { excerpt, parent: parent.title })
+      }
+
+      function openBranchDialog(parentId, cut, targetAnchor = anchorId) {
+        const parent = (discussion?.branches ?? []).find((branch) => branch.branchId === parentId)
+        const forkMessageId = parentId == null || cut == null || cut === undefined ? null : forkedMessageId(parentId, cut)
+        setBranchDialog({
+          passageId: activePassage?.id ?? null, anchorId: targetAnchor, parentId, cut,
+          forkedFrom: forkMessageId === null ? null : { branchId: parentId, messageId: forkMessageId },
+          question: '', titleEdited: false, operationId: createUuid(), attempted: false,
+        })
         setBranchTitle('')
         setBranchHint(parent === undefined
-          ? format(t, 'branchFromSentence', { index: sentenceOrdinal(anchorId) })
+          ? format(t, 'branchFromSentence', { index: sentenceOrdinal(targetAnchor) })
           : `${t('branchFrom')}${parent.title}`)
+        setError('')
         showToast('')
       }
 
       async function submitBranchDialog() {
         if (branchDialog === null) return
-        const title = dialogValue(branchTitle, 90, t('branchTitleRequired'))
+        const question = dialogValue(branchDialog.question, 4000, t('branchQuestionRequired'))
+        if (question === null) return
+        const title = branchTitle.trim() === ''
+          ? suggestedBranchTitle(question, branchDialog.parentId, branchDialog.anchorId).slice(0, 90)
+          : dialogValue(branchTitle, 90, t('branchTitleRequired'))
         if (title === null) return
+        if (askBusy) return
         const fork = branchDialog
-        setBranchDialog(null)
-        await createBranchWith({ title, parentId: fork.parentId, cut: fork.cut })
+        setBranchDialog((current) => current === null ? current : { ...current, attempted: true })
+        const created = await createBranchWith({
+          title, parentId: fork.parentId, cut: fork.cut, initialQuestion: question, operationId: fork.operationId,
+          passageId: fork.passageId, anchorId: fork.anchorId, forkedFrom: fork.forkedFrom,
+        })
+        if (created) setBranchDialog(null)
       }
 
       async function submitLookupDialog() {
@@ -5302,27 +6132,86 @@ window.__ModuleLoader__.load({
       }
 
       /** Create a branch with the dialog's title, and the fork it was opened from. */
-      async function createBranchWith({ title, parentId, cut }) {
-        if (activePassage === null) return
+      async function createBranchWith({
+        title, kind = 'discussion', parentId, cut,
+        anchorId: targetAnchor = anchorId, passageId: targetPassageId = activePassage?.id,
+        forkedFrom, initialQuestion = null, operationId = createUuid(),
+        failureMessage = t('branchSaveFailed'), retryKey = null, expectedFocusedAnchor = null,
+      }) {
+        if (targetPassageId == null || branchCreateLock.current) return false
+        const passageRead = passageRequest.current
+        const fork = forkedFrom === undefined
+          ? (parentId == null || cut == null || cut === undefined
+            ? null
+            : { branchId: parentId, messageId: forkedMessageId(parentId, cut) })
+          : forkedFrom
+        branchCreateLock.current = true
         setAskBusy(true)
         setError('')
         try {
           const value = unwrap(await createBranch({
-            passageId: activePassage.id, anchorId, kind: 'discussion', title,
-            parentId: parentId ?? null,
-            forkedFrom: parentId === null || cut === null || cut === undefined
-              ? null
-              : { branchId: parentId, messageId: forkedMessageId(parentId, cut) },
-            operationId: createUuid(),
+            passageId: targetPassageId, anchorId: targetAnchor, kind, title,
+            parentId: parentId ?? null, forkedFrom: fork, operationId,
           }), t)
-          if (value.kind === 'conflict') { setError(format(t, 'saveConflict', { reason: value.reason })); return }
-          await loadDiscussion(activePassage.id)
-          setAskStatus(t('branchOpened'))
+          if (!currentRead(targetPassageId, passageRead)) return false
+          if (value.kind === 'conflict') {
+            setOperationError(setError, t('branchCreateConflict'), t('createDiscussionOperation'), value.reason)
+            setBranchDialog((current) => current?.operationId === operationId
+              ? { ...current, operationId: createUuid(), attempted: false }
+              : current)
+            if (retryKey !== null && wordBranchOperationsRef.current.get(retryKey) === operationId) {
+              wordBranchOperationsRef.current.delete(retryKey)
+            }
+            return false
+          }
+          if (value.branch?.id === undefined) {
+            setOperationError(setError, failureMessage, t('createDiscussionOperation'), 'Host returned no branch id')
+            return false
+          }
+          await loadDiscussion(targetPassageId)
+          if (!currentRead(targetPassageId, passageRead)) return false
+          if (expectedFocusedAnchor !== null && focusedAnchor.current !== expectedFocusedAnchor) return false
+          if (retryKey !== null && wordBranchOperationsRef.current.get(retryKey) === operationId) {
+            wordBranchOperationsRef.current.delete(retryKey)
+          }
+          invalidateContextPreview()
+          setAnchorId(targetAnchor)
+          setSelectedNode({ id: value.branch.id, anchorId: targetAnchor, kind: 'discussion', title: value.branch.title ?? title })
+          setAskDraft(initialQuestion ?? '')
+          setAskStatus(initialQuestion === null ? t('branchOpened') : t(kind === 'vocabulary' ? 'wordQuestionReady' : 'discussionQuestionReady'))
+          return true
         } catch (cause) {
-          setError(format(t, 'generationUnavailable', { reason: String(cause?.message ?? cause) }))
+          if (currentRead(targetPassageId, passageRead)) {
+            setOperationError(setError, failureMessage, t('createDiscussionOperation'), cause)
+          }
+          return false
         } finally {
+          branchCreateLock.current = false
           setAskBusy(false)
         }
+      }
+
+      async function inspectSentContext(message) {
+        const passageId = activePassage?.id
+        if (passageId === undefined || message?.contextId == null) return
+        const requestId = ++historyContextRequest.current
+        const passageRead = passageRequest.current
+        setHistoryContext({ status: 'loading', message, value: null })
+        try {
+          const value = unwrap(await readContext({ passageId, contextId: message.contextId }), t)
+          if (requestId !== historyContextRequest.current || !currentRead(passageId, passageRead)) return
+          setHistoryContext(value.kind === 'found'
+            ? { status: 'found', message, value }
+            : { status: 'missing', message, value: null })
+        } catch {
+          if (requestId !== historyContextRequest.current || !currentRead(passageId, passageRead)) return
+          setHistoryContext({ status: 'failed', message, value: null })
+        }
+      }
+
+      function closeSentContext() {
+        historyContextRequest.current += 1
+        setHistoryContext(null)
       }
 
       /** The message a fork is fixed at, by its 1-based position in its own branch. */
@@ -5346,7 +6235,10 @@ window.__ModuleLoader__.load({
             status: value.found ? t('entryStored') : t('entryNotStored'),
             body: value.found
               ? (value.entries[0]?.senses?.[0]?.definition ?? '')
-              : format(t, 'lookupMiss', { count: value.candidates.length }),
+              : value.candidates.length === 0
+                ? ''
+                : format(t, 'lookupMiss', { count: value.candidates.length }),
+            entryId: value.entries[0]?.entryId ?? null,
             // A miss keeps its candidates on the node: "N 条相关原形" without
             // names was a dead end — each candidate is a button that looks it up.
             miss: value.found !== true,
@@ -5362,24 +6254,135 @@ window.__ModuleLoader__.load({
         }
       }
 
-      /** `conclude(id, j)` → the conclusion is stored as its own record, never as a rewrite. */
-      async function recordConclusionFor(branchId, text) {
-        if (activePassage === null) return
+      function startWordDiscussion(node) {
+        if (node?.title == null || activePassage === null) return
+        const mot = node.title
+        const retryKey = JSON.stringify([activePassage.id, node.anchorId, mot])
+        const operations = wordBranchOperationsRef.current
+        const operationId = operations.get(retryKey) ?? createUuid()
+        operations.set(retryKey, operationId)
+        void createBranchWith({
+          // Keep the exact queried Mot as the branch title so a later vocabulary
+          // action never has to guess it back out of an assistant's prose.
+          title: mot, kind: 'vocabulary',
+          parentId: null, cut: null, anchorId: node.anchorId,
+          initialQuestion: format(t, 'wordDiscussionPrompt', { mot }), operationId, retryKey,
+          failureMessage: t('wordDiscussionSaveFailed'), expectedFocusedAnchor: node.anchorId,
+        })
+      }
+
+      function openLexiconEntryForm(node) {
+        if (node?.title == null || activePassage === null) return
+        setLexiconEntryDraft({
+          mot: node.title, lemma: '', partOfSpeech: '', forms: '', label: '', definition: '',
+          passageId: activePassage.id, anchorId: node.anchorId, excerpt: sentenceText(node.anchorId), operationId: createUuid(),
+          saving: false, error: '',
+        })
+      }
+
+      function openLexiconEntryFromDiscussion(node, branch, message) {
+        if (activePassage === null || branch?.kind !== 'vocabulary' || message?.status !== 'complete') return
+        const mot = String(branch.title ?? '').trim()
+        if (mot === '') return
+        const modelAnswerTooLong = String(message.text ?? '').length > 4000
+        setLexiconEntryDraft({
+          mot, lemma: '', partOfSpeech: '', forms: '', label: '',
+          definition: modelAnswerTooLong ? '' : String(message.text ?? ''),
+          passageId: activePassage.id, anchorId: branch.anchorId ?? node.anchorId,
+          excerpt: sentenceText(branch.anchorId ?? node.anchorId), operationId: createUuid(),
+          fromModel: true, modelMessageId: message.messageId, modelSuggestionConfirmed: false,
+          modelAnswerTooLong, saving: false, error: '',
+        })
+      }
+
+      async function saveLexiconEntryDraft() {
+        const draft = lexiconEntryDraft
+        if (draft === null || draft.saving === true) return
+        const mot = draft.mot.trim()
+        const partOfSpeech = draft.partOfSpeech.trim()
+        const label = draft.label.trim()
+        const definition = draft.definition.trim()
+        if (mot === '' || partOfSpeech === '' || label === '' || definition === '') {
+          setLexiconEntryDraft({ ...draft, error: t('entryFieldsRequired') })
+          return
+        }
+        if (draft.fromModel === true && draft.modelSuggestionConfirmed !== true) {
+          setLexiconEntryDraft({ ...draft, error: t('modelEntryConfirmationRequired') })
+          return
+        }
+        setLexiconEntryDraft({ ...draft, saving: true, error: '' })
+        try {
+          const value = unwrap(await createLexiconEntry({
+            mot, partOfSpeech, lemma: draft.lemma.trim() === '' ? null : draft.lemma.trim(),
+            forms: draft.forms.split(/[,，;；\n]/u).map((form) => form.trim()).filter(Boolean),
+            label, definition,
+            ...(draft.fromModel === true ? { provenance: 'mixed' } : {}),
+            operationId: draft.operationId,
+            passageId: draft.passageId, anchorId: draft.anchorId,
+            occurrenceNote: draft.fromModel === true
+              ? format(t, 'entryAiOccurrenceNote', { messageId: draft.modelMessageId ?? '' })
+              : t('entryOccurrenceNote'),
+          }), t)
+          if (value.kind === 'conflict') {
+            setLexiconEntryDraft({ ...draft, saving: false, error: t('entrySaveConflict') })
+            return
+          }
+          setLexiconEntryDraft(null)
+          openKnowledge()
+          setKnowledgeTab('vocab')
+          setKnowledgeEntryId(value.entryId)
+          setKnowledgeFocusConjugationEntryId(draft.lemma.trim() === '' ? null : value.entryId)
+          if (value.kind === 'created' && value.occurrence.kind === 'failed') {
+            showToast(t('entrySavedContextFailed'))
+          } else if (value.kind === 'exists' && value.occurrence.kind === 'not-attempted') {
+            showToast(t('entryAlreadyExists'))
+          } else {
+            showToast(t('entrySaved'))
+          }
+        } catch {
+          setLexiconEntryDraft((current) => current?.operationId === draft.operationId
+            ? { ...current, saving: false, error: t('entrySaveFailed') }
+            : current)
+        }
+      }
+
+      /** `conclude(id, j)` appends an attributed conclusion; it never rewrites the answer. */
+      async function recordConclusionFor(dialog, text) {
+        if (dialog?.passageId == null || dialog.branchId == null || dialog.anchorId == null) return false
+        setError('')
         try {
           const value = unwrap(await recordConclusion({
-            passageId: activePassage.id, branchId, text, operationId: createUuid(),
+            passageId: dialog.passageId,
+            branchId: dialog.branchId,
+            anchorId: dialog.anchorId,
+            messageId: dialog.messageId ?? null,
+            text,
+            status: 'confirmed',
+            operationId: dialog.operationId,
           }), t)
-          if (value.kind === 'conflict') setError(format(t, 'saveConflict', { reason: value.reason }))
-          await loadDiscussion(activePassage.id)
+          if (value.kind === 'conflict') {
+            setActionDialog((current) => current?.operationId === dialog.operationId
+              ? { ...current, operationId: createUuid() }
+              : current)
+            setOperationError(setError, t('conclusionSaveFailed'), t('conclusionOperation'), value.reason)
+            return false
+          }
+          setError('')
+          await loadDiscussion(dialog.passageId)
           showToast(t('conclusionSaved'))
+          return true
         } catch (cause) {
-          setError(format(t, 'generationUnavailable', { reason: String(cause?.message ?? cause) }))
+          // Keep the exact edited value and operation id in the open dialog. A
+          // retry is idempotent even if the Host committed before the reply was lost.
+          setOperationError(setError, t('conclusionSaveFailed'), t('conclusionOperation'), cause)
+          return false
         }
       }
 
       /** `openActionDialog(config)`: the opener is remembered so focus can go back. */
       function openActionDialog(config) {
         actionOpener.current = typeof document === 'undefined' ? null : document.activeElement
+        setError('')
         setActionDialog(config)
         setActionText(config.kind === 'conclude' ? config.value : '')
         setLookupOpen(false)
@@ -5395,13 +6398,17 @@ window.__ModuleLoader__.load({
       }
 
       async function commitActionDialog() {
-        if (actionDialog === null) return
+        if (actionDialog === null || actionDialog.saving === true) return
         if (actionDialog.kind === 'conclude') {
           const text = dialogValue(actionText, 4000, t('conclusionRequired'))
           if (text === null) return
           const dialog = actionDialog
-          closeActionDialog(false)
-          await recordConclusionFor(dialog.branchId, text)
+          setActionDialog({ ...dialog, saving: true })
+          const saved = await recordConclusionFor(dialog, text)
+          if (saved) closeActionDialog(false)
+          else setActionDialog((current) => current?.operationId === dialog.operationId
+            ? { ...current, saving: false }
+            : current)
           return
         }
         closeActionDialog()
@@ -5414,32 +6421,59 @@ window.__ModuleLoader__.load({
        * iframe, which is exactly what happened to this panel before.
        */
       function branchDialogView() {
+        const branchErrorMessage = decodeOperationError(error).message
+        const showBranchError = branchErrorMessage === t('branchSaveFailed') || branchErrorMessage === t('branchCreateConflict')
         return h('div', { className: 'modalBackdrop' },
           h('div', {
             className: 'modal', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'modalTitle',
             onKeyDown: (event) => {
               if (event.key === 'Escape' && !event.isComposing) { event.preventDefault(); event.stopPropagation(); setBranchDialog(null) }
               if (event.key !== 'Tab') return
-              const fields = Array.from(event.currentTarget.querySelectorAll('input:not(:disabled), button:not(:disabled)'))
+              const fields = Array.from(event.currentTarget.querySelectorAll('input:not(:disabled), textarea:not(:disabled), button:not(:disabled)'))
               const first = fields[0], last = fields[fields.length - 1]
               if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus() }
               if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus() }
             },
           },
-            h('div', { className: 'eyebrow' }, 'NEW BRANCH'),
+            h('div', { className: 'eyebrow' }, t('discussionStartEyebrow')),
             h('h2', { id: 'modalTitle' }, t('newBranch')),
             h('p', { className: 'hint', id: 'modalHint' }, branchHint),
-            h('label', { htmlFor: 'branchInput', style: { fontSize: '12px' } }, t('titleField')),
+            h('label', { htmlFor: 'branchQuestionInput', style: { fontSize: '12px' } }, t('branchQuestionField')),
+            h('textarea', {
+              id: 'branchQuestionInput', 'aria-required': 'true', maxLength: 4000, disabled: askBusy,
+              placeholder: t('branchQuestionPlaceholder'), value: branchDialog?.question ?? '',
+              onChange: (event) => {
+                const question = event.target.value
+                setBranchDialog((current) => current === null ? current : {
+                  ...current, question,
+                  ...(current.attempted === true ? { operationId: createUuid(), attempted: false } : {}),
+                })
+                if (decodeOperationError(error).message === t('branchSaveFailed')) setError('')
+                if (branchDialog?.titleEdited !== true) {
+                  setBranchTitle(question.trim() === '' ? '' : suggestedBranchTitle(question, branchDialog?.parentId, branchDialog?.anchorId ?? anchorId).slice(0, 90))
+                }
+              },
+            }),
+            h('label', { htmlFor: 'branchInput', style: { fontSize: '12px' } }, t('branchTitleOptional')),
             h('input', {
-              id: 'branchInput', 'aria-required': 'true', maxLength: 90,
-              placeholder: t('branchNamePlaceholder'),
-              value: branchTitle,
-              onChange: (event) => setBranchTitle(event.target.value),
+              id: 'branchInput', maxLength: 90, disabled: askBusy,
+              placeholder: t('branchDialogTitlePlaceholder'), value: branchTitle,
+              onChange: (event) => {
+                setBranchTitle(event.target.value)
+                setBranchDialog((current) => current === null ? current : {
+                  ...current, titleEdited: true,
+                  ...(current.attempted === true ? { operationId: createUuid(), attempted: false } : {}),
+                })
+                if (decodeOperationError(error).message === t('branchSaveFailed')) setError('')
+              },
               onKeyDown: (event) => handleDialogEnter(event, 'branch'),
             }),
+            h('p', { className: 'hint' }, t('branchTitleGeneratedHint')),
+            showBranchError ? errorBlock(t, error, setError) : null,
             h('div', { className: 'modalFoot' },
-              h('button', { type: 'button', onClick: () => setBranchDialog(null) }, t('cancel')),
-              h('button', { type: 'button', className: 'primary', onClick: submitBranchDialog }, t('create')),
+              h('button', { type: 'button', disabled: askBusy, onClick: () => setBranchDialog(null) }, t('cancel')),
+              h('button', { type: 'button', className: 'primary', disabled: askBusy, onClick: submitBranchDialog },
+                askBusy ? t('saving') : t('createAndContinue')),
             ),
           ),
         )
@@ -5468,21 +6502,217 @@ window.__ModuleLoader__.load({
         )
       }
 
+      function lexiconEntryDialogView() {
+        const draft = lexiconEntryDraft
+        if (draft === null) return null
+        const update = (field, value) => setLexiconEntryDraft((current) => current === null
+          ? current
+          : {
+            ...current, [field]: value, error: '',
+            ...(current.fromModel === true && field !== 'modelSuggestionConfirmed' ? { modelSuggestionConfirmed: false } : {}),
+          })
+        const close = () => { if (draft.saving !== true) setLexiconEntryDraft(null) }
+        return h('div', { className: 'modalBackdrop' },
+          h('div', {
+            className: 'modal kbModal', role: 'dialog', 'aria-modal': 'true',
+            'aria-labelledby': 'lexiconEntryTitle',
+            onKeyDown: (event) => modalKeys(event, close),
+          },
+            h('h2', { id: 'lexiconEntryTitle' }, t('createEntryTitle')),
+            h('p', { className: 'hint' }, t('createEntryHint')),
+            draft.fromModel === true ? h('div', { className: 'modelEntryNotice', role: 'status' },
+              h('p', { className: 'hint' }, t('modelEntryUnverified')),
+              draft.modelAnswerTooLong === true ? h('p', { className: 'hint' }, t('modelAnswerTooLong')) : null,
+            ) : null,
+            h('label', { className: 'kbField', htmlFor: 'entryMot' },
+              h('span', null, t('exactMotField')),
+              h('input', {
+                id: 'entryMot', value: draft.mot, maxLength: 80, readOnly: draft.fromModel !== true,
+                onChange: (event) => update('mot', event.target.value),
+              }),
+            ),
+            h('label', { className: 'kbField', htmlFor: 'entryLemma' },
+              h('span', null, t('lemmaField')),
+              h('input', {
+                id: 'entryLemma', maxLength: 80, value: draft.lemma,
+                onChange: (event) => update('lemma', event.target.value),
+              }),
+            ),
+            h('label', { className: 'kbField', htmlFor: 'entryPartOfSpeech' },
+              h('span', null, t('partOfSpeechField')),
+              h('input', {
+                id: 'entryPartOfSpeech', maxLength: 40, required: true, value: draft.partOfSpeech,
+                onChange: (event) => update('partOfSpeech', event.target.value),
+              }),
+            ),
+            h('label', { className: 'kbField', htmlFor: 'entryLabel' },
+              h('span', null, t('senseLabelField')),
+              h('input', {
+                id: 'entryLabel', maxLength: 80, required: true, value: draft.label,
+                onChange: (event) => update('label', event.target.value),
+              }),
+            ),
+            h('label', { className: 'kbField', htmlFor: 'entryDefinition' },
+              h('span', null, t('definitionField')),
+              h('textarea', {
+                id: 'entryDefinition', rows: 4, maxLength: 4000, required: true, value: draft.definition,
+                onChange: (event) => update('definition', event.target.value),
+              }),
+            ),
+            h('label', { className: 'kbField', htmlFor: 'entryExample' },
+              h('span', null, t('entryExampleField')),
+              h('textarea', { id: 'entryExample', rows: 3, readOnly: true, value: draft.excerpt ?? '' }),
+            ),
+            h('label', { className: 'kbField', htmlFor: 'entryForms' },
+              h('span', null, t('relatedFormsField')),
+              h('input', {
+                id: 'entryForms', maxLength: 1000, value: draft.forms,
+                onChange: (event) => update('forms', event.target.value),
+              }),
+            ),
+            draft.fromModel === true ? h('label', { className: 'kbField modelEntryConfirm' },
+              h('input', {
+                type: 'checkbox', checked: draft.modelSuggestionConfirmed === true,
+                onChange: (event) => update('modelSuggestionConfirmed', event.target.checked),
+              }),
+              h('span', null, t('modelEntryConfirmation')),
+            ) : null,
+            draft.error === '' ? null : h('p', { className: 'error', role: 'alert' }, draft.error),
+            h('div', { className: 'modalFoot' },
+              h('button', { type: 'button', disabled: draft.saving === true, onClick: close }, t('cancel')),
+              h('button', {
+                className: 'primary', type: 'button', disabled: draft.saving === true,
+                onClick: saveLexiconEntryDraft,
+              }, draft.saving === true ? t('saving') : t('saveEntry')),
+            ),
+          ),
+        )
+      }
+
+      function analysisContextDialogView() {
+        const dialog = analysisContextDialog
+        if (dialog === null) return null
+        const preview = dialog.preview
+        const loading = dialog.status === 'loading'
+        const close = () => closeAnalysisContextPreview()
+        const reasonText = (reason, characters, limit) => reason === 'current-paragraph-too-long'
+          ? format(t, 'analysisContextCurrentTooLong', { characters, limit })
+          : reason === 'selected-context-too-long'
+            ? format(t, 'analysisContextSelectionTooLong', { characters, limit })
+            : t('analysisContextSelectionInvalid')
+        return h('div', { className: 'modalBackdrop' },
+          h('div', {
+            className: 'modal contextModal analysisContextModal', role: 'dialog', 'aria-modal': 'true',
+            'aria-labelledby': 'analysisContextTitle', onKeyDown: (event) => modalKeys(event, close),
+          },
+            h('h2', { id: 'analysisContextTitle' }, t('analysisContextTitle')),
+            h('p', { className: 'hint' }, t('analysisContextDescription')),
+            loading ? h('p', { className: 'hint', role: 'status' }, t('analysisContextLoading')) : null,
+            dialog.status === 'failed' ? h('p', { className: 'error', role: 'alert' }, format(t, 'analysisContextFailed', { reason: dialog.error })) : null,
+            preview === null ? null : h('div', null,
+              h('p', { className: 'hint', role: preview.ok ? null : 'alert' }, format(t, 'analysisContextBudget', {
+                characters: preview.characters, limit: preview.characterLimit,
+              })),
+              !preview.ok ? h('p', { className: 'error', role: 'alert' }, reasonText(preview.reason, preview.characters, preview.characterLimit)) : null,
+              preview.materials.map((material) => h('label', {
+                className: `analysisContextMaterial${material.relation === 'current' ? ' mandatory' : ''}`,
+                key: material.paragraphId,
+              },
+                h('input', {
+                  type: 'checkbox', checked: material.included,
+                  disabled: loading || material.relation === 'current' || dialog.status !== 'ready',
+                  onChange: (event) => {
+                    const next = new Set(preview.includedParagraphIds)
+                    if (event.target.checked) next.add(material.paragraphId)
+                    else next.delete(material.paragraphId)
+                    next.add(preview.currentParagraphId)
+                    void updateAnalysisContextSelection([...next])
+                  },
+                }),
+                h('span', { className: 'analysisContextMaterialLabel' },
+                  `${t(material.relation === 'previous' ? 'analysisContextPrevious' : material.relation === 'current' ? 'analysisContextCurrent' : 'analysisContextNext')} · ${material.paragraphId} · ${material.included ? t('analysisContextIncluded') : t(material.reason === 'over-budget' ? 'analysisContextOverBudget' : 'analysisContextNotSelected')}`),
+                h('div', { className: 'previewExcerpt' }, material.text),
+              )),
+            ),
+            h('div', { className: 'modalFoot' },
+              h('button', { type: 'button', onClick: close }, t('cancel')),
+              h('button', {
+                className: 'primary', type: 'button',
+                disabled: loading || dialog.status !== 'ready' || preview?.ok !== true || typeof preview?.fingerprint !== 'string',
+                onClick: () => { if (preview?.ok === true) void analyseCurrent(preview) },
+              }, t('analysisContextConfirm')),
+            ),
+          ),
+        )
+      }
+
+      function sentContextDialogView() {
+        const history = historyContext
+        if (history === null) return null
+        const message = history.message
+        const value = history.value
+        const date = new Date(message?.createdAt ?? '')
+        const time = Number.isNaN(date.getTime()) ? (message?.createdAt ?? '') : date.toLocaleString()
+        const close = () => closeSentContext()
+        return h('div', { className: 'modalBackdrop' },
+          h('div', {
+            className: 'modal contextModal', role: 'dialog', 'aria-modal': 'true',
+            'aria-labelledby': 'sentContextTitle', onKeyDown: (event) => modalKeys(event, close),
+          },
+            h('h2', { id: 'sentContextTitle' }, t('sentContextTitle')),
+            history.status === 'loading' ? h('p', { className: 'hint', role: 'status' }, t('sentContextLoading')) : null,
+            history.status === 'missing' ? h('p', { className: 'hint', role: 'status' }, t('sentContextMissing')) : null,
+            history.status === 'failed' ? h('div', null,
+              h('p', { className: 'error', role: 'alert' }, t('sentContextFailed')),
+              h('button', { className: 'small', type: 'button', onClick: () => inspectSentContext(message) }, t('knowledgeRetry')),
+            ) : null,
+            history.status === 'found' && value !== null ? h('div', null,
+              h('p', { className: 'hint' }, format(t, 'sentContextMeta', {
+                backend: value.backend, model: value.model, characters: value.characters, time,
+              })),
+              (value.materials ?? []).map((material, index) => h('div', {
+                key: `${material.kind ?? ''}-${material.refId ?? ''}-${String(index)}`, className: 'previewBlock',
+              },
+                h('span', { className: 'kbLabel' }, format(t, 'contextMaterialLine', {
+                  refId: material.refId ?? '', characters: material.characters ?? 0,
+                })),
+                material.reason == null || material.reason === '' ? null : h('p', { className: 'hint' }, material.reason),
+                (material.excerpt ?? '') === '' ? null : h('div', { className: 'previewExcerpt' }, material.excerpt),
+              )),
+              h('div', { className: 'kbLabel' }, t('sentContextPromptLabel')),
+              h('pre', { className: 'previewPrompt' }, value.prompt ?? ''),
+            ) : null,
+            h('div', { className: 'modalFoot' },
+              h('button', { type: 'button', onClick: close }, t('cancel')),
+            ),
+          ),
+        )
+      }
+
       function actionDialogView() {
         const dialog = actionDialog
+        const retryingConclusion = dialog.kind === 'conclude'
+          && decodeOperationError(error).message === t('conclusionSaveFailed')
         return h('div', { className: 'modalBackdrop' },
           h('div', {
             className: 'modal actionDialog', role: 'dialog', 'aria-modal': 'true',
             'aria-labelledby': 'actionDialogTitle', 'aria-describedby': 'actionDialogDescription',
-            onKeyDown: (event) => modalKeys(event, () => closeActionDialog()),
+            onKeyDown: (event) => modalKeys(event, () => { if (dialog.saving !== true) closeActionDialog() }),
           },
             h('h2', { id: 'actionDialogTitle' }, dialog.title),
             h('p', { id: 'actionDialogDescription', className: 'hint' }, dialog.description),
             h('label', { className: 'kbField' },
               h('span', null, t('conclusionField')),
               h('textarea', {
-                id: 'actionText', rows: 7, value: actionText,
-                onChange: (event) => setActionText(event.target.value),
+                id: 'actionText', rows: 7, value: actionText, disabled: dialog.saving === true,
+                onChange: (event) => {
+                  const next = event.target.value
+                  if (dialog.kind === 'conclude' && retryingConclusion && next !== actionText) {
+                    setActionDialog((current) => current === null ? current : { ...current, operationId: createUuid() })
+                    setError('')
+                  }
+                  setActionText(next)
+                },
                 onKeyDown: (event) => {
                   // Ctrl / ⌘ + Enter confirms; plain Enter stays a newline in a textarea.
                   if (event.key !== 'Enter' || !(event.metaKey || event.ctrlKey)) return
@@ -5492,9 +6722,13 @@ window.__ModuleLoader__.load({
                 },
               }),
             ),
+            retryingConclusion && decodeOperationError(error).diagnostic !== null
+              ? errorBlock(t, error, setError)
+              : null,
             h('div', { className: 'modalFoot' },
-              h('button', { id: 'actionCancel', type: 'button', onClick: () => closeActionDialog() }, t('cancel')),
-              h('button', { id: 'actionConfirm', type: 'button', className: 'primary', onClick: commitActionDialog }, t('confirm')),
+              h('button', { id: 'actionCancel', type: 'button', disabled: dialog.saving === true, onClick: () => closeActionDialog() }, t('cancel')),
+              h('button', { id: 'actionConfirm', type: 'button', className: 'primary', disabled: dialog.saving === true, onClick: commitActionDialog },
+                dialog.saving === true ? t('saving') : retryingConclusion ? t('retrySaveSame') : t('confirm')),
             ),
           ),
         )
@@ -5633,6 +6867,7 @@ window.__ModuleLoader__.load({
               t, listLexicon, listGrammar, renderLexicon, resolveGrammarCandidate,
               setGrammarMastery, listLexiconSources, fetchLexiconSource,
               readConjugation, fetchConjugation, entry, tab: knowledgeTab,
+               focusConjugation: knowledgeFocusConjugationEntryId === entry?.entryId,
               // The conjugation belongs to the entry's own conjugation section; which one
               // that is comes from the Host's section list, never from a fixed § number.
               extraForSection: ({ number, title }) => {
@@ -5671,14 +6906,26 @@ window.__ModuleLoader__.load({
             node.miss === true ? h('p', { className: 'hint' }, t('lookupMissAdvice')) : null,
             h('div', { className: 'inlineActions' },
               node.miss === true ? h('button', {
+                className: 'small', type: 'button', disabled: askBusy,
+                onClick: () => startWordDiscussion(node),
+              }, t('lookupAskWord')) : null,
+              node.miss === true ? h('button', {
+                className: 'small', type: 'button',
+                onClick: () => openLexiconEntryForm(node),
+              }, t('lookupAddEntry')) : null,
+              node.miss === true ? h('button', {
                 className: 'small', type: 'button',
                 onClick: () => openKnowledge(),
               }, t('lookupOpenLibrary')) : null,
+              node.entryId === null || node.entryId === undefined ? null : h('button', {
+                className: 'small', type: 'button',
+                onClick: () => { openKnowledge(); setKnowledgeTab('vocab'); setKnowledgeEntryId(node.entryId) },
+              }, t('lookupOpenEntry')),
               h('button', { className: 'small', type: 'button', onClick: () => setSelectedNode(null) }, t('backToAnalysis')),
             ),
           )
         }
-        if (node.kind === 'knowledge') {
+        if (node.kind === 'knowledge' && !(discussion?.branches ?? []).some((branch) => branch.branchId === node.id)) {
           return h('div', null,
             syntaxLegend(),
             h('div', { className: 'sectionLabel' }, t('confirmedConclusion')),
@@ -5704,16 +6951,21 @@ window.__ModuleLoader__.load({
           .find((entry) => entry.branchId === node.id)?.messages ?? [])
           .findIndex((entry) => entry.messageId === message.messageId) + 1
         setAnchorId(node.anchorId)
-        openBranchDialog(node.id, cut === 0 ? null : cut)
+        openBranchDialog(node.id, cut === 0 ? null : cut, node.anchorId)
       }
 
       /** `提炼结论`: the prototype prefills the answer in a dialog and never rewrites it. */
       function concludeFrom(node, message) {
+        if (activePassage === null) return
         openActionDialog({
           kind: 'conclude',
           title: t('distilConclusion'),
           description: t('conclusionDialogDescription'),
+          passageId: activePassage.id,
           branchId: node.id,
+          anchorId: node.anchorId,
+          messageId: message.messageId,
+          operationId: createUuid(),
           value: message.text,
         })
       }
@@ -5758,7 +7010,7 @@ window.__ModuleLoader__.load({
               ))),
           h('textarea', {
             className: 'draft',
-            value: askDraft,
+            value: askDraft, disabled: askBusy,
             placeholder: t('askPlaceholder'),
             'aria-label': t('askPlaceholder'),
             onChange: (event) => {
@@ -5775,11 +7027,27 @@ window.__ModuleLoader__.load({
               onClick: () => (contextPreview === null ? previewTurn(node.anchorId) : sendTurn(node.anchorId)),
             }, contextPreview === null ? t('previewContext') : t('sendTurn')),
           ),
+          askRun === null ? null : h('div', { className: 'askRunStatus', role: 'status' },
+            h('span', null, format(t, 'askWaiting', { model: askRun.model, seconds: askTick })),
+            h('p', { className: 'askQuestion' }, format(t, 'askSent', { question: askRun.question })),
+            h('button', {
+              className: 'small quiet', type: 'button', disabled: askRun.cancelPending === true,
+              onClick: cancelAsk,
+            }, askRun.cancelPending === true ? t('askCancelRequesting') : t('cancel')),
+          ),
           streamText === ''
             ? null
             : h('pre', { className: 'streamText', role: 'status', 'aria-live': 'polite' }, streamText),
           askStatus === '' ? null : h('p', { className: 'status', role: 'status' }, askStatus),
         )
+      }
+
+      function revealNewAnswer() {
+        if (newAnswerMessageId === null || typeof document === 'undefined') return
+        const target = document.getElementById(`discussion-message-${newAnswerMessageId}`)
+        if (target === null) return
+        target.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' })
+        setNewAnswerMessageId(null)
       }
 
       /** A discussion branch: where it came from, its messages, and its own actions. */
@@ -5796,10 +7064,11 @@ window.__ModuleLoader__.load({
             })),
           (branch?.messages ?? []).map((message) => h('div', {
             key: message.messageId,
+            id: `discussion-message-${message.messageId}`,
             className: `message${message.author === 'user' ? ' user' : ''}`,
           },
             h('div', { className: 'messageLabel' }, message.author === 'user' ? t('you') : t('modelAnswer')),
-            h('div', { className: 'answer' }, message.text),
+            h('div', { className: 'answer' }, ...renderMarkdown(message.text)), 
             // `receiptHTML`: what this answer changed in the knowledge base. Silence here
             // would make "no reusable rule" and "the block was unreadable" look alike.
             message.author !== 'model' || message.extraction === null || message.extraction === undefined
@@ -5814,14 +7083,20 @@ window.__ModuleLoader__.load({
                       reason: message.extraction.detail ?? message.extraction.status,
                     }))),
             message.author === 'model' ? h('div', { className: 'answerActions' },
+              message.contextId == null ? null : h('button', {
+                className: 'small quiet', type: 'button', onClick: () => { void inspectSentContext(message) },
+              }, t('viewSentContext')),
               h('button', { className: 'small', type: 'button', onClick: () => forkBranch(node, message) }, t('forkBranch')),
               h('button', { className: 'small quiet', type: 'button', onClick: () => concludeFrom(node, message) }, t('distilConclusion')),
+              branch?.kind === 'vocabulary' && message.status === 'complete' ? h('button', {
+                className: 'small', type: 'button', onClick: () => openLexiconEntryFromDiscussion(node, branch, message),
+              }, t('addSuggestedEntry')) : null,
             ) : null,
           )),
           h('div', { className: 'answerActions' },
             h('button', {
               className: 'small', type: 'button',
-              onClick: () => markBranch(node.id, (branch?.status ?? 'open') === 'open' ? 'settled' : 'open'),
+              onClick: () => markBranch(node.id, (branch?.status ?? 'open') === 'open' ? 'understood' : 'open'),
             }, (branch?.status ?? 'open') === 'open' ? t('markUnderstood') : t('markToCheck')),
           ),
         )
@@ -5916,6 +7191,12 @@ window.__ModuleLoader__.load({
         const feedbackVisible = analysisFeedbackFor !== null
           && analysisFeedbackFor.passageId === passage.id
           && (analysisFeedbackFor.anchorId === 'passage' || analysisFeedbackFor.anchorId === anchorId)
+        const selectedBackendLabel = backends.find((entry) => entry.backend === backend)?.label ?? t('modelNotConnected')
+        const selectedModelLabel = models.find((entry) => entry.id === model)?.name ?? t('noModels')
+        const selectedPlacement = shelf.placements[passage.id]
+        const breadcrumb = selectedPlacement
+          ? `${selectedPlacement.book} / ${selectedPlacement.chapter} / ${format(t, 'paragraphLabel', { index: selectedPlacement.number })}`
+          : t('unfiled')
         return h('div', { className: 'fr-root bookLayout', ref: rootRef, 'data-directory': directoryOpen ? 'open' : 'closed' },
           h('header', { className: 'top compactTop' },
             h('div', { className: 'topLeft' },
@@ -5953,9 +7234,12 @@ window.__ModuleLoader__.load({
           }, toast),
           bookDirectory(),
           locationDialog ? locationDialogView() : null,
+          analysisContextDialog === null ? null : analysisContextDialogView(),
           switcherOpen ? passageSwitcher() : null,
           branchDialog === null ? null : branchDialogView(),
           lookupOpen ? lookupDialogView() : null,
+          lexiconEntryDraft === null ? null : lexiconEntryDialogView(),
+          historyContext === null ? null : sentContextDialogView(),
           actionDialog === null ? null : actionDialogView(),
           h('main', {
             className: 'workspace', 'data-view': 'focus', 'data-navigation': navOpen ? 'open' : 'closed',
@@ -6016,13 +7300,16 @@ window.__ModuleLoader__.load({
               className: `pane detailPane${knowledgeOpen ? ' readingPaneKnowledge' : ''}${shortReading ? ' shortReading' : ''}`,
               id: 'readingPane',
               ref: readingPaneRef,
+              onScroll: queueReadingPosition,
               onMouseUp: captureReadingSelection,
               onKeyUp: captureReadingSelection,
               'aria-label': knowledgeOpen ? t('tabKnowledge') : t('benchTitle'),
             },
               h('div', { className: 'continuationBar' },
                 h('div', { className: 'passageHeading' },
-                  h('div', { className: 'bookBreadcrumb' }, shelf.placements[passage.id] ? `${shelf.placements[passage.id].book} / ${shelf.placements[passage.id].chapter} / ${format(t, 'paragraphLabel', { index: shelf.placements[passage.id].number })}` : t('unfiled')),
+                  h('details', { className: 'bookBreadcrumb' },
+                    h('summary', { title: breadcrumb }, breadcrumb),
+                    h('div', { className: 'bookBreadcrumbFull' }, breadcrumb)),
                   h('strong', { className: 'currentPassageTitle', title: passage.title }, passage.title)),
                 h('button', { type: 'button', className: 'small quiet', onClick: () => { setError(''); setLocationDialog({ passageId: passage.id, ...(shelf.placements[passage.id] ?? { book: '', chapter: '', number: 1 }) }) } }, t('organizePassage')),
                 nextPassages[passage.id] ? h('button', {
@@ -6033,14 +7320,18 @@ window.__ModuleLoader__.load({
                   className: 'small', type: 'button', disabled: busy,
                   onClick: () => { void composeNextPassage() },
                 }, t('nextPassage')),
+                newAnswerMessageId !== null && !answerRevealAutoScrollRef.current ? h('button', {
+                  className: 'small primary', type: 'button', onClick: revealNewAnswer,
+                }, t('jumpToNewAnswer')) : null,
               ),
               h('div', { className: 'crumb', id: 'crumb' }, crumbText()),
+              !directoryOpen && resumeMessage !== '' ? h('p', { className: 'hint resumeNotice', role: 'status' }, t(resumeMessage)) : null,
               // Generation feedback was previously set into state and rendered
               // nowhere: a refused or failed analysis was invisible. These lines
               // are where the reader learns what the run did — and, while one is
               // on, what stage it is at, how long it has been going, and that it
               // can be cancelled.
-              h('div', { className: 'detailScroll', ref: detailScrollRef },
+              h('div', { className: 'detailScroll', ref: detailScrollRef, onScroll: queueReadingPosition },
                 readingSource(),
                 knowledgeOpen ? null : h('div', { className: 'sentenceWorkspace' },
               h('div', { className: 'paneHead' },
@@ -6079,35 +7370,41 @@ window.__ModuleLoader__.load({
                   'aria-pressed': syntaxColour ? 'true' : 'false',
                   onClick: () => setSyntaxColour((on) => !on),
                 }, t('syntaxToggle')),
-                // The model the run will use is visible and selectable here — the
-                // generation wiring used to be entirely implicit (first backend,
-                // first model), with no way to see or change it mid-reading.
-                h('select', {
-                  className: 'modelSelect backendSelect', 'aria-label': t('backendLabel'),
-                  value: backend, disabled: analysisBusy || askBusy || backends.filter((entry) => entry.available).length === 0,
-                  onChange: (event) => {
-                    const next = event.target.value
-                    if (next === backend) return
-                    invalidateContextPreview()
-                    setError('')
-                    setBackend(next)
-                    void loadModels(next)
-                  },
-                }, backends.filter((entry) => entry.available).map((entry) => h('option', {
-                  key: entry.backend, value: entry.backend,
-                }, entry.label))),
-                h('select', {
-                  className: 'modelSelect', 'aria-label': t('modelLabel'),
-                  value: model, disabled: analysisBusy || askBusy || models.length === 0,
-                  onChange: (event) => {
-                    invalidateContextPreview()
-                    setModel(event.target.value)
-                    persistModelPreference(event.target.value)
-                  },
-                }, models.length === 0
-                  ? [h('option', { key: 'no-model', value: '' }, t('noModels'))]
-                  : models.map((entry) => h('option', { key: entry.id, value: entry.id }, entry.name))),
-                h('button', { type: 'button', className: 'small', disabled: true, title: t('audioNotWired') }, t('audioGenerate')),
+                h('details', { className: 'analysisSettings' },
+                  h('summary', { title: format(t, 'analysisModelSummary', { backend: selectedBackendLabel, model: selectedModelLabel }) },
+                    format(t, 'analysisModelSummary', { backend: selectedBackendLabel, model: selectedModelLabel })),
+                  h('label', { className: 'analysisSettingField' },
+                    h('span', null, t('backendLabel')),
+                    h('select', {
+                      className: 'modelSelect backendSelect', 'aria-label': t('backendLabel'),
+                      value: backend, disabled: analysisBusy || askBusy || backends.filter((entry) => entry.available).length === 0,
+                      onChange: (event) => {
+                        const next = event.target.value
+                        if (next === backend) return
+                        invalidateContextPreview()
+                        setError('')
+                        setBackend(next)
+                        void loadModels(next)
+                      },
+                    }, backends.filter((entry) => entry.available).map((entry) => h('option', {
+                      key: entry.backend, value: entry.backend,
+                    }, entry.label))),
+                  ),
+                  h('label', { className: 'analysisSettingField' },
+                    h('span', null, t('modelLabel')),
+                    h('select', {
+                      className: 'modelSelect', 'aria-label': t('modelLabel'),
+                      value: model, disabled: analysisBusy || askBusy || models.length === 0,
+                      onChange: (event) => {
+                        invalidateContextPreview()
+                        setModel(event.target.value)
+                        persistModelPreference(event.target.value)
+                      },
+                    }, models.length === 0
+                      ? [h('option', { key: 'no-model', value: '' }, t('noModels'))]
+                      : models.map((entry) => h('option', { key: entry.id, value: entry.id }, entry.name))),
+                  ),
+                ),
               ),
               h('div', { className: 'branchStrip', id: 'branchStrip' },
                 (discussion?.branches ?? [])
@@ -6132,16 +7429,20 @@ window.__ModuleLoader__.load({
                     seconds: Math.floor((Date.now() - analysisRun.startedAt) / 1000),
                   })),
                   h('button', {
-                    className: 'small quiet', type: 'button', onClick: cancelAnalysisRun,
-                  }, t('cancel')),
+                    className: 'small quiet', type: 'button', disabled: analysisRun.cancelPending === true,
+                    onClick: cancelAnalysisRun,
+                  }, analysisRun.cancelPending === true ? t('analysisCancelRequesting') : t('cancel')),
                 ),
-                error === '' || switcherOpen || locationDialog ? null : h('p', { className: 'error', role: 'alert' }, error),
+                error === '' || switcherOpen || locationDialog ? null : errorBlock(t, error, setError),
                 !feedbackVisible || analysisError === '' ? null : h('p', { className: 'error', role: 'alert' }, analysisError),
                 !feedbackVisible || analysisStatus === '' ? null : h('p', { className: 'hint', role: 'status' }, analysisStatus),
                 detailContent()),
-              // The composer belongs to a discussion node and to nothing else, exactly as
-              // the prototype toggles it (`!n || n.type !== 'discussion'` → hidden).
-              selectedNode !== null && selectedNode.kind === 'discussion' && !knowledgeOpen
+              // The composer belongs to discussion branches, including vocabulary
+              // discussions whose route node is visually styled as a knowledge node.
+              selectedNode !== null && !knowledgeOpen && (
+                selectedNode.kind === 'discussion'
+                || (discussion?.branches ?? []).some((branch) => branch.branchId === selectedNode.id && branch.kind === 'vocabulary')
+              )
                 ? h('div', { className: 'composer' }, composerBody(selectedNode))
                 : null,
             ),
@@ -6210,6 +7511,7 @@ window.__ModuleLoader__.load({
           renderLexicon: (request) => api.renderLexicon(request),
           readSentenceAnalysis: (request) => api.readSentenceAnalysis(request),
           readAnalysisCoverage: (request) => api.readAnalysisCoverage(request),
+          previewAnalysisContext: (request) => api.previewAnalysisContext(request),
           // The typert call stub takes the caller's AbortSignal as one extra
           // trailing argument (cancellation: { parameter: 'signal' }); aborting it
           // cancels the RPC, which propagates to the Host's generation stream.
@@ -6219,6 +7521,7 @@ window.__ModuleLoader__.load({
           analyseParagraph: (request, signal) => (signal === undefined
             ? api.analyseParagraph(request)
             : api.analyseParagraph(request, signal)),
+          cancelAnalysis: (request) => api.cancelAnalysis(request),
           publishAnalysis: (request) => api.publishAnalysis(request),
           listLexiconSources: (request) => api.listLexiconSources(request),
           fetchLexiconSource: (request) => api.fetchLexiconSource(request),
@@ -6226,10 +7529,12 @@ window.__ModuleLoader__.load({
           listBackends: (request) => api.listBackends(request),
           listBackendModels: (request) => api.listBackendModels(request),
           previewAsk: (request) => api.previewAsk(request),
-          ask: (request) => api.ask(request),
-          streamAsk: (request) => api.streamAsk(request),
+          readContext: (request) => api.readContext(request),
+          ask: (request, signal) => (signal === undefined ? api.ask(request) : api.ask(request, signal)),
+          streamAsk: (request, signal) => (signal === undefined ? api.streamAsk(request) : api.streamAsk(request, signal)),
           listDiscussion: (request) => api.listDiscussion(request),
           lookupMot: (request) => api.lookupMot(request),
+          createLexiconEntry: (request) => api.createLexiconEntry(request),
           recordConclusion: (request) => api.recordConclusion(request),
           adoptTranslation: (request) => api.adoptTranslation(request),
           createBranch: (request) => api.createBranch(request),

@@ -140,8 +140,9 @@ test('the inlined contribution passes the client registry validation that failed
 
   const contribution = mounted[0]
   const { endpoints } = validateContribution(contribution)
-  assert.equal(endpoints.size, 42)
+  assert.equal(endpoints.size, 45)
   assert.ok(endpoints.has('frenchReader/listPassages'))
+  assert.ok(endpoints.has('frenchReader/previewAnalysisContext'))
   assert.ok(endpoints.has('frenchReader/archivePassage'))
 })
 
@@ -167,12 +168,37 @@ test('every codec create() returns a working validator, not a stub', async () =>
   assert.equal(createRequest.safeParse({ ...base, title: 7 }).success, false)
   assert.throws(() => createRequest.parse({}), /invalid/u)
 
+  const contextPreviewRequest = byMethod('previewAnalysisContext').parameters[0].codec.create()
+  assert.equal(contextPreviewRequest.safeParse({
+    passageId: '00000000-0000-4000-8000-000000000001', anchorId: 'p2.s1',
+  }).success, true)
+  assert.equal(contextPreviewRequest.safeParse({
+    passageId: '00000000-0000-4000-8000-000000000001',
+  }).success, false, 'the preview request must name its sentence anchor')
+
   const createResult = byMethod('createPassage').result.create()
   assert.equal(createResult.safeParse({ kind: 'created', passage: {
     id: 'p', title: 't', sourceText: 's', sourceRevision: 1, segmentationRevision: 1,
     status: 'source-only', createdAt: 'now', updatedAt: 'now', archivedAt: null, archiveOperationId: null,
   } }).success, true)
   assert.equal(createResult.safeParse({ kind: 'nope' }).success, false)
+
+  const entryDescriptor = byMethod('createLexiconEntry')
+  const entryRequest = entryDescriptor.parameters[0].codec.create()
+  const entryBody = {
+    mot: 'allée', partOfSpeech: 'verbe', lemma: 'aller', forms: ['allées'],
+    label: 'participe passé', definition: 'forme féminine singulière', operationId: 'o',
+    passageId: 'p', anchorId: 'p1.s1', occurrenceNote: 'depuis cette lecture',
+  }
+  assert.equal(entryRequest.safeParse(entryBody).success, true)
+  assert.equal(entryRequest.safeParse({ ...entryBody, forms: [7] }).success, false)
+  const entryResult = entryDescriptor.result.create()
+  assert.equal(entryResult.safeParse({
+    kind: 'created', entryId: 'e', occurrence: { kind: 'appended', reason: null },
+  }).success, true)
+  assert.equal(entryResult.safeParse({
+    kind: 'conflict', entryId: null, reason: 'not-a-conflict', occurrence: { kind: 'not-attempted', reason: null },
+  }).success, false)
 
   const branchRequest = byMethod('addBranch').parameters[0].codec.create()
   const branchBody = {
@@ -239,7 +265,7 @@ test('the client sends every argument under the name the Host descriptor declare
   assert.equal(Array.isArray(clientInvocations), true)
 
   const hostById = new Map(TYPERT.invocations.map((entry) => [entry.id, entry]))
-  assert.equal(hostById.size, 42, 'the Host declares every endpoint')
+  assert.equal(hostById.size, 45, 'the Host declares every endpoint')
 
   const mismatches = []
   for (const client of clientInvocations) {

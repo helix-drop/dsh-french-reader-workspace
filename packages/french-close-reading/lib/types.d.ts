@@ -92,11 +92,20 @@ export type CreateSelectionValue = {
     kind: 'conflict';
     reason: 'passage-unknown' | 'range-out-of-bounds' | 'range-not-integer' | 'ranges-out-of-range';
 };
+/** One exact sentence boundary displayed inside an import preview paragraph. */
+export interface ImportSentencePreview {
+    id: string;
+    text: string;
+    start: number;
+    end: number;
+}
 /** One paragraph as the import preview will store it. */
 export interface ImportBlockPreview {
     id: string;
     sentences: number;
     excerpt: string;
+    /** Present when the Host supports complete sentence-boundary previews. */
+    sentenceDetails?: ImportSentencePreview[];
 }
 export interface ImportFlagView {
     code: string;
@@ -546,6 +555,35 @@ export interface LexiconLookup {
     entries: LexiconView[];
     candidates: LexiconView[];
 }
+/** Create one exact Mot entry from an explicit reader action, never from a lookup alone. */
+export interface CreateLexiconEntryRequest {
+    mot: string;
+    partOfSpeech: string;
+    lemma: string | null;
+    forms: string[];
+    label: string;
+    definition: string;
+    /** Explicit reader-authored entries default to user; model-assisted drafts retain mixed provenance. */
+    provenance?: 'user' | 'mixed';
+    operationId: string;
+    passageId: string;
+    anchorId: string;
+    occurrenceNote: string;
+}
+export interface CreateLexiconOccurrenceValue {
+    kind: 'appended' | 'already-appended' | 'not-attempted' | 'failed';
+    reason: string | null;
+}
+export type CreateLexiconEntryValue = {
+    kind: 'created' | 'exists';
+    entryId: string;
+    occurrence: CreateLexiconOccurrenceValue;
+} | {
+    kind: 'conflict';
+    entryId: null;
+    reason: 'passage-unknown' | 'anchor-unknown' | 'mot-blank' | 'key-collision';
+    occurrence: CreateLexiconOccurrenceValue;
+};
 /** Which variant one anchor currently uses. */
 export interface Adoption {
     anchorId: string;
@@ -583,4 +621,4 @@ export interface ListAnalysisValue {
  * request shapes stay readable; it is re-exported here because that is where the
  * public `./types` subpath is declared.
  */
-export type { AskInput, AskRequest, AskFrame, AskResult, BackendModelView, BackendStatus, ConclusionView, ContextExtra, ContextMaterialView, CreateBranchRequest, CreateBranchValue, DiscussionBranchView, DiscussionMessageView, AnalyseParagraphRequest, AnalyseParagraphResult, AnalyseSentenceRequest, AnalyseSentenceResult, AnalysisCoverageValue, DiscussionView, FetchLexiconSourceRequest, FetchLexiconSourceValue, LexiconSourceKind, ListBackendModelsRequest, ListBackendModelsValue, ListBackendsRequest, ListBackendsValue, ListDiscussionRequest, ListLexiconSourcesRequest, ListLexiconSourcesValue, PreviewAskRequest, PreviewAskValue, PublishAnalysisRequest, PublishAnalysisValue, PutSentenceAnalysisRequest, PutSentenceAnalysisValue, ReadAnalysisCoverageRequest, ReadContextRequest, ReadContextValue, ReadSentenceAnalysisRequest, ReadSentenceAnalysisValue, RecordConclusionRequest, RecordConclusionValue, SetBranchStateRequest, SetBranchStateValue, SetGrammarMasteryRequest, SetGrammarMasteryValue, } from './generation-types.ts';
+export type { AskInput, AskRequest, AskFrame, AskResult, BackendModelView, BackendStatus, CancelAnalysisRequest, CancelAnalysisValue, ConclusionView, ContextExtra, ContextMaterialView, CreateBranchRequest, CreateBranchValue, DiscussionBranchView, DiscussionMessageView, AnalyseParagraphRequest, AnalyseParagraphResult, AnalyseSentenceRequest, AnalyseSentenceResult, AnalysisCoverageValue, AnalysisContextRelation, AnalysisContextMaterial, PreviewAnalysisContextRequest, PreviewAnalysisContextValue, DiscussionView, FetchLexiconSourceRequest, FetchLexiconSourceValue, LexiconSourceKind, ListBackendModelsRequest, ListBackendModelsValue, ListBackendsRequest, ListBackendsValue, ListDiscussionRequest, ListLexiconSourcesRequest, ListLexiconSourcesValue, PreviewAskRequest, PreviewAskValue, PublishAnalysisRequest, PublishAnalysisValue, PutSentenceAnalysisRequest, PutSentenceAnalysisValue, ReadAnalysisCoverageRequest, ReadContextRequest, ReadContextValue, ReadSentenceAnalysisRequest, ReadSentenceAnalysisValue, RecordConclusionRequest, RecordConclusionValue, SetBranchStateRequest, SetBranchStateValue, SetGrammarMasteryRequest, SetGrammarMasteryValue, } from './generation-types.ts';

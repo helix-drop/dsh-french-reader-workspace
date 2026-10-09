@@ -170,6 +170,21 @@ test('the reading scroll container hands over below 500px of height', () => {
   assert.match(source, /shortReading \? ' shortReading' : ''/u)
 })
 
+test('the reading frame tucks model controls away and expands long location names on demand', () => {
+  const frame = source.slice(source.indexOf('function readingShell('), source.indexOf('function frontDoor('))
+  assert.match(frame, /className: 'analysisSettings'/u)
+  assert.match(frame, /className: 'bookBreadcrumb'/u)
+  assert.match(frame, /bookBreadcrumbFull/u)
+  assert.match(frame, /analysisModelSummary/u, 'the active model remains visible while its controls are collapsed')
+  assert.match(source, /\.analysisSettings>summary\{cursor:pointer/u)
+  assert.match(source, /\.bookBreadcrumb>summary\{cursor:pointer;white-space:nowrap/u)
+  const readingSource = source.slice(source.indexOf('function readingSource()'), source.indexOf('function readingSource()') + 650)
+  assert.match(readingSource, /className: 'readingSource'/u)
+  assert.doesNotMatch(readingSource, /open: true/u, 'the source starts folded to leave room for reading')
+  assert.match(source, /\.fr-root \.detailScroll\{min-height:0;overflow:auto/u)
+  assert.match(source, /@media\(max-height:500px\)[\s\S]{0,700}\.fr-root \.detailPane>\.detailScroll\{flex:none;[^}]*overflow:visible/u, 'short panels hand scroll to the whole reading pane')
+})
+
 test('the card is rebuilt from the Host\'s own section headings, in the Host\'s order', () => {
   const at = source.indexOf('function LexiconCard(')
   assert.notEqual(at, -1, 'the card renderer exists')

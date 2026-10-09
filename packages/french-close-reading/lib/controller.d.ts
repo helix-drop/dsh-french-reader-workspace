@@ -4,12 +4,14 @@ import { TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol';
 import type { SourceFetch } from './source-gate.ts';
 import { type GenerationBackend } from './generation.ts';
 import { FRENCH_READER_DOMAIN, type StoredContextManifest, type StoredSentenceAnalysis, type StoredDiscussionBranch, type StoredRun, type StoredRunExtraction, type StoredGenerationJob, type StoredGrammarEntry, type StoredGrammarPending } from './domain.ts';
-import type { AskInput, AskPreview, AskRequest, AskFrame, AskResult, BackendModelView, BackendStatus, CreateBranchRequest, CreateBranchValue, DiscussionView, ListBackendModelsRequest, ListBackendModelsValue, ListBackendsRequest, ListBackendsValue, ListDiscussionRequest, PreviewAskRequest, PreviewAskValue, FetchLexiconSourceRequest, FetchLexiconSourceValue, ListLexiconSourcesRequest, ListLexiconSourcesValue, ReadContextRequest, ReadContextValue, AnalyseParagraphRequest, AnalyseParagraphResult, AnalyseSentenceRequest, AnalyseSentenceResult, AnalysisCoverageValue, ReadAnalysisCoverageRequest, PublishAnalysisRequest, PublishAnalysisValue, PutSentenceAnalysisRequest, PutSentenceAnalysisValue, ReadSentenceAnalysisRequest, ReadSentenceAnalysisValue, SetGrammarMasteryRequest, SetGrammarMasteryValue, RecordConclusionRequest, RecordConclusionValue, SetBranchStateRequest, SetBranchStateValue } from './generation-types.ts';
-import type { AddBranchRequest, AddBranchValue, ArchivePassageRequest, ArchivePassageValue, RestorePassageRequest, RestorePassageValue, CreateSelectionRequest, CreateSelectionValue, ListGrammarRequest, ListGrammarValue, ConjugationRequest, FetchConjugationValue, ListLexiconRequest, ListLexiconValue, ReadConjugationValue, RenderLexiconRequest, RenderLexiconValue, ResolveGrammarRequest, ResolveGrammarValue, CreatePassageRequest, CreatePassageValue, ExportLibraryRequest, ExportLibraryValue, ImportLibraryRequest, ImportLibraryValue, ExportPassagesValue, GetPassageRequest, GetPassageValue, ImportPreviewValue, PreviewImportRequest, GetSegmentationRequest, GetSegmentationValue, ListAnalysisRequest, ListAnalysisValue, LexiconLookup, LookupMotRequest, AdoptTranslationRequest, AdoptTranslationValue, LexiconView, ListPassagesRequest, ListPassagesValue, SaveTranslationRequest, SaveTranslationValue } from './types.ts';
+import type { AskInput, AskPreview, AskRequest, AskFrame, AskResult, BackendModelView, BackendStatus, CreateBranchRequest, CreateBranchValue, DiscussionView, ListBackendModelsRequest, ListBackendModelsValue, ListBackendsRequest, ListBackendsValue, ListDiscussionRequest, PreviewAskRequest, PreviewAskValue, FetchLexiconSourceRequest, FetchLexiconSourceValue, ListLexiconSourcesRequest, ListLexiconSourcesValue, ReadContextRequest, ReadContextValue, AnalyseParagraphRequest, AnalyseParagraphResult, AnalyseSentenceRequest, AnalyseSentenceResult, PreviewAnalysisContextRequest, PreviewAnalysisContextValue, CancelAnalysisRequest, CancelAnalysisValue, AnalysisCoverageValue, ReadAnalysisCoverageRequest, PublishAnalysisRequest, PublishAnalysisValue, PutSentenceAnalysisRequest, PutSentenceAnalysisValue, ReadSentenceAnalysisRequest, ReadSentenceAnalysisValue, SetGrammarMasteryRequest, SetGrammarMasteryValue, RecordConclusionRequest, RecordConclusionValue, SetBranchStateRequest, SetBranchStateValue } from './generation-types.ts';
+import type { AddBranchRequest, AddBranchValue, ArchivePassageRequest, ArchivePassageValue, RestorePassageRequest, RestorePassageValue, CreateSelectionRequest, CreateSelectionValue, ListGrammarRequest, ListGrammarValue, ConjugationRequest, FetchConjugationValue, ListLexiconRequest, ListLexiconValue, ReadConjugationValue, RenderLexiconRequest, RenderLexiconValue, ResolveGrammarRequest, ResolveGrammarValue, CreatePassageRequest, CreatePassageValue, ExportLibraryRequest, ExportLibraryValue, ImportLibraryRequest, ImportLibraryValue, ExportPassagesValue, GetPassageRequest, GetPassageValue, ImportPreviewValue, PreviewImportRequest, GetSegmentationRequest, GetSegmentationValue, ListAnalysisRequest, ListAnalysisValue, LexiconLookup, LookupMotRequest, CreateLexiconEntryRequest, CreateLexiconEntryValue, AdoptTranslationRequest, AdoptTranslationValue, LexiconView, ListPassagesRequest, ListPassagesValue, SaveTranslationRequest, SaveTranslationValue } from './types.ts';
 /** Host service behind the generated `ctx.remote.frenchReader` namespace. */
 export declare class FrenchReaderController extends TypertRemoteService {
     private readonly domain;
     private writeTail;
+    private readonly activeAnalyses;
+    private readonly queuedAnalysisCancellations;
     /** The one storage table this plugin owns; the store modules take it as data. */
     private table;
     constructor(ctx: Context, domain: Domain<typeof FRENCH_READER_DOMAIN>, backends?: GenerationBackend[] | null);
@@ -33,12 +35,20 @@ export declare class FrenchReaderController extends TypertRemoteService {
     setBranchStateRemote(request: SetBranchStateRequest, signal: AbortSignal): Promise<SetBranchStateValue>;
     recordConclusionRemote(request: RecordConclusionRequest, signal: AbortSignal): Promise<RecordConclusionValue>;
     /**
+     * Explicitly revoke a sentence or paragraph analysis before its durable commit.
+     * The separate request does not depend on the original Remote transport's
+     * AbortSignal reaching the Host; `too-late` names the write boundary honestly.
+     */
+    cancelAnalysisRemote(request: CancelAnalysisRequest, signal: AbortSignal): Promise<CancelAnalysisValue>;
+    /**
      * How much of the passage is analysed, measured against the current sentences
      * rather than claimed.
      */
     readAnalysisCoverageRemote(request: ReadAnalysisCoverageRequest, signal: AbortSignal): AnalysisCoverageValue;
     /** One sentence's stored analysis, with the gate's verdict attached. */
     readSentenceAnalysisRemote(request: ReadSentenceAnalysisRequest, signal: AbortSignal): ReadSentenceAnalysisValue;
+    /** Preview same-passage paragraph context before any sentence model call. */
+    previewAnalysisContextRemote(request: PreviewAnalysisContextRequest, signal: AbortSignal): Promise<PreviewAnalysisContextValue>;
     /** Generate one sentence analysis and store it only if it passes the gate. */
     analyseSentenceRemote(request: AnalyseSentenceRequest, signal: AbortSignal): Promise<AnalyseSentenceResult>;
     /**
@@ -452,6 +462,12 @@ export declare class FrenchReaderController extends TypertRemoteService {
      */
     lookupMotRemote(request: LookupMotRequest, signal: AbortSignal): Promise<LexiconLookup>;
     /**
+     * Create a reader-confirmed exact-Mot entry and record the source passage it came
+     * from. Model-assisted drafts may retain mixed provenance. The entry and occurrence are sequential durable writes, not a transaction;
+     * the result reports them separately so a partial outcome is never disguised.
+     */
+    createLexiconEntryRemote(request: CreateLexiconEntryRequest, signal: AbortSignal): Promise<CreateLexiconEntryValue>;
+    /**
      * Adopt one translation variant for one anchor.
      *
      * Adoption moves the sentence pointer and records what it replaced; the paragraph's
@@ -547,7 +563,11 @@ export declare class FrenchReaderController extends TypertRemoteService {
         model: string;
         reasoningEffort?: string | null;
         operationId: string;
-    }, signal: AbortSignal): Promise<AnalyseSentenceResult>;
+        parentOperationId?: string;
+        paragraphIds?: string[];
+        expectedFingerprint?: string | null;
+    }, callerSignal: AbortSignal): Promise<AnalyseSentenceResult>;
+    private runSentenceAnalysis;
     /**
      * Generate the analyses this paragraph is missing, one sentence at a time.
      *
@@ -563,7 +583,8 @@ export declare class FrenchReaderController extends TypertRemoteService {
         model: string;
         reasoningEffort?: string | null;
         operationId: string;
-    }, signal: AbortSignal): Promise<AnalyseParagraphResult>;
+    }, callerSignal: AbortSignal): Promise<AnalyseParagraphResult>;
+    private runParagraphAnalysis;
     /** Write one sentence analysis a reader or an editor supplies directly. */
     putSentenceAnalysisRemote(input: {
         passageId: string;
@@ -814,6 +835,10 @@ export declare class FrenchReaderController extends TypertRemoteService {
     private writeBranch;
     private writeAnalysis;
     private readPassages;
+    private prepareAnalysisOperation;
+    private finishAnalysisOperation;
+    private rememberAnalysisCancellation;
+    private pruneAnalysisCancellations;
     private serialize;
 }
 declare module '@deepseek-ai/cordis' {

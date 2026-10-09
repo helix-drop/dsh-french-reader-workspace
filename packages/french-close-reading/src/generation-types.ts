@@ -237,6 +237,18 @@ export type SetBranchStateValue =
   | { kind: 'updated'; branchId: string }
   | { kind: 'conflict'; reason: 'branch-unknown' }
 
+/** A separate, acknowledged cancellation request for an in-flight analysis. */
+export interface CancelAnalysisRequest {
+  passageId: string
+  operationId: string
+}
+
+export type CancelAnalysisValue =
+  | { kind: 'cancel-requested' }
+  | { kind: 'cancel-queued' }
+  | { kind: 'too-late' }
+  | { kind: 'already-finished' }
+
 export interface RecordConclusionRequest {
   passageId: string
   branchId: string
@@ -385,6 +397,38 @@ export interface ReadAnalysisCoverageRequest {
   passageId: string
 }
 
+export type AnalysisContextRelation = 'previous' | 'current' | 'next'
+
+export interface AnalysisContextMaterial {
+  paragraphId: string
+  relation: AnalysisContextRelation
+  text: string
+  start: number
+  end: number
+  included: boolean
+  reason: 'included' | 'not-selected' | 'over-budget'
+}
+
+export interface PreviewAnalysisContextRequest {
+  passageId: string
+  anchorId: string
+  /** Omitted means the default: current + previous first, then next if it fits. */
+  paragraphIds?: string[]
+}
+
+export interface PreviewAnalysisContextValue {
+  ok: boolean
+  reason: 'current-paragraph-too-long' | 'selected-context-too-long' | 'selection-invalid' | null
+  anchorId: string
+  currentParagraphId: string
+  characterLimit: number
+  characters: number
+  materials: AnalysisContextMaterial[]
+  includedParagraphIds: string[]
+  omittedParagraphIds: string[]
+  fingerprint: string | null
+}
+
 export interface AnalyseSentenceRequest {
   passageId: string
   anchorId: string
@@ -392,6 +436,8 @@ export interface AnalyseSentenceRequest {
   model: string
   reasoningEffort: string | null
   operationId: string
+  paragraphIds?: string[]
+  expectedFingerprint?: string | null
 }
 
 /**

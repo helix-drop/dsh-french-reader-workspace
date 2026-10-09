@@ -31,7 +31,7 @@ function goodReply(overrides = {}) {
       agreesWith: 'il', note: '',
     }],
     explanations: [
-      { kind: 'syntax', text: 'il 是无人称句的形式主语。', ...at('Il') },
+      { kind: 'syntax', ...at('Il'), text: 'il 是无人称句的形式主语。' },
       { kind: 'context', text: '这一句是全文的结论。', start: null, end: null },
     ],
     ...overrides,
@@ -110,8 +110,114 @@ test('the prompt states the JSON contract and carries the sentence and its parag
   assert.match(prompt, /"constituents"/u, 'the contract names the fields')
   assert.match(prompt, /每一段含词的文字都必须被某个成分覆盖/u, 'the coverage rule is stated, not implied')
   assert.match(prompt, /syntax 的只写句法事实/u, 'the certainty rule is stated too')
+  assert.match(prompt, /所有讲解与结构标签必须使用简体中文/u, 'the output language rule is explicit')
   assert.match(prompt, new RegExp(escapeRegExp(SENTENCE), 'u'), 'the sentence is quoted')
-  assert.match(prompt, /【当前段落】/u)
+  assert.match(prompt, /【当前段落(?: · p1)?】/u)
+})
+
+test('a sentence analysis receives the preceding paragraph only as context', async () => {
+  const backend = stubBackend(goodReply())
+  const backing = createBacking()
+  const { controller } = await openController(backing, FRENCH_READER_DOMAIN, { backends: [backend] })
+  const previousParagraph = 'La nuit tombait sur la ville.'
+  await controller.createPassage({
+    ...passageRequest,
+    sourceText: `${previousParagraph}\n\n${SENTENCE}`, 
+  }, signal())
+
+  const result = await controller.analyseSentence({
+    passageId: ids.passage, anchorId: 'p2.s1', backend: 'stub', model: 'stub-model',
+    reasoningEffort: null, operationId: uuid(),
+  }, signal())
+  assert.equal(result.ok, true, result.ok ? '' : `${result.reason}: ${result.failure ?? ''}`)
+  const prompt = backend.calls[0].prompt
+  assert.match(prompt, /前一段（仅供指代与衔接参考，不需解析）/u)
+  assert.match(prompt, new RegExp(escapeRegExp(previousParagraph), 'u'))
+  assert.match(prompt, new RegExp(escapeRegExp(SENTENCE), 'u'))
+})
+
+test('the context preview is paragraph-atomic, same-passage, and fingerprints the chosen materials', async () => {
+  const backend = stubBackend(goodReply())
+  const backing = createBacking()
+  const { controller } = await openController(backing, FRENCH_READER_DOMAIN, { backends: [backend] })
+  await controller.createPassage({
+    ...passageRequest,
+    sourceText: `Avant.\n\n${SENTENCE}\n\nAprès.`,
+  }, signal())
+  const { segmentation } = await controller.getSegmentation({ passageId: ids.passage }, signal())
+  const [previous, current, next] = segmentation.paragraphs
+  const anchorId = current.sentences[0].id
+  const preview = await controller.previewAnalysisContextRemote({ passageId: ids.passage, anchorId }, signal())
+  assert.equal(preview.ok, true)
+  assert.deepEqual(preview.materials.map((item) => item.relation), ['previous', 'current', 'next'])
+  assert.deepEqual(preview.includedParagraphIds, [previous.id, current.id, next.id])
+  assert.equal(preview.characters, previous.text.length + current.text.length + next.text.length)
+  const changed = await controller.previewAnalysisContextRemote({
+    passageId: ids.passage, anchorId, paragraphIds: [current.id, next.id],
+  }, signal())
+  assert.equal(changed.ok, true)
+  assert.notEqual(changed.fingerprint, preview.fingerprint)
+  const stale = await controller.analyseSentence({
+    passageId: ids.passage, anchorId, backend: 'stub', model: 'stub-model',
+    reasoningEffort: null, operationId: uuid(), paragraphIds: preview.includedParagraphIds,
+    expectedFingerprint: changed.fingerprint,
+  }, signal())
+  assert.equal(stale.ok, false)
+  assert.equal(stale.reason, 'analysis-context-stale')
+  assert.equal(backend.calls.length, 0, 'a stale preview cannot reach the model')
+  const generated = await controller.analyseSentence({
+    passageId: ids.passage, anchorId, backend: 'stub', model: 'stub-model',
+    reasoningEffort: null, operationId: uuid(), paragraphIds: changed.includedParagraphIds,
+    expectedFingerprint: changed.fingerprint,
+  }, signal())
+  assert.equal(generated.ok, true)
+  assert.match(backend.calls[0].prompt, /Après\./u)
+  assert.doesNotMatch(backend.calls[0].prompt, /Avant\./u, 'an unchecked adjacent paragraph is not sent')
+  assert.match(backend.calls[0].prompt, /未纳入的同篇相邻段落锚点.*p1/u)
+})
+
+test('the context budget keeps the current paragraph whole and defaults to prior context first', async () => {
+  const backend = stubBackend(goodReply())
+  const backing = createBacking()
+  const { controller } = await openController(backing, FRENCH_READER_DOMAIN, { backends: [backend] })
+  const previous = `${'p'.repeat(1000)}.`
+  const currentText = `${'c'.repeat(3000)}.`
+  const next = `${'n'.repeat(400)}.`
+  await controller.createPassage({ ...passageRequest, sourceText: `${previous}\n\n${currentText}\n\n${next}` }, signal())
+  const { segmentation } = await controller.getSegmentation({ passageId: ids.passage }, signal())
+  const [prior, center, following] = segmentation.paragraphs
+  const preview = await controller.previewAnalysisContextRemote({
+    passageId: ids.passage, anchorId: center.sentences[0].id,
+  }, signal())
+  assert.equal(preview.ok, true)
+  assert.deepEqual(preview.includedParagraphIds, [center.id, following.id])
+  assert.equal(preview.materials.find((item) => item.paragraphId === prior.id).reason, 'over-budget')
+  assert.equal(preview.materials.find((item) => item.paragraphId === following.id).included, true)
+  const oversized = await controller.previewAnalysisContextRemote({
+    passageId: ids.passage, anchorId: center.sentences[0].id,
+    paragraphIds: [prior.id, center.id],
+  }, signal())
+  assert.equal(oversized.ok, false)
+  assert.equal(oversized.reason, 'selected-context-too-long')
+  assert.equal(oversized.fingerprint, null)
+  assert.ok(oversized.characters > 3500)
+})
+
+test('an over-budget current paragraph is refused instead of being truncated', async () => {
+  const backend = stubBackend(goodReply())
+  const backing = createBacking()
+  const { controller } = await openController(backing, FRENCH_READER_DOMAIN, { backends: [backend] })
+  const sourceText = `${'x'.repeat(3500)}.`
+  await controller.createPassage({ ...passageRequest, sourceText }, signal())
+  const { segmentation } = await controller.getSegmentation({ passageId: ids.passage }, signal())
+  const preview = await controller.previewAnalysisContextRemote({
+    passageId: ids.passage, anchorId: segmentation.paragraphs[0].sentences[0].id,
+  }, signal())
+  assert.equal(preview.ok, false)
+  assert.equal(preview.reason, 'current-paragraph-too-long')
+  assert.equal(preview.materials[0].text, sourceText)
+  assert.equal(preview.materials[0].included, true)
+  assert.equal(preview.fingerprint, null)
 })
 
 test('the analysis system prompt asks for JSON only and never for the discussion grammar block', async () => {
@@ -192,6 +298,24 @@ test('an unknown explanation kind degrades to unverified, never to a fact', () =
   })
   assert.equal(parsed.ok, true)
   assert.equal(parsed.analysis.explanations[0].kind, 'unverified')
+})
+
+test('explanations and structural labels are gated to Chinese, while French source forms remain allowed', () => {
+  const reply = JSON.parse(goodReply())
+  reply.explanations[0].text = 'The subject is a dummy pronoun.'
+  const refused = parseAnalysisReply(JSON.stringify(reply), {
+    passageId: ids.passage, anchorId: 'p1.s1', text: SENTENCE,
+    sourceRevision: 1, segmentationRevision: 1, backend: 'stub', model: 'm',
+  })
+  assert.equal(refused.ok, false)
+  assert.match(refused.detail, /必须使用简体中文说明/u)
+
+  reply.explanations[0].text = '“Il” 是无人称结构中的形式主语。'
+  const accepted = parseAnalysisReply(JSON.stringify(reply), {
+    passageId: ids.passage, anchorId: 'p1.s1', text: SENTENCE,
+    sourceRevision: 1, segmentationRevision: 1, backend: 'stub', model: 'm',
+  })
+  assert.equal(accepted.ok, true, accepted.ok ? '' : accepted.detail)
 })
 
 test('a clause parent index that names nothing is refused, never silently detached', () => {
@@ -275,6 +399,88 @@ test('a cancelled analysis never stores the reply the provider still sent', asyn
   const job = controller.listGenerationJobs(ids.passage, signal())[0]
   assert.equal(job.status, 'cancelled', 'the job record agrees this was not a success')
   assert.equal(job.finish, 'stop', 'the provider did answer — the record says what really happened')
+})
+
+test('Host-acknowledged cancellation of a re-analysis preserves the last stored revision', async () => {
+  const backend = stubBackend(goodReply())
+  const { controller } = await withPassage(backend)
+  const first = await controller.analyseSentence({
+    passageId: ids.passage, anchorId: 'p1.s1', backend: 'stub', model: 'stub-model',
+    reasoningEffort: null, operationId: uuid(),
+  }, signal())
+  assert.equal(first.ok, true)
+  const before = controller.readSentenceAnalysis(ids.passage, 'p1.s1', signal())
+  assert.equal(before.analysis.revision, 1)
+  const previousTranslation = before.analysis.translation
+
+  let releaseReply
+  let markStarted
+  const started = new Promise((resolve) => { markStarted = resolve })
+  backend.generate = async (target) => {
+    markStarted()
+    return await new Promise((resolve) => { releaseReply = resolve })
+  }
+  const operationId = uuid()
+  const pending = controller.analyseSentence({
+    passageId: ids.passage, anchorId: 'p1.s1', backend: 'stub', model: 'stub-model',
+    reasoningEffort: null, operationId,
+  }, signal())
+  await started
+
+  const cancellation = await controller.cancelAnalysisRemote({ passageId: ids.passage, operationId }, signal())
+  assert.deepEqual(cancellation, { kind: 'cancel-requested' })
+  releaseReply({
+    text: goodReply(), resolvedModel: 'stub-model',
+    usage: { inputTokens: 1, outputTokens: 1 }, finish: 'stop', failure: null,
+  })
+  const result = await pending
+  assert.equal(result.ok, false)
+  assert.equal(result.reason, 'cancelled')
+
+  const after = controller.readSentenceAnalysis(ids.passage, 'p1.s1', signal())
+  assert.equal(after.found, true)
+  assert.equal(after.analysis.revision, 1, 'cancel never overwrites the previous revision')
+  assert.equal(after.analysis.translation, previousTranslation)
+})
+
+test('a cancellation at the durable-write boundary is reported as too late, not as rollback', async () => {
+  const backend = stubBackend(goodReply())
+  const { controller } = await withPassage(backend)
+  const first = await controller.analyseSentence({
+    passageId: ids.passage, anchorId: 'p1.s1', backend: 'stub', model: 'stub-model',
+    reasoningEffort: null, operationId: uuid(),
+  }, signal())
+  assert.equal(first.ok, true)
+
+  const table = controller.table()
+  const originalPut = table.put.bind(table)
+  let releaseWrite
+  let markCommit
+  const committing = new Promise((resolve) => { markCommit = resolve })
+  let holdWrite = false
+  table.put = async (key, record) => {
+    if (holdWrite && key === `sentences_${ids.passage}` && record.kind === 'sentenceAnalyses') {
+      markCommit()
+      await new Promise((resolve) => { releaseWrite = resolve })
+    }
+    return originalPut(key, record)
+  }
+
+  holdWrite = true
+  const operationId = uuid()
+  const pending = controller.analyseSentence({
+    passageId: ids.passage, anchorId: 'p1.s1', backend: 'stub', model: 'stub-model',
+    reasoningEffort: null, operationId,
+  }, signal())
+  await committing
+  const cancellation = await controller.cancelAnalysisRemote({ passageId: ids.passage, operationId }, signal())
+  assert.deepEqual(cancellation, { kind: 'too-late' })
+  releaseWrite()
+
+  const result = await pending
+  assert.equal(result.ok, true)
+  const stored = controller.readSentenceAnalysis(ids.passage, 'p1.s1', signal())
+  assert.equal(stored.analysis.revision, 2, 'the acknowledged result matches the committed revision')
 })
 
 test('an unavailable backend is reported instead of generating', async () => {

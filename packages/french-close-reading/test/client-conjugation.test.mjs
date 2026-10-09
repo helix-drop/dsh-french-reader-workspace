@@ -102,6 +102,13 @@ test('the panel declares both conjugation calls against the Host contract', () =
   assert.match(read, /lemma: S\.str/u, 'the argument the Host declares is the one sent')
 })
 
+test('a manually saved verb entry opens at its own conjugation section', () => {
+  assert.match(source, /setKnowledgeFocusConjugationEntryId\(draft\.lemma\.trim\(\) === '' \? null : value\.entryId\)/u)
+  assert.match(source, /focusConjugation: knowledgeFocusConjugationEntryId === entry\?\.entryId/u)
+  assert.match(source, /document\.querySelector\('\.conjugationView'\)/u)
+  assert.match(source, /target\.scrollIntoView\(\{ block: 'start'/u)
+})
+
 test('every label the conjugation panel uses exists in both dictionaries', () => {
   const { keys } = panelKeys()
   assert.equal(keys.size >= 10, true, `the panel asks for ${String(keys.size)} labels`)

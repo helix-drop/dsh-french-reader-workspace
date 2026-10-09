@@ -38,7 +38,7 @@ import { previewImport } from "./import-preview.js";
 import { appendLexiconOccurrence, createLexiconEntry, grammarHash, listLexicon, lookupMot, readLexiconEntries, rebuildLexiconIndex, recordLexiconSource, renderLexiconEntry, setLexiconSection, writeLexiconIndex, } from "./lexicon-store.js";
 import { AgyBackend, } from "./agy-backend.js";
 import { addConclusion, addContextManifest, appendMessage, branchHistory, createBranch, listConclusions, migrateContextsToPerRecord, readContextManifest, readDiscussion, setBranchStatus, setGrammarMastery, } from "./discussion-store.js";
-import { analysisPrompt, coverageOf, parseAnalysisReply, publishAnalysisVersion, putSentenceAnalysis, readAnalysisVersions, readSentenceAnalyses, } from "./analysis-store.js";
+import { ANALYSIS_CONTEXT_CHARACTER_LIMIT, analysisPrompt, coverageOf, selectAnalysisContext, parseAnalysisReply, publishAnalysisVersion, putSentenceAnalysis, readAnalysisVersions, readSentenceAnalyses, } from "./analysis-store.js";
 import { validateSentenceAnalysis } from "./analysis.js";
 import { fetchLexiconSource, listLexiconSources, } from "./source-fetch.js";
 import { compileContext, renderAnalysisSystem, renderPrompt, renderSystem, } from "./context-compiler.js";
@@ -161,6 +161,34 @@ const lookupMotRequestSchema = z.object({
     /** Optional hint; a wrong hint must not hide an exact hit, so it only narrows. */
     partOfSpeech: z.string().max(40).nullable(),
 }).strict();
+const createLexiconEntryRequestSchema = z.object({
+    mot: z.string().trim().min(1).max(80),
+    partOfSpeech: z.string().trim().min(1).max(40),
+    lemma: z.string().trim().min(1).max(80).nullable(),
+    forms: z.array(z.string().trim().min(1).max(80)).max(50),
+    label: z.string().trim().min(1).max(80),
+    definition: z.string().trim().min(1).max(4000),
+    provenance: z.enum(['user', 'mixed']).optional(),
+    operationId: z.string().uuid(),
+    passageId: z.string().uuid(),
+    anchorId: anchorIdSchema,
+    occurrenceNote: z.string().trim().min(1).max(500),
+}).strict();
+const createLexiconOccurrenceValueSchema = z.object({
+    kind: z.enum(['appended', 'already-appended', 'not-attempted', 'failed']),
+    reason: z.string().nullable(),
+}).strict();
+const createLexiconEntryValueSchema = z.union([
+    z.object({
+        kind: z.enum(['created', 'exists']), entryId: z.string().uuid(),
+        occurrence: createLexiconOccurrenceValueSchema,
+    }).strict(),
+    z.object({
+        kind: z.literal('conflict'), entryId: z.null(),
+        reason: z.enum(['passage-unknown', 'anchor-unknown', 'mot-blank', 'key-collision']),
+        occurrence: createLexiconOccurrenceValueSchema,
+    }).strict(),
+]);
 const adoptTranslationRequestSchema = z.object({
     passageId: z.string().uuid(),
     anchorId: anchorIdSchema,
@@ -184,12 +212,35 @@ const sentenceAnalysisRequestSchema = z.object({
     passageId: z.string().uuid(),
     anchorId: anchorIdSchema,
 }).strict();
+const previewAnalysisContextRequestSchema = z.object({
+    passageId: z.string().uuid(),
+    anchorId: anchorIdSchema,
+    paragraphIds: z.array(z.string().min(1).max(32)).max(3).optional(),
+}).strict();
 const analyseSentenceRequestSchema = z.object({
     passageId: z.string().uuid(),
     anchorId: anchorIdSchema,
     backend: z.string().min(1).max(40),
     model: z.string().min(1).max(160),
     reasoningEffort: z.string().max(40).nullable(),
+    operationId: z.string().uuid(),
+    paragraphIds: z.array(z.string().min(1).max(32)).max(3).optional(),
+    expectedFingerprint: z.string().min(1).max(128).nullable().optional(),
+}).strict();
+async function analysisContextFingerprint(input) {
+    const serialized = JSON.stringify({
+        passageId: input.passageId,
+        sourceRevision: input.sourceRevision,
+        segmentationRevision: input.segmentationRevision,
+        anchorId: input.anchorId,
+        sentenceText: input.sentenceText,
+        materials: input.candidates.filter((candidate) => candidate.included).map(({ paragraphId, relation, text }) => ({ paragraphId, relation, text })),
+    });
+    const digest = await globalThis.crypto.subtle.digest('SHA-256', new TextEncoder().encode(serialized));
+    return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+const cancelAnalysisRequestSchema = z.object({
+    passageId: z.string().uuid(),
     operationId: z.string().uuid(),
 }).strict();
 const analyseParagraphRequestSchema = z.object({
@@ -258,6 +309,26 @@ function stateOf(controller) {
         throw new Error('french-reader controller state is unavailable');
     return state;
 }
+function linkAbortSignals(signals) {
+    const controller = new AbortController();
+    const listeners = [];
+    for (const signal of signals) {
+        if (signal.aborted) {
+            controller.abort(signal.reason);
+            break;
+        }
+        const listener = () => controller.abort(signal.reason);
+        signal.addEventListener('abort', listener, { once: true });
+        listeners.push({ signal, listener });
+    }
+    return {
+        signal: controller.signal,
+        dispose: () => {
+            for (const { signal, listener } of listeners)
+                signal.removeEventListener('abort', listener);
+        },
+    };
+}
 /** Host service behind the generated `ctx.remote.frenchReader` namespace. */
 let FrenchReaderController = (() => {
     let _classSuper = TypertRemoteService;
@@ -273,8 +344,10 @@ let FrenchReaderController = (() => {
     let _createBranchRemote_decorators;
     let _setBranchStateRemote_decorators;
     let _recordConclusionRemote_decorators;
+    let _cancelAnalysisRemote_decorators;
     let _readAnalysisCoverageRemote_decorators;
     let _readSentenceAnalysisRemote_decorators;
+    let _previewAnalysisContextRemote_decorators;
     let _analyseSentenceRemote_decorators;
     let _analyseParagraphRemote_decorators;
     let _putSentenceAnalysisRemote__decorators;
@@ -298,6 +371,7 @@ let FrenchReaderController = (() => {
     let _addBranch_decorators;
     let _listAnalysis_decorators;
     let _lookupMotRemote_decorators;
+    let _createLexiconEntryRemote_decorators;
     let _adoptTranslationRemote_decorators;
     let _readConjugationRemote_decorators;
     let _fetchConjugationRemote_decorators;
@@ -318,8 +392,10 @@ let FrenchReaderController = (() => {
             _createBranchRemote_decorators = [Remote('createBranch')];
             _setBranchStateRemote_decorators = [Remote('setBranchState')];
             _recordConclusionRemote_decorators = [Remote('recordConclusion')];
+            _cancelAnalysisRemote_decorators = [Remote('cancelAnalysis')];
             _readAnalysisCoverageRemote_decorators = [Remote('readAnalysisCoverage')];
             _readSentenceAnalysisRemote_decorators = [Remote('readSentenceAnalysis')];
+            _previewAnalysisContextRemote_decorators = [Remote('previewAnalysisContext')];
             _analyseSentenceRemote_decorators = [Remote('analyseSentence')];
             _analyseParagraphRemote_decorators = [Remote('analyseParagraph')];
             _putSentenceAnalysisRemote__decorators = [Remote('putSentenceAnalysis')];
@@ -343,6 +419,7 @@ let FrenchReaderController = (() => {
             _addBranch_decorators = [Remote('addBranch')];
             _listAnalysis_decorators = [Remote('listAnalysis')];
             _lookupMotRemote_decorators = [Remote('lookupMot')];
+            _createLexiconEntryRemote_decorators = [Remote('createLexiconEntry')];
             _adoptTranslationRemote_decorators = [Remote('adoptTranslation')];
             _readConjugationRemote_decorators = [Remote('readConjugation')];
             _fetchConjugationRemote_decorators = [Remote('fetchConjugation')];
@@ -360,8 +437,10 @@ let FrenchReaderController = (() => {
             __esDecorate(this, null, _createBranchRemote_decorators, { kind: "method", name: "createBranchRemote", static: false, private: false, access: { has: obj => "createBranchRemote" in obj, get: obj => obj.createBranchRemote }, metadata: _metadata }, null, _instanceExtraInitializers);
             __esDecorate(this, null, _setBranchStateRemote_decorators, { kind: "method", name: "setBranchStateRemote", static: false, private: false, access: { has: obj => "setBranchStateRemote" in obj, get: obj => obj.setBranchStateRemote }, metadata: _metadata }, null, _instanceExtraInitializers);
             __esDecorate(this, null, _recordConclusionRemote_decorators, { kind: "method", name: "recordConclusionRemote", static: false, private: false, access: { has: obj => "recordConclusionRemote" in obj, get: obj => obj.recordConclusionRemote }, metadata: _metadata }, null, _instanceExtraInitializers);
+            __esDecorate(this, null, _cancelAnalysisRemote_decorators, { kind: "method", name: "cancelAnalysisRemote", static: false, private: false, access: { has: obj => "cancelAnalysisRemote" in obj, get: obj => obj.cancelAnalysisRemote }, metadata: _metadata }, null, _instanceExtraInitializers);
             __esDecorate(this, null, _readAnalysisCoverageRemote_decorators, { kind: "method", name: "readAnalysisCoverageRemote", static: false, private: false, access: { has: obj => "readAnalysisCoverageRemote" in obj, get: obj => obj.readAnalysisCoverageRemote }, metadata: _metadata }, null, _instanceExtraInitializers);
             __esDecorate(this, null, _readSentenceAnalysisRemote_decorators, { kind: "method", name: "readSentenceAnalysisRemote", static: false, private: false, access: { has: obj => "readSentenceAnalysisRemote" in obj, get: obj => obj.readSentenceAnalysisRemote }, metadata: _metadata }, null, _instanceExtraInitializers);
+            __esDecorate(this, null, _previewAnalysisContextRemote_decorators, { kind: "method", name: "previewAnalysisContextRemote", static: false, private: false, access: { has: obj => "previewAnalysisContextRemote" in obj, get: obj => obj.previewAnalysisContextRemote }, metadata: _metadata }, null, _instanceExtraInitializers);
             __esDecorate(this, null, _analyseSentenceRemote_decorators, { kind: "method", name: "analyseSentenceRemote", static: false, private: false, access: { has: obj => "analyseSentenceRemote" in obj, get: obj => obj.analyseSentenceRemote }, metadata: _metadata }, null, _instanceExtraInitializers);
             __esDecorate(this, null, _analyseParagraphRemote_decorators, { kind: "method", name: "analyseParagraphRemote", static: false, private: false, access: { has: obj => "analyseParagraphRemote" in obj, get: obj => obj.analyseParagraphRemote }, metadata: _metadata }, null, _instanceExtraInitializers);
             __esDecorate(this, null, _putSentenceAnalysisRemote__decorators, { kind: "method", name: "putSentenceAnalysisRemote_", static: false, private: false, access: { has: obj => "putSentenceAnalysisRemote_" in obj, get: obj => obj.putSentenceAnalysisRemote_ }, metadata: _metadata }, null, _instanceExtraInitializers);
@@ -385,6 +464,7 @@ let FrenchReaderController = (() => {
             __esDecorate(this, null, _addBranch_decorators, { kind: "method", name: "addBranch", static: false, private: false, access: { has: obj => "addBranch" in obj, get: obj => obj.addBranch }, metadata: _metadata }, null, _instanceExtraInitializers);
             __esDecorate(this, null, _listAnalysis_decorators, { kind: "method", name: "listAnalysis", static: false, private: false, access: { has: obj => "listAnalysis" in obj, get: obj => obj.listAnalysis }, metadata: _metadata }, null, _instanceExtraInitializers);
             __esDecorate(this, null, _lookupMotRemote_decorators, { kind: "method", name: "lookupMotRemote", static: false, private: false, access: { has: obj => "lookupMotRemote" in obj, get: obj => obj.lookupMotRemote }, metadata: _metadata }, null, _instanceExtraInitializers);
+            __esDecorate(this, null, _createLexiconEntryRemote_decorators, { kind: "method", name: "createLexiconEntryRemote", static: false, private: false, access: { has: obj => "createLexiconEntryRemote" in obj, get: obj => obj.createLexiconEntryRemote }, metadata: _metadata }, null, _instanceExtraInitializers);
             __esDecorate(this, null, _adoptTranslationRemote_decorators, { kind: "method", name: "adoptTranslationRemote", static: false, private: false, access: { has: obj => "adoptTranslationRemote" in obj, get: obj => obj.adoptTranslationRemote }, metadata: _metadata }, null, _instanceExtraInitializers);
             __esDecorate(this, null, _readConjugationRemote_decorators, { kind: "method", name: "readConjugationRemote", static: false, private: false, access: { has: obj => "readConjugationRemote" in obj, get: obj => obj.readConjugationRemote }, metadata: _metadata }, null, _instanceExtraInitializers);
             __esDecorate(this, null, _fetchConjugationRemote_decorators, { kind: "method", name: "fetchConjugationRemote", static: false, private: false, access: { has: obj => "fetchConjugationRemote" in obj, get: obj => obj.fetchConjugationRemote }, metadata: _metadata }, null, _instanceExtraInitializers);
@@ -395,6 +475,8 @@ let FrenchReaderController = (() => {
         }
         domain = __runInitializers(this, _instanceExtraInitializers);
         writeTail = Promise.resolve();
+        activeAnalyses = new Map();
+        queuedAnalysisCancellations = new Map();
         /** The one storage table this plugin owns; the store modules take it as data. */
         table() {
             return this.domain.table('records');
@@ -548,6 +630,34 @@ let FrenchReaderController = (() => {
             return { kind: 'conflict', reason: (value.reason ?? 'branch-unknown') };
         }
         /**
+         * Explicitly revoke a sentence or paragraph analysis before its durable commit.
+         * The separate request does not depend on the original Remote transport's
+         * AbortSignal reaching the Host; `too-late` names the write boundary honestly.
+         */
+        async cancelAnalysisRemote(request, signal) {
+            const parsed = cancelAnalysisRequestSchema.safeParse(request);
+            if (!parsed.success)
+                throw badRequest('Invalid analysis-cancellation request', parsed.error.issues);
+            signal.throwIfAborted();
+            const targets = [...this.activeAnalyses.entries()]
+                .filter(([operationId, active]) => (operationId === parsed.data.operationId
+                || active.parentOperationId === parsed.data.operationId)
+                && active.passageId === parsed.data.passageId);
+            if (targets.some(([, active]) => active.phase === 'committing'))
+                return { kind: 'too-late' };
+            if (targets.length > 0) {
+                for (const [, active] of targets)
+                    active.controller.abort();
+                return { kind: 'cancel-requested' };
+            }
+            const job = readGenerationJob(this.table(), 'analyse', parsed.data.operationId);
+            if (job !== undefined && job.passageId === parsed.data.passageId && job.status !== 'running') {
+                return { kind: 'already-finished' };
+            }
+            this.rememberAnalysisCancellation(parsed.data.passageId, parsed.data.operationId);
+            return { kind: 'cancel-queued' };
+        }
+        /**
          * How much of the passage is analysed, measured against the current sentences
          * rather than claimed.
          */
@@ -600,6 +710,44 @@ let FrenchReaderController = (() => {
                 },
                 errors: value.errors ?? [],
                 hints: value.hints ?? [],
+            };
+        }
+        /** Preview same-passage paragraph context before any sentence model call. */
+        async previewAnalysisContextRemote(request, signal) {
+            const parsed = previewAnalysisContextRequestSchema.safeParse(request);
+            if (!parsed.success)
+                throw badRequest('Invalid analysis context preview request', parsed.error.issues);
+            signal.throwIfAborted();
+            const passage = this.readPassage(parsed.data.passageId);
+            if (passage === undefined)
+                throw badRequest('Unknown passage', [{ passageId: parsed.data.passageId }]);
+            const segmentation = this.readSegmentation(passage) ?? await this.serialize(() => this.persistSegmentation(passage));
+            const sentence = segmentation.paragraphs.flatMap((paragraph) => paragraph.sentences)
+                .find((entry) => entry.id === parsed.data.anchorId);
+            if (sentence === undefined)
+                throw badRequest('Analysis context requires a sentence anchor', [{ anchorId: parsed.data.anchorId }]);
+            const selection = selectAnalysisContext(segmentation.paragraphs, sentence.id, parsed.data.paragraphIds);
+            if (selection === null)
+                throw badRequest('Analysis context paragraph could not be resolved', [{ anchorId: sentence.id }]);
+            const fingerprint = selection.ok ? await analysisContextFingerprint({
+                passageId: passage.id,
+                sourceRevision: passage.sourceRevision,
+                segmentationRevision: segmentation.revision,
+                anchorId: sentence.id,
+                sentenceText: sentence.text,
+                candidates: selection.candidates,
+            }) : null;
+            return {
+                ok: selection.ok,
+                reason: selection.reason,
+                anchorId: sentence.id,
+                currentParagraphId: selection.currentParagraphId,
+                characterLimit: ANALYSIS_CONTEXT_CHARACTER_LIMIT,
+                characters: selection.characters,
+                materials: selection.candidates,
+                includedParagraphIds: selection.includedParagraphIds,
+                omittedParagraphIds: selection.omittedParagraphIds,
+                fingerprint,
             };
         }
         /** Generate one sentence analysis and store it only if it passes the gate. */
@@ -2172,6 +2320,90 @@ let FrenchReaderController = (() => {
             return this.lookupMot(parsed.data.mot, parsed.data.partOfSpeech, signal);
         }
         /**
+         * Create a reader-confirmed exact-Mot entry and record the source passage it came
+         * from. Model-assisted drafts may retain mixed provenance. The entry and occurrence are sequential durable writes, not a transaction;
+         * the result reports them separately so a partial outcome is never disguised.
+         */
+        async createLexiconEntryRemote(request, signal) {
+            const parsed = createLexiconEntryRequestSchema.safeParse(request);
+            if (!parsed.success)
+                throw badRequest('Invalid lexicon entry', parsed.error.issues);
+            const input = parsed.data;
+            return this.serialize(async () => {
+                signal.throwIfAborted();
+                const passage = this.readPassage(input.passageId);
+                if (passage === undefined) {
+                    return {
+                        kind: 'conflict', entryId: null, reason: 'passage-unknown',
+                        occurrence: { kind: 'not-attempted', reason: null },
+                    };
+                }
+                const segmentation = this.readSegmentation(passage) ?? await this.persistSegmentation(passage);
+                const anchor = this.anchorRef(passage, segmentation, input.anchorId);
+                if (anchor === null) {
+                    return {
+                        kind: 'conflict', entryId: null, reason: 'anchor-unknown',
+                        occurrence: { kind: 'not-attempted', reason: null },
+                    };
+                }
+                const created = await createLexiconEntry(this.table(), {
+                    mot: input.mot,
+                    partOfSpeech: input.partOfSpeech,
+                    lemma: input.lemma,
+                    forms: input.forms,
+                    definition: input.definition,
+                    label: input.label,
+                    provenance: input.provenance ?? 'user',
+                    operationId: input.operationId,
+                });
+                if (created.created !== true && created.exists !== true) {
+                    return {
+                        kind: 'conflict', entryId: null,
+                        reason: created.reason === 'mot-blank' ? 'mot-blank' : 'key-collision',
+                        occurrence: { kind: 'not-attempted', reason: null },
+                    };
+                }
+                if (created.entryId === undefined) {
+                    return {
+                        kind: 'conflict', entryId: null, reason: 'key-collision',
+                        occurrence: { kind: 'not-attempted', reason: null },
+                    };
+                }
+                const sameOperation = created.created === true
+                    || readLexiconEntries(this.table()).some((entry) => entry.id === created.entryId && entry.operationId === input.operationId);
+                if (!sameOperation) {
+                    return {
+                        kind: 'exists', entryId: created.entryId,
+                        occurrence: { kind: 'not-attempted', reason: null },
+                    };
+                }
+                let occurrence;
+                try {
+                    const appended = await appendLexiconOccurrence(this.table(), {
+                        entryId: created.entryId,
+                        passageId: input.passageId,
+                        anchorId: input.anchorId,
+                        excerpt: anchor.excerpt,
+                        note: input.occurrenceNote,
+                        operationId: await derivedOperationId(input.operationId, 'lexicon-occurrence'),
+                    });
+                    occurrence = appended.appended
+                        ? { kind: 'appended', reason: null }
+                        : appended.alreadyAppended === true
+                            ? { kind: 'already-appended', reason: null }
+                            : { kind: 'failed', reason: appended.reason ?? 'occurrence-refused' };
+                }
+                catch {
+                    occurrence = { kind: 'failed', reason: 'occurrence-write-failed' };
+                }
+                return {
+                    kind: created.created === true ? 'created' : 'exists',
+                    entryId: created.entryId,
+                    occurrence,
+                };
+            });
+        }
+        /**
          * Adopt one translation variant for one anchor.
          *
          * Adoption moves the sentence pointer and records what it replaced; the paragraph's
@@ -2444,7 +2676,22 @@ let FrenchReaderController = (() => {
          * reported with the gate's own errors and stored nowhere, because storing it
          * would put an unusable analysis on screen next to a usable one.
          */
-        async analyseSentence(input, signal) {
+        async analyseSentence(input, callerSignal) {
+            const prepared = this.prepareAnalysisOperation(input.passageId, input.operationId, input.parentOperationId ?? null, callerSignal);
+            if (prepared === 'cancelled')
+                return { ok: false, reason: 'cancelled' };
+            if (prepared === 'duplicate')
+                return { ok: false, reason: 'operation-already-running' };
+            try {
+                return await this.runSentenceAnalysis(input, prepared.signal, prepared.active);
+            }
+            finally {
+                this.finishAnalysisOperation(input.operationId, prepared);
+            }
+        }
+        async runSentenceAnalysis(input, signal, active) {
+            if (signal.aborted)
+                return { ok: false, reason: 'cancelled' };
             const backend = this.backends().find((entry) => entry.id === input.backend);
             if (backend === undefined)
                 return { ok: false, reason: 'backend-unknown' };
@@ -2470,11 +2717,38 @@ let FrenchReaderController = (() => {
                     hints: ['逐句解析以句子为锚点：请先点选某一句（pN.sM），而不是段落或整篇。'],
                 };
             }
-            const paragraph = segmentation.paragraphs.find((entry) => entry.sentences.some((child) => child.id === input.anchorId));
+            const context = selectAnalysisContext(segmentation.paragraphs, sentence.id, input.paragraphIds);
+            if (context === null)
+                return { ok: false, reason: 'analysis-context-unavailable' };
+            if (!context.ok) {
+                return {
+                    ok: false,
+                    reason: context.reason ?? 'analysis-context-invalid',
+                    failure: `${context.characters}/${ANALYSIS_CONTEXT_CHARACTER_LIMIT} 字符`,
+                    hints: ['当前段落必须完整提供；请在材料预览中减少相邻段落，不能截断段落。'],
+                };
+            }
+            if (input.paragraphIds !== undefined && typeof input.expectedFingerprint !== 'string') {
+                return { ok: false, reason: 'analysis-context-preview-required', hints: ['请先预览并确认本次材料。'] };
+            }
+            const fingerprint = await analysisContextFingerprint({
+                passageId: passage.id,
+                sourceRevision: passage.sourceRevision,
+                segmentationRevision: segmentation.revision,
+                anchorId: sentence.id,
+                sentenceText: sentence.text,
+                candidates: context.candidates,
+            });
+            if (typeof input.expectedFingerprint === 'string' && input.expectedFingerprint !== fingerprint) {
+                return { ok: false, reason: 'analysis-context-stale', hints: ['材料已变化，请重新预览并确认。'] };
+            }
+            const currentParagraph = context.candidates.find((candidate) => candidate.relation === 'current');
             const prompt = analysisPrompt({
                 sentence: sentence.text,
                 anchorId: sentence.id,
-                paragraph: paragraph?.text ?? sentence.text,
+                paragraph: currentParagraph.text,
+                contextMaterials: context.candidates.filter((candidate) => candidate.included),
+                omittedParagraphIds: context.omittedParagraphIds,
             });
             // One job per attempt: whatever happens to this call — cancel, timeout,
             // restart, provider silence — the record answers "did it reach the provider,
@@ -2589,6 +2863,10 @@ let FrenchReaderController = (() => {
                         || currentSentence.text !== sentence.text) {
                         return { stored: false, revised: true };
                     }
+                    // Cancellation and commit have one linearization point. Until this line,
+                    // the explicit cancel endpoint may revoke the operation. Once the durable
+                    // write starts, it returns `too-late` instead of promising rollback.
+                    active.phase = 'committing';
                     return putSentenceAnalysis(this.table(), parsed.analysis, sentence.text);
                 });
                 if ('cancelled' in stored && stored.cancelled === true) {
@@ -2654,7 +2932,20 @@ let FrenchReaderController = (() => {
          * gate is reported and skipped — the run continues with the others rather than
          * discarding the work that succeeded.
          */
-        async analyseParagraph(input, signal) {
+        async analyseParagraph(input, callerSignal) {
+            const prepared = this.prepareAnalysisOperation(input.passageId, input.operationId, null, callerSignal);
+            if (prepared === 'cancelled')
+                return { ok: false, reason: 'cancelled' };
+            if (prepared === 'duplicate')
+                return { ok: false, reason: 'operation-already-running' };
+            try {
+                return await this.runParagraphAnalysis(input, prepared.signal);
+            }
+            finally {
+                this.finishAnalysisOperation(input.operationId, prepared);
+            }
+        }
+        async runParagraphAnalysis(input, signal) {
             const passage = this.readPassage(input.passageId);
             if (passage === undefined)
                 return { ok: false, reason: 'passage-unknown' };
@@ -2689,6 +2980,7 @@ let FrenchReaderController = (() => {
                     model: input.model,
                     reasoningEffort: input.reasoningEffort ?? null,
                     operationId: await derivedOperationId(input.operationId, anchorId),
+                    parentOperationId: input.operationId,
                 }, signal);
                 if (value.ok === true)
                     stored.push(anchorId);
@@ -3581,6 +3873,49 @@ let FrenchReaderController = (() => {
                 rows.push(record.payload);
             }
             return rows;
+        }
+        prepareAnalysisOperation(passageId, operationId, parentOperationId, callerSignal) {
+            this.pruneAnalysisCancellations();
+            const queued = this.queuedAnalysisCancellations.get(operationId);
+            if (queued !== undefined) {
+                this.queuedAnalysisCancellations.delete(operationId);
+                if (queued.passageId === passageId)
+                    return 'cancelled';
+            }
+            if (this.activeAnalyses.has(operationId))
+                return 'duplicate';
+            const controller = new AbortController();
+            const linked = linkAbortSignals([callerSignal, controller.signal]);
+            const active = {
+                passageId, parentOperationId, controller, phase: 'generating',
+            };
+            this.activeAnalyses.set(operationId, active);
+            return { active, signal: linked.signal, dispose: linked.dispose };
+        }
+        finishAnalysisOperation(operationId, prepared) {
+            if (this.activeAnalyses.get(operationId) === prepared.active)
+                this.activeAnalyses.delete(operationId);
+            prepared.dispose();
+        }
+        rememberAnalysisCancellation(passageId, operationId) {
+            this.pruneAnalysisCancellations();
+            while (this.queuedAnalysisCancellations.size >= 128) {
+                const oldest = this.queuedAnalysisCancellations.keys().next().value;
+                if (oldest === undefined)
+                    break;
+                this.queuedAnalysisCancellations.delete(oldest);
+            }
+            this.queuedAnalysisCancellations.set(operationId, {
+                passageId,
+                expiresAt: Date.now() + 120_000,
+            });
+        }
+        pruneAnalysisCancellations() {
+            const now = Date.now();
+            for (const [operationId, pending] of this.queuedAnalysisCancellations) {
+                if (pending.expiresAt <= now)
+                    this.queuedAnalysisCancellations.delete(operationId);
+            }
         }
         serialize(operation) {
             const pending = this.writeTail.then(operation, operation);

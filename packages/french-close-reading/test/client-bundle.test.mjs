@@ -228,6 +228,7 @@ test('every panel capability is defined and actually rendered', () => {
     // the section would count the chip and badges rendered beside it.
     ['selection captured inside the quote', 'function captureReadingSelection()'],
     ['the lookup acts on the captured word', "void lookupWord(selectedWord)"],
+    ['exact Mot creation is an explicit reader action', 'await createLexiconEntry({'],
     ['the backup exports the whole library', 'await exportLibrary()'],
     // The generation surface: the reader picks a backend and model, sees what a
     // turn would send, and only then sends it.
@@ -237,7 +238,7 @@ test('every panel capability is defined and actually rendered', () => {
     ['the preview fingerprint travels with the send', 'expectedFingerprint: contextPreview.fingerprint'],
     // The turn is sent through the stream when the Host offers one, and through the
     // unary call when it does not, so the guard tracks the call, not one branch of it.
-    ['the turn is sent', 'unwrap(await ask(request), t)'],
+    ['the turn is sent', 'unwrap(await ask(request, controller.signal), t)'],
     ['the discussion is read back', 'await listDiscussion({ passageId })'],
     ['a branch is opened from the panel', 'await createBranch({'],
     ['a branch state is set', 'await setBranchState({'],
@@ -255,6 +256,8 @@ test('every panel capability is defined and actually rendered', () => {
     // there is no call site left to pin.
     ['the analysis is read, not generated, on focus', 'await readSentenceAnalysis({ passageId: activePassage.id, anchorId })'],
     ['coverage is measured', 'await readAnalysisCoverage({ passageId })'],
+    ['analysis materials are previewed before generation', 'await previewAnalysisContext({'],
+    ['generation is pinned to the reviewed material fingerprint', 'expectedFingerprint: confirmedContext.fingerprint'],
     ['the analysis is generated on demand', 'await analyseSentence({'],
     ['a refused analysis shows the gate reason', "format(t, 'analysisRefused', { reason: value.reason, detail: value.failure ?? '' })"],
     ['the colour comes from the role token', 'color: tokenForRole(piece.role)'],

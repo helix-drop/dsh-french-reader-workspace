@@ -16,6 +16,7 @@
 import type { PassageRecord } from './domain.ts';
 import type { RecordTable } from './lexicon-store.ts';
 import type { StoredAnalysisVersion, StoredAnalysisVersions, StoredSentenceAnalyses, StoredSentenceAnalysis } from './analysis.ts';
+import type { ParagraphAnchor } from './segmentation.ts';
 export declare const sentenceAnalysesKey: (passageId: string) => string;
 export declare const analysisVersionsKey: (passageId: string) => string;
 export declare function readSentenceAnalyses(table: RecordTable, passageId: string): StoredSentenceAnalyses;
@@ -88,47 +89,77 @@ export declare function coverageOf(table: RecordTable, passageId: string, senten
  * named.
  */
 export declare const ANALYSIS_JSON_CONTRACT: {
-    readonly translation: "string — 该句的中文译文";
-    readonly backbone: "string — 去掉修饰后的句子主干";
+    readonly translation: "string — 该句的简体中文译文";
+    readonly backbone: "string — 去掉修饰后的法语句子主干，保留原词";
     readonly clauses: readonly [{
-        readonly role: "string — 主句／关系从句／补语从句…";
+        readonly role: "string — 中文从句类型（主句／关系从句／补语从句…）";
         readonly start: "number";
         readonly end: "number";
-        readonly text: "string";
+        readonly text: "string — 对应的法语原文";
         readonly parentIndex: "number|null — 父从句在下标中的位置";
     }];
     readonly constituents: readonly [{
-        readonly role: "string — 主语／谓语／直接宾语／表语／宾补／状语…";
+        readonly role: "string — 中文句法功能（主语／谓语／直接宾语／表语／宾补／状语…）";
         readonly start: "number";
         readonly end: "number";
-        readonly text: "string";
+        readonly text: "string — 对应的法语原文";
         readonly clauseIndex: "number|null";
-        readonly partOfSpeech: "string|null — 词性，不是句法功能";
+        readonly partOfSpeech: "string|null — 中文词性，不是句法功能";
     }];
     readonly morphology: readonly [{
-        readonly form: "string";
-        readonly lemma: "string|null";
-        readonly partOfSpeech: "string|null";
-        readonly tense: "string|null";
-        readonly mood: "string|null";
-        readonly person: "string|null";
-        readonly gender: "string|null";
-        readonly number: "string|null";
-        readonly agreesWith: "string|null";
-        readonly note: "string";
+        readonly form: "string — 法语原形态";
+        readonly lemma: "string|null — 法语词元";
+        readonly partOfSpeech: "string|null — 中文词性";
+        readonly tense: "string|null — 中文时态";
+        readonly mood: "string|null — 中文语式";
+        readonly person: "string|null — 中文人称";
+        readonly gender: "string|null — 中文性";
+        readonly number: "string|null — 中文数";
+        readonly agreesWith: "string|null — 法语对应词形";
+        readonly note: "string — 中文说明";
     }];
     readonly explanations: readonly [{
         readonly kind: "syntax|context|rhetoric|unverified";
-        readonly text: "string";
+        readonly text: "string — 简体中文说明；需要时可引用法语原词";
         readonly start: "number|null";
         readonly end: "number|null";
     }];
 };
+export declare const ANALYSIS_CONTEXT_CHARACTER_LIMIT = 3500;
+type AnalysisContextRole = 'previous' | 'current' | 'next';
+export interface AnalysisContextCandidate {
+    paragraphId: string;
+    relation: AnalysisContextRole;
+    text: string;
+    start: number;
+    end: number;
+    included: boolean;
+    reason: 'included' | 'not-selected' | 'over-budget';
+}
+export interface AnalysisContextSelection {
+    ok: boolean;
+    reason: 'current-paragraph-too-long' | 'selected-context-too-long' | 'selection-invalid' | null;
+    currentParagraphId: string;
+    characters: number;
+    candidates: AnalysisContextCandidate[];
+    includedParagraphIds: string[];
+    omittedParagraphIds: string[];
+}
+/** Same-passage, paragraph-atomic context; the target sentence's paragraph is mandatory. */
+export declare function selectAnalysisContext(paragraphs: ParagraphAnchor[], anchorId: string, requestedParagraphIds?: string[]): AnalysisContextSelection | null;
 /** The instruction that asks for one sentence analysis. */
 export declare function analysisPrompt(input: {
     sentence: string;
     anchorId: string;
     paragraph: string;
+    previousParagraph?: string;
+    nextParagraph?: string;
+    contextMaterials?: {
+        paragraphId: string;
+        relation: AnalysisContextRole;
+        text: string;
+    }[];
+    omittedParagraphIds?: string[];
 }): string;
 export type AnalysisRecord = Extract<PassageRecord, {
     kind: 'sentenceAnalyses' | 'analysisVersions';
@@ -165,3 +196,4 @@ export declare function parseAnalysisReply(reply: string, input: AnalysisDraftIn
 };
 /** The first JSON object in a reply, tolerating a code fence around it. */
 export declare function extractJsonObject(reply: string): Record<string, unknown> | null;
+export {};

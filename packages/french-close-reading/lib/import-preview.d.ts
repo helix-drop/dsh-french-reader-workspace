@@ -12,16 +12,24 @@ export interface ImportFlag {
     severity: 'error' | 'hint';
     detail: string;
 }
+export interface ImportSentencePreview {
+    id: string;
+    text: string;
+    /** Absolute half-open character range into the exact source text. */
+    start: number;
+    end: number;
+}
 export interface ImportPreview {
     title: string;
     characters: number;
     paragraphs: number;
     sentences: number;
-    /** Paragraph boundaries as the segmenter will store them. */
+    /** Paragraph and sentence boundaries as the segmenter will store them. */
     blocks: {
         id: string;
         sentences: number;
         excerpt: string;
+        sentenceDetails: ImportSentencePreview[];
     }[];
     head: string;
     tail: string;

@@ -23,7 +23,7 @@ function loadInternals() {
   })
   vm.runInContext(source, context, { filename: 'client.js' })
   return registrations[0].factory(() => ({
-    createElement: () => null,
+    createElement: (type, props, ...children) => ({ type, props: props ?? {}, children }),
     useCallback: (value) => value,
     useEffect: () => {},
     useRef: (value) => ({ current: value }),
@@ -31,7 +31,7 @@ function loadInternals() {
   })).__test__
 }
 
-const { tokenForRole, renderConstituents } = loadInternals()
+const { tokenForRole, renderConstituents, renderMarkdown } = loadInternals()
 const SENTENCE = 'Il faut cultiver notre jardin.'
 
 /**
@@ -40,6 +40,48 @@ const SENTENCE = 'Il faut cultiver notre jardin.'
  * rather than realms, without weakening what is compared.
  */
 const plain = (value) => JSON.parse(JSON.stringify(value))
+
+function inspectTree(value, types = [], text = []) {
+  if (Array.isArray(value)) {
+    for (const child of value) inspectTree(child, types, text)
+  } else if (value !== null && typeof value === 'object' && typeof value.type === 'string') {
+    types.push(value.type)
+    inspectTree(value.children, types, text)
+  } else if (typeof value === 'string') {
+    text.push(value)
+  }
+  return { types, text }
+}
+
+test('discussion Markdown becomes safe semantic blocks with line breaks and tables', () => {
+  const markdown = [
+    '## 分析',
+    '',
+    '**主句** 与 *从句*，含 `être`。',
+    '第二行',
+    '',
+    '- 短语',
+    '- 语境',
+    '',
+    '| 形式 | 释义 |',
+    '| --- | :---: |',
+    '| il | 他 |',
+    '',
+    '> 引文',
+    '',
+    '```js',
+    'const value = 1',
+    '```',
+    '',
+    '<script>alert(1)</script>',
+  ].join('\n')
+  const { types, text } = inspectTree(renderMarkdown(markdown))
+  for (const expected of ['h2', 'p', 'strong', 'em', 'code', 'br', 'ul', 'li', 'table', 'thead', 'tbody', 'th', 'td', 'blockquote', 'pre']) {
+    assert.ok(types.includes(expected), `renders ${expected}`)
+  }
+  assert.equal(types.includes('script'), false, 'raw HTML is text, not executable markup')
+  assert.ok(text.join('').includes('<script>alert(1)</script>'))
+})
 
 test('each role maps to its own token, and an unknown role to the neutral one', () => {
   const subject = tokenForRole('主语')

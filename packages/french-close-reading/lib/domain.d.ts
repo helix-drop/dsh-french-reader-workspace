@@ -99,8 +99,8 @@ export declare const TranslationSchema: z.ZodObject<{
         excerpt: z.ZodString;
     }, z.core.$strict>>>;
     source: z.ZodDefault<z.ZodEnum<{
-        user: "user";
         ai: "ai";
+        user: "user";
     }>>;
     note: z.ZodDefault<z.ZodString>;
     language: z.ZodString;
@@ -122,11 +122,11 @@ export declare const BranchSchema: z.ZodObject<{
         excerpt: z.ZodString;
     }, z.core.$strict>>>;
     kind: z.ZodEnum<{
-        note: "note";
         constituents: "constituents";
         grammar: "grammar";
         vocabulary: "vocabulary";
         translation: "translation";
+        note: "note";
     }>;
     title: z.ZodString;
     body: z.ZodString;
@@ -173,8 +173,8 @@ export declare const AnalysisSchema: z.ZodObject<{
             excerpt: z.ZodString;
         }, z.core.$strict>>>;
         source: z.ZodDefault<z.ZodEnum<{
-            user: "user";
             ai: "ai";
+            user: "user";
         }>>;
         note: z.ZodDefault<z.ZodString>;
         language: z.ZodString;
@@ -195,11 +195,11 @@ export declare const AnalysisSchema: z.ZodObject<{
             excerpt: z.ZodString;
         }, z.core.$strict>>>;
         kind: z.ZodEnum<{
-            note: "note";
             constituents: "constituents";
             grammar: "grammar";
             vocabulary: "vocabulary";
             translation: "translation";
+            note: "note";
         }>;
         title: z.ZodString;
         body: z.ZodString;
@@ -229,8 +229,8 @@ export declare const RunIntentSchema: z.ZodObject<{
     pitfall: z.ZodDefault<z.ZodString>;
     status: z.ZodEnum<{
         pending: "pending";
-        applied: "applied";
         failed: "failed";
+        applied: "applied";
     }>;
     appliedId: z.ZodNullable<z.ZodString>;
     detail: z.ZodNullable<z.ZodString>;
@@ -279,8 +279,8 @@ export declare const RunSchema: z.ZodObject<{
         pitfall: z.ZodDefault<z.ZodString>;
         status: z.ZodEnum<{
             pending: "pending";
-            applied: "applied";
             failed: "failed";
+            applied: "applied";
         }>;
         appliedId: z.ZodNullable<z.ZodString>;
         detail: z.ZodNullable<z.ZodString>;
@@ -322,8 +322,8 @@ export declare const RunsSchema: z.ZodObject<{
             pitfall: z.ZodDefault<z.ZodString>;
             status: z.ZodEnum<{
                 pending: "pending";
-                applied: "applied";
                 failed: "failed";
+                applied: "applied";
             }>;
             appliedId: z.ZodNullable<z.ZodString>;
             detail: z.ZodNullable<z.ZodString>;
@@ -408,8 +408,8 @@ export declare const LexiconEntrySchema: z.ZodObject<{
         createdAt: z.ZodString;
     }, z.core.$strict>>;
     provenance: z.ZodEnum<{
-        user: "user";
         ai: "ai";
+        user: "user";
         mixed: "mixed";
     }>;
     status: z.ZodEnum<{
@@ -501,8 +501,8 @@ export declare const GrammarEntrySchema: z.ZodObject<{
     }>;
     contentStatus: z.ZodEnum<{
         user: "user";
-        mixed: "mixed";
         "ai-unverified": "ai-unverified";
+        mixed: "mixed";
     }>;
     askCount: z.ZodNumber;
     lastAskedAt: z.ZodNullable<z.ZodString>;
@@ -528,8 +528,8 @@ export declare const GrammarPendingSchema: z.ZodObject<{
     questionId: z.ZodDefault<z.ZodString>;
     createdAt: z.ZodString;
     resolution: z.ZodDefault<z.ZodNullable<z.ZodEnum<{
-        attached: "attached";
         created: "created";
+        attached: "attached";
         discarded: "discarded";
     }>>>;
     resolvedEntryId: z.ZodDefault<z.ZodNullable<z.ZodString>>;
@@ -554,8 +554,8 @@ export declare const GrammarStoreSchema: z.ZodObject<{
         questionId: z.ZodDefault<z.ZodString>;
         createdAt: z.ZodString;
         resolution: z.ZodDefault<z.ZodNullable<z.ZodEnum<{
-            attached: "attached";
             created: "created";
+            attached: "attached";
             discarded: "discarded";
         }>>>;
         resolvedEntryId: z.ZodDefault<z.ZodNullable<z.ZodString>>;
@@ -687,8 +687,8 @@ export declare const GenerationJobSchema: z.ZodObject<{
     backend: z.ZodString;
     model: z.ZodString;
     status: z.ZodEnum<{
-        cancelled: "cancelled";
         failed: "failed";
+        cancelled: "cancelled";
         running: "running";
         succeeded: "succeeded";
         interrupted: "interrupted";
@@ -699,10 +699,10 @@ export declare const GenerationJobSchema: z.ZodObject<{
     firstTextDeltaMs: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
     partialText: z.ZodDefault<z.ZodString>;
     finish: z.ZodDefault<z.ZodNullable<z.ZodEnum<{
+        error: "error";
         stop: "stop";
         "max-tokens": "max-tokens";
         cancelled: "cancelled";
-        error: "error";
     }>>>;
     failure: z.ZodDefault<z.ZodNullable<z.ZodString>>;
     resolvedModel: z.ZodDefault<z.ZodNullable<z.ZodString>>;
@@ -771,8 +771,8 @@ declare const PassageRecordSchema: z.ZodDiscriminatedUnion<[z.ZodObject<{
                 excerpt: z.ZodString;
             }, z.core.$strict>>>;
             source: z.ZodDefault<z.ZodEnum<{
-                user: "user";
                 ai: "ai";
+                user: "user";
             }>>;
             note: z.ZodDefault<z.ZodString>;
             language: z.ZodString;
@@ -793,11 +793,11 @@ declare const PassageRecordSchema: z.ZodDiscriminatedUnion<[z.ZodObject<{
                 excerpt: z.ZodString;
             }, z.core.$strict>>>;
             kind: z.ZodEnum<{
-                note: "note";
                 constituents: "constituents";
                 grammar: "grammar";
                 vocabulary: "vocabulary";
                 translation: "translation";
+                note: "note";
             }>;
             title: z.ZodString;
             body: z.ZodString;
@@ -833,8 +833,8 @@ declare const PassageRecordSchema: z.ZodDiscriminatedUnion<[z.ZodObject<{
                 pitfall: z.ZodDefault<z.ZodString>;
                 status: z.ZodEnum<{
                     pending: "pending";
-                    applied: "applied";
                     failed: "failed";
+                    applied: "applied";
                 }>;
                 appliedId: z.ZodNullable<z.ZodString>;
                 detail: z.ZodNullable<z.ZodString>;
@@ -904,8 +904,8 @@ declare const PassageRecordSchema: z.ZodDiscriminatedUnion<[z.ZodObject<{
             createdAt: z.ZodString;
         }, z.core.$strict>>;
         provenance: z.ZodEnum<{
-            user: "user";
             ai: "ai";
+            user: "user";
             mixed: "mixed";
         }>;
         status: z.ZodEnum<{
@@ -985,8 +985,8 @@ declare const PassageRecordSchema: z.ZodDiscriminatedUnion<[z.ZodObject<{
         }>;
         contentStatus: z.ZodEnum<{
             user: "user";
-            mixed: "mixed";
             "ai-unverified": "ai-unverified";
+            mixed: "mixed";
         }>;
         askCount: z.ZodNumber;
         lastAskedAt: z.ZodNullable<z.ZodString>;
@@ -1015,8 +1015,8 @@ declare const PassageRecordSchema: z.ZodDiscriminatedUnion<[z.ZodObject<{
             questionId: z.ZodDefault<z.ZodString>;
             createdAt: z.ZodString;
             resolution: z.ZodDefault<z.ZodNullable<z.ZodEnum<{
-                attached: "attached";
                 created: "created";
+                attached: "attached";
                 discarded: "discarded";
             }>>>;
             resolvedEntryId: z.ZodDefault<z.ZodNullable<z.ZodString>>;
@@ -1050,11 +1050,11 @@ declare const PassageRecordSchema: z.ZodDiscriminatedUnion<[z.ZodObject<{
             passageId: z.ZodString;
             anchorId: z.ZodString;
             kind: z.ZodEnum<{
-                note: "note";
                 constituents: "constituents";
                 grammar: "grammar";
                 vocabulary: "vocabulary";
                 translation: "translation";
+                note: "note";
                 discussion: "discussion";
             }>;
             title: z.ZodString;
@@ -1064,11 +1064,11 @@ declare const PassageRecordSchema: z.ZodDiscriminatedUnion<[z.ZodObject<{
                 messageId: z.ZodString;
             }, z.core.$strict>>>;
             status: z.ZodDefault<z.ZodEnum<{
+                archived: "archived";
+                unresolved: "unresolved";
                 open: "open";
                 understood: "understood";
-                unresolved: "unresolved";
                 disputed: "disputed";
-                archived: "archived";
             }>>;
             messages: z.ZodArray<z.ZodObject<{
                 id: z.ZodString;
@@ -1084,9 +1084,9 @@ declare const PassageRecordSchema: z.ZodDiscriminatedUnion<[z.ZodObject<{
                     resolvedModel: z.ZodDefault<z.ZodNullable<z.ZodString>>;
                     attempt: z.ZodDefault<z.ZodNumber>;
                     status: z.ZodEnum<{
-                        cancelled: "cancelled";
-                        failed: "failed";
                         draft: "draft";
+                        failed: "failed";
+                        cancelled: "cancelled";
                         partial: "partial";
                         complete: "complete";
                     }>;
@@ -1130,8 +1130,8 @@ declare const PassageRecordSchema: z.ZodDiscriminatedUnion<[z.ZodObject<{
             model: z.ZodString;
             materials: z.ZodArray<z.ZodObject<{
                 kind: z.ZodEnum<{
-                    message: "message";
                     note: "note";
+                    message: "message";
                     passage: "passage";
                     analysis: "analysis";
                     selection: "selection";
@@ -1167,8 +1167,8 @@ declare const PassageRecordSchema: z.ZodDiscriminatedUnion<[z.ZodObject<{
         model: z.ZodString;
         materials: z.ZodArray<z.ZodObject<{
             kind: z.ZodEnum<{
-                message: "message";
                 note: "note";
+                message: "message";
                 passage: "passage";
                 analysis: "analysis";
                 selection: "selection";
@@ -1218,8 +1218,8 @@ declare const PassageRecordSchema: z.ZodDiscriminatedUnion<[z.ZodObject<{
         backend: z.ZodString;
         model: z.ZodString;
         status: z.ZodEnum<{
-            cancelled: "cancelled";
             failed: "failed";
+            cancelled: "cancelled";
             running: "running";
             succeeded: "succeeded";
             interrupted: "interrupted";
@@ -1230,10 +1230,10 @@ declare const PassageRecordSchema: z.ZodDiscriminatedUnion<[z.ZodObject<{
         firstTextDeltaMs: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
         partialText: z.ZodDefault<z.ZodString>;
         finish: z.ZodDefault<z.ZodNullable<z.ZodEnum<{
+            error: "error";
             stop: "stop";
             "max-tokens": "max-tokens";
             cancelled: "cancelled";
-            error: "error";
         }>>>;
         failure: z.ZodDefault<z.ZodNullable<z.ZodString>>;
         resolvedModel: z.ZodDefault<z.ZodNullable<z.ZodString>>;
@@ -1344,8 +1344,8 @@ declare const PassageRecordSchema: z.ZodDiscriminatedUnion<[z.ZodObject<{
         field: z.ZodString;
         text: z.ZodString;
         author: z.ZodEnum<{
-            user: "user";
             ai: "ai";
+            user: "user";
             mixed: "mixed";
         }>;
         reason: z.ZodDefault<z.ZodNullable<z.ZodString>>;
@@ -1410,8 +1410,8 @@ declare const PassageRecordSchema: z.ZodDiscriminatedUnion<[z.ZodObject<{
                 end: z.ZodDefault<z.ZodNullable<z.ZodNumber>>;
             }, z.core.$strict>>;
             provenance: z.ZodEnum<{
-                user: "user";
                 ai: "ai";
+                user: "user";
                 mixed: "mixed";
             }>;
             status: z.ZodEnum<{
@@ -1513,7 +1513,7 @@ export declare const FRENCH_READER_DOMAIN: {
                         end: number;
                         excerpt: string;
                     } | null;
-                    source: "user" | "ai";
+                    source: "ai" | "user";
                     note: string;
                     language: string;
                     text: string;
@@ -1532,7 +1532,7 @@ export declare const FRENCH_READER_DOMAIN: {
                         end: number;
                         excerpt: string;
                     } | null;
-                    kind: "note" | "constituents" | "grammar" | "vocabulary" | "translation";
+                    kind: "constituents" | "grammar" | "vocabulary" | "translation" | "note";
                     title: string;
                     body: string;
                     createdAt: string;
@@ -1561,7 +1561,7 @@ export declare const FRENCH_READER_DOMAIN: {
                         level: string | null;
                         module: string | null;
                         pitfall: string;
-                        status: "pending" | "applied" | "failed";
+                        status: "pending" | "failed" | "applied";
                         appliedId: string | null;
                         detail: string | null;
                     }[];
@@ -1624,7 +1624,7 @@ export declare const FRENCH_READER_DOMAIN: {
                     operationId: string;
                     createdAt: string;
                 }[];
-                provenance: "user" | "ai" | "mixed";
+                provenance: "ai" | "user" | "mixed";
                 status: "draft" | "reviewed";
                 revision: number;
                 operationId: string;
@@ -1690,7 +1690,7 @@ export declare const FRENCH_READER_DOMAIN: {
                     createdAt: string;
                 }[];
                 mastery: "learning" | "reviewing" | "known";
-                contentStatus: "user" | "mixed" | "ai-unverified";
+                contentStatus: "user" | "ai-unverified" | "mixed";
                 askCount: number;
                 lastAskedAt: string | null;
                 revision: number;
@@ -1717,7 +1717,7 @@ export declare const FRENCH_READER_DOMAIN: {
                     intentId: string;
                     questionId: string;
                     createdAt: string;
-                    resolution: "attached" | "created" | "discarded" | null;
+                    resolution: "created" | "attached" | "discarded" | null;
                     resolvedEntryId: string | null;
                     resolvedAt: string | null;
                     resolutionOperationId: string | null;
@@ -1748,14 +1748,14 @@ export declare const FRENCH_READER_DOMAIN: {
                     id: string;
                     passageId: string;
                     anchorId: string;
-                    kind: "note" | "constituents" | "grammar" | "vocabulary" | "translation" | "discussion";
+                    kind: "constituents" | "grammar" | "vocabulary" | "translation" | "note" | "discussion";
                     title: string;
                     parentId: string | null;
                     forkedFrom: {
                         branchId: string;
                         messageId: string;
                     } | null;
-                    status: "open" | "understood" | "unresolved" | "disputed" | "archived";
+                    status: "archived" | "unresolved" | "open" | "understood" | "disputed";
                     messages: {
                         id: string;
                         author: "user" | "model";
@@ -1766,7 +1766,7 @@ export declare const FRENCH_READER_DOMAIN: {
                             model: string;
                             resolvedModel: string | null;
                             attempt: number;
-                            status: "cancelled" | "failed" | "draft" | "partial" | "complete";
+                            status: "draft" | "failed" | "cancelled" | "partial" | "complete";
                             failure: string | null;
                             usage: {
                                 inputTokens: number | null;
@@ -1801,7 +1801,7 @@ export declare const FRENCH_READER_DOMAIN: {
                     backend: string;
                     model: string;
                     materials: {
-                        kind: "message" | "note" | "passage" | "analysis" | "selection" | "paragraph" | "sentence" | "branch-history" | "knowledge" | "conclusion";
+                        kind: "note" | "message" | "passage" | "analysis" | "selection" | "paragraph" | "sentence" | "branch-history" | "knowledge" | "conclusion";
                         refId: string;
                         reason: string;
                         sourceRevision: number | null;
@@ -1827,7 +1827,7 @@ export declare const FRENCH_READER_DOMAIN: {
                 backend: string;
                 model: string;
                 materials: {
-                    kind: "message" | "note" | "passage" | "analysis" | "selection" | "paragraph" | "sentence" | "branch-history" | "knowledge" | "conclusion";
+                    kind: "note" | "message" | "passage" | "analysis" | "selection" | "paragraph" | "sentence" | "branch-history" | "knowledge" | "conclusion";
                     refId: string;
                     reason: string;
                     sourceRevision: number | null;
@@ -1864,10 +1864,10 @@ export declare const FRENCH_READER_DOMAIN: {
                 anchorId: string | null;
                 backend: string;
                 model: string;
-                status: "cancelled" | "failed" | "running" | "succeeded" | "interrupted";
+                status: "failed" | "cancelled" | "running" | "succeeded" | "interrupted";
                 attempt: number;
                 partialText: string;
-                finish: "stop" | "max-tokens" | "cancelled" | "error" | null;
+                finish: "error" | "stop" | "max-tokens" | "cancelled" | null;
                 failure: string | null;
                 resolvedModel: string | null;
                 usage: {
@@ -1950,7 +1950,7 @@ export declare const FRENCH_READER_DOMAIN: {
                 targetId: string;
                 field: string;
                 text: string;
-                author: "user" | "ai" | "mixed";
+                author: "ai" | "user" | "mixed";
                 reason: string | null;
                 replacesId: string | null;
                 createdAt: string;
@@ -2007,7 +2007,7 @@ export declare const FRENCH_READER_DOMAIN: {
                         start: number | null;
                         end: number | null;
                     }[];
-                    provenance: "user" | "ai" | "mixed";
+                    provenance: "ai" | "user" | "mixed";
                     status: "draft" | "reviewed";
                     revision: number;
                     createdAt: string;
