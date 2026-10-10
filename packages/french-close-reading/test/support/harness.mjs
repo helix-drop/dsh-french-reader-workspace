@@ -84,9 +84,16 @@ export function createBacking({ failWrites = false, schema = null } = {}) {
  * @param domain - Domain spec to open.
  * @param options.services - Host services to provide on the controller's
  *   context (e.g. `{ web: { fetch } }`), when the code under test needs one.
+ * @param options.audio - The audio runtime seam: the `audio` config section and
+ *   the transports it is reached through (`fetch`, `webSocket`, `env`). Tests
+ *   inject fakes so no request ever leaves the process.
  * @returns The open domain, its controller, and the change events it emitted.
  */
-export async function openController(backing, domain, { backends = null, validateWrites = true, services = {} } = {}) {
+export async function openController(
+  backing,
+  domain,
+  { backends = null, validateWrites = true, services = {}, audio = null } = {},
+) {
   // The schema is the real record union, so the medium refuses anything a real
   // backend would refuse on the next open.
   if (validateWrites) backing.schema = domain.tables.records.valueSchema
@@ -96,7 +103,7 @@ export async function openController(backing, domain, { backends = null, validat
   // agy backends, a test injects one that answers inline and records its prompt.
   const ctx = new Context()
   for (const [name, service] of Object.entries(services)) ctx.provide(name, service)
-  const controller = new FrenchReaderController(ctx, handle, backends)
+  const controller = new FrenchReaderController(ctx, handle, backends, audio)
   return { domain: handle, controller, events: generation.events }
 }
 

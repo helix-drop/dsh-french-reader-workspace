@@ -50,6 +50,7 @@ function loadPlugin() {
     useEffect: () => {},
     useRef: (value) => ({ current: value }),
     useState: (value) => [value, () => {}],
+    Component: class { constructor(props) { this.props = props; this.state = {} } },
   }))
 }
 

@@ -28,11 +28,65 @@ function loadInternals() {
     useEffect: () => {},
     useRef: (value) => ({ current: value }),
     useState: (value) => [value, () => {}],
+    Component: class { constructor(props) { this.props = props; this.state = {} } },
   })).__test__
 }
 
-const { tokenForRole, renderConstituents, renderMarkdown } = loadInternals()
+const internals = loadInternals()
+const { tokenForRole, renderConstituents, renderMarkdown } = internals
 const SENTENCE = 'Il faut cultiver notre jardin.'
+
+/**
+ * R7-B04, found in the in-app acceptance run: the library's controls must patch
+ * only the field they changed.
+ *
+ * `setTab('grammar'); setQuery('')` runs both patches in one tick. While the
+ * patch carried the whole render-scoped view, the second call re-sent the old
+ * tab and undid the first, so clicking 语法 did nothing at all.
+ */
+test('a library control patches only the field it changed (R7-B04)', () => {
+  const calls = []
+  const noop = () => {}
+  const tree = internals.KnowledgeLibrary({
+    t: (key) => String(key),
+    listLexicon: () => Promise.resolve({ ok: true, value: { entries: [] } }),
+    listGrammar: () => Promise.resolve({ ok: true, value: { entries: [], pending: [] } }),
+    resolveGrammarCandidate: noop,
+    onReturn: noop,
+    onOpenEntry: noop,
+    view: { tab: 'vocab', query: 'raison', mastery: 'all' },
+    onView: (patch) => calls.push(patch),
+  })
+  const buttons = []
+  const walk = (node) => {
+    if (node === null || typeof node !== 'object') return
+    if (Array.isArray(node)) { node.forEach(walk); return }
+    if (node.type === 'button') buttons.push(node)
+    // The stub keeps children on the element itself, React keeps them in props.
+    walk(node.children ?? node.props?.children)
+  }
+  walk(tree)
+  const label = (button) => JSON.stringify(button.children ?? button.props?.children ?? '')
+  const grammarTab = buttons.find((button) => label(button).includes('grammarTab'))
+  assert.ok(grammarTab, 'the grammar tab is rendered')
+
+  grammarTab.props.onClick()
+  assert.deepEqual(plain(calls), [{ tab: 'grammar' }, { query: '' }])
+  assert.equal(calls.some((patch) => patch.tab !== undefined && patch.tab !== 'grammar'), false,
+    'no patch carries the tab the click was replacing')
+})
+
+/**
+ * Duplicate grammar topics are grouped by what the reader reads as the same name:
+ * case, spacing, invisible characters and trailing punctuation are not differences.
+ */
+test('same-named grammar topics group together regardless of punctuation', () => {
+  const key = internals.duplicateTopicKey
+  assert.equal(key('que 作直接宾语。'), key('que 作直接宾语'))
+  assert.equal(key('Que\u200b 作直接宾语'), key('que 作直接宾语'))
+  assert.equal(key('que  作直接宾语'), key('que 作直接宾语'))
+  assert.notEqual(key('que 作间接宾语'), key('que 作直接宾语'))
+})
 
 /**
  * The rendered pieces are built inside a vm context, so their arrays have that
@@ -193,4 +247,60 @@ test('inline code inside bold or italic renders as code, not literal backticks (
   assert.equal(em.type, 'em')
   assert.deepEqual(em.children.filter((child) => typeof child === 'object' && child !== null).map((child) => child.type),
     ['code', 'code'], 'both code spans inside the emphasis parse')
+})
+
+test('an announced-but-empty section still renders its slot and the conjugation seam (R6-B01)', () => {
+  const { LexiconCard } = loadInternals()
+  const t = (key) => (key === 'notRecorded' ? '未记录' : key)
+  // What renderLexicon returns for a verb saved as 动词 with no conjugation text:
+  // §4 is announced in sections, but the policy skipped it in the rendered text
+  // because the section is empty.
+  const value = {
+    kind: 'card',
+    rendered: [
+      '§1 总览',
+      '词形 aperçue · 原形 apercevoir · 词性 动词',
+      '§2 当前含义',
+      '1. 瞥见。（本义）',
+      '§6 文化语境',
+      '未发现可靠关联。',
+      '§7 固定表达',
+      '未发现可靠关联。',
+    ].join('\n'),
+    sections: [
+      { number: '§1', title: '总览', required: true },
+      { number: '§2', title: '当前含义', required: true },
+      { number: '§4', title: '动词变位', required: false },
+      { number: '§3a', title: '词源', required: false },
+      { number: '§3b', title: '语义演变', required: false },
+      { number: '§5', title: '词组关联', required: false },
+      { number: '§6', title: '文化语境', required: true },
+      { number: '§7', title: '固定表达', required: true },
+    ],
+    errors: [], hints: [],
+  }
+  const seams = []
+  const tree = LexiconCard({
+    t, value,
+    entry: { mot: 'aperçue', lemma: 'apercevoir', partOfSpeech: '动词' },
+    extraForSection: (section) => {
+      seams.push(section.number)
+      return section.number === '§4' ? { type: 'conjugationView' } : null
+    },
+  })
+  const plainTree = plain(tree)
+  // `h(nav, …, parsed.map(…))` nests the button array one level deep.
+  const indexLabels = plainTree.children[0].children[0].map((child) => child.children.join(''))
+  assert.ok(indexLabels.some((label) => label.includes('§4 动词变位')),
+    '§4 is in the section index even though the card has no conjugation text')
+  const sections = plainTree.children.slice(1).flat()
+  const four = sections.find((section) => section.props.id === 'entry-section-4')
+  assert.ok(four, 'a §4 section element exists')
+  const seen = inspectTree(four)
+  assert.ok(seen.text.join('').includes('动词变位'), 'the §4 heading is rendered')
+  assert.ok(seen.types.includes('conjugationView'),
+    'the conjugation seam ran inside §4, so the fetch entry is reachable')
+  assert.ok(seen.text.includes('未记录'),
+    'an empty announced section says it is not recorded instead of vanishing')
+  assert.ok(seams.includes('§4'), 'extraForSection was offered to §4')
 })

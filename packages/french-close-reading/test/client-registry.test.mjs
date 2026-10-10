@@ -102,7 +102,7 @@ function loadContribution({ mountFails = false } = {}) {
   const plugin = registration.factory((id) => {
     requests.push(id)
     if (!STATIC_MODULES.has(id)) throw new Error(`client-modules: require(${JSON.stringify(id)}) missed the module table`)
-    return { createElement: () => null, useCallback: (v) => v, useEffect: () => {}, useRef: (v) => ({ current: v }), useState: (v) => [v, () => {}] }
+    return { createElement: () => null, useCallback: (v) => v, useEffect: () => {}, useRef: (v) => ({ current: v }), useState: (v) => [v, () => {}], Component: class { constructor(props) { this.props = props; this.state = {} } } }
   })
 
   const mounted = []
@@ -140,10 +140,14 @@ test('the inlined contribution passes the client registry validation that failed
 
   const contribution = mounted[0]
   const { endpoints } = validateContribution(contribution)
-  assert.equal(endpoints.size, 45)
+  // 46 reading/library endpoints plus the eight audio ones; the count is asserted
+  // so that a descriptor dropped by an edit is caught here rather than at call time.
+  assert.equal(endpoints.size, 54)
   assert.ok(endpoints.has('frenchReader/listPassages'))
   assert.ok(endpoints.has('frenchReader/previewAnalysisContext'))
   assert.ok(endpoints.has('frenchReader/archivePassage'))
+  assert.ok(endpoints.has('frenchReader/synthesizeSentenceAudio'))
+  assert.ok(endpoints.has('frenchReader/readInflectionAudioAsset'))
 })
 
 test('every codec create() returns a working validator, not a stub', async () => {
@@ -265,7 +269,7 @@ test('the client sends every argument under the name the Host descriptor declare
   assert.equal(Array.isArray(clientInvocations), true)
 
   const hostById = new Map(TYPERT.invocations.map((entry) => [entry.id, entry]))
-  assert.equal(hostById.size, 45, 'the Host declares every endpoint')
+  assert.equal(hostById.size, 54, 'the Host declares every endpoint')
 
   const mismatches = []
   for (const client of clientInvocations) {
@@ -281,7 +285,20 @@ test('the client sends every argument under the name the Host descriptor declare
     }
   }
   assert.deepEqual(mismatches, [], 'the wire names disagree between the two faces')
-  assert.equal(clientInvocations.length, hostById.size, 'no endpoint exists on only one side')
+  // The client half used to land separately, so a Host endpoint it had not wired
+  // yet was *named* here rather than silently tolerated. The audio endpoints were
+  // the last eight; the list is empty now and must stay that way — any Host
+  // endpoint the client has not wired fails this assertion with its name.
+  const PENDING_CLIENT_ENDPOINTS = []
+  const mountedIds = clientInvocations.map((entry) => entry.id.replace('@local/french-close-reading#', ''))
+  assert.deepEqual([...hostById.keys()]
+    .map((id) => id.replace('@local/french-close-reading#', ''))
+    .filter((id) => !mountedIds.includes(id))
+    .sort(), PENDING_CLIENT_ENDPOINTS, 'a Host endpoint the client has not wired yet must be listed as pending')
+  // `mountedIds` comes from the client bundle's own realm, so it is rehomed
+  // before it is compared: an empty cross-realm array is not a deep-equal `[]`.
+  assert.deepEqual([...mountedIds].filter((id) => !hostById.has(`@local/french-close-reading#${id}`)), [],
+    'the client must not call an endpoint the Host does not declare')
 })
 
 /**
@@ -353,4 +370,67 @@ test('the client codecs accept every argument shape the panel actually sends', a
   const resolveResult = contribution.descriptors.find((d) => d.method === 'resolveGrammarCandidate').result.create()
   assert.equal(resolveResult.safeParse({ kind: 'already-resolved', entryId: null, outcome: 'discarded' }).success, true)
   assert.equal(resolveResult.safeParse({ kind: 'discarded' }).success, true)
+
+  // The audio requests the panel really sends: `voice: null` is the Host's own
+  // configured voice — an explicit null the gateway would refuse if this codec were
+  // stricter than the Host's schema — and the version policy is the append literal.
+  const synthesizeAudio = paramSchema('synthesizeSentenceAudio')
+  const sentenceSource = {
+    passageId: 'p', sentenceId: 'p1.s1', sourceRevision: 1, sentenceRevision: 1,
+    text: 'Il faut cultiver notre jardin.', language: 'fr',
+  }
+  const audioRequest = {
+    requestId: 'r1', action: 'regenerate', source: sentenceSource, previousTakeId: 'take-1',
+    versionPolicy: 'append', voice: null,
+  }
+  assert.equal(synthesizeAudio.safeParse(audioRequest).success, true)
+  assert.equal(synthesizeAudio.safeParse({ ...audioRequest, action: 'generate', previousTakeId: null }).success, true)
+  assert.equal(synthesizeAudio.safeParse({ ...audioRequest, versionPolicy: 'overwrite' }).success, false,
+    'a request that asks to overwrite anything is refused before it is sent')
+  assert.equal(synthesizeAudio.safeParse({
+    ...audioRequest, voice: { voiceId: 'fr-FR-Wavenet-A', rate: 1.25 },
+  }).success, true)
+  // A paragraph body has no field to travel in: the source is one sentence.
+  const inflectionAudio = paramSchema('synthesizeInflectionAudio')
+  assert.equal(inflectionAudio.safeParse({
+    ...audioRequest,
+    source: {
+      kind: 'inflection', formId: 'venir#ind.pre.1p', inflectionRevision: 1, lemma: 'venir',
+      tense: 'ind.pre', formKind: 'finite', person: 4, form: 'venons', utterance: 'nous venons',
+      language: 'fr',
+    },
+  }).success, true)
+  assert.equal(inflectionAudio.safeParse({ ...audioRequest, source: sentenceSource }).success, false,
+    'a sentence source is not an inflection source')
+  const readAudio = paramSchema('readSentenceAudioAsset')
+  assert.equal(readAudio.safeParse({ source: sentenceSource, takeId: 'take-1' }).success, true)
+  // The Host's own answer: bytes measured and typed, an unconfigured listing with a
+  // null reason, and an unconfigured synthesis refusal.
+  const audioList = contribution.descriptors.find((d) => d.method === 'listInflectionAudio').result.create()
+  assert.equal(audioList.safeParse({
+    sourceKey: 'venir#ind.pre.1p|1',
+    takes: [{
+      takeId: 't', requestId: 'r', source: {
+        kind: 'inflection', formId: 'venir#ind.pre.1p', inflectionRevision: 1, lemma: 'venir',
+        tense: 'ind.pre', formKind: 'finite', person: 4, form: 'venons', utterance: 'nous venons',
+        language: 'fr',
+      },
+      backend: { kind: 'live', providerId: 'google', modelId: 'gemini-3.8-live' },
+      voice: { voiceId: null, rate: 1 }, previousTakeId: null, audioAssetId: 'audio_t',
+      mimeType: 'audio/wav', durationMs: 50, bytes: 2444, createdAt: 'now', selected: true,
+    }],
+    selectedTakeId: 't',
+    configuration: {
+      configured: false, reason: null, message: null, backend: null,
+      streaming: false, cancellation: false, maxCharacters: 400,
+    },
+  }).success, true)
+  const synthesizeResult = contribution.descriptors
+    .find((d) => d.method === 'synthesizeSentenceAudio').result.create()
+  assert.equal(synthesizeResult.safeParse({
+    kind: 'unconfigured', reason: 'no-api-key', message: '未配置朗读密钥',
+  }).success, true)
+  assert.equal(synthesizeResult.safeParse({ kind: 'failed', reason: 'timeout', message: '超时' }).success, true)
+  assert.equal(synthesizeResult.safeParse({ kind: 'ready', take: { takeId: 't' } }).success, false,
+    'a take is not a take without its measurements')
 })

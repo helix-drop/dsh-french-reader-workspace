@@ -1,18 +1,24 @@
 /**
- * Assembling one verb's paradigm from the source, in two requests.
+ * Assembling one verb's paradigm from the source, in two to five requests.
  *
- * Measured on 2026-10-07 from this machine (M4 section of `VERIFICATION.md`):
+ * Measured from this machine (first on 2026-10-07, re-measured 2026-10-10 after the
+ * truncation defect described below):
  *
- * - `Generation=links` on the lemma page is a bad discovery route: one request
+ * - `Generation=links` on the **lemma** page is a bad discovery route: one request
  *   returned **230 pages** and only **one** of them was a form of the verb;
- * - the form list lives on the conjugation page, `Conjugaison:français/venir`:
- *   52 KB of rendered table containing **44 form links** (`venais`, `viendrai`,
- *   `vins`, `vinsse`, `vîntes` …) — one request;
- * - the API accepts up to fifty titles per query, so every form page's wikitext
- *   comes back in **one** more request, each page declaring its own pronunciation and
- *   inflection slots.
+ * - the form list lives on the conjugation page, `Conjugaison:français/<verbe>`, and
+ *   it is read as its **link set**, not as rendered HTML: the JSON is 1.3–1.5 KB
+ *   against 52–106 KB for the table, and this Host caps a fetched body at
+ *   `maxBodyChars` (100 000 by default). The rendered route failed outright on a verb
+ *   with a doubled paradigm — `retrouver` is 105 797 characters of HTML for 15 537
+ *   characters of text — so it is no longer requested at all;
+ * - the API accepts up to fifty titles per query, so every form page's wikitext comes
+ *   back in one more request — **unless** that response is itself over the cap (fifty
+ *   of `aller`'s forms are 133 953 characters), in which case the batch is halved and
+ *   asked again rather than abandoned;
+ * - a form page the source has not written yet is a named gap, not a failure.
  *
- * So a paradigm costs two requests, and the request budget here is about the
+ * So a paradigm costs two to five requests, and the request budget here is about the
  * *politeness* of the walk (spacing, a hard cap, a 429 that stops rather than
  * retries) — not about crawling. What comes back is derived, not asserted: this
  * module never invents a form to fill a gap, and a walk that was cut short reports
@@ -20,9 +26,25 @@
  */
 import { deriveConjugationDataset, } from "./conjugation-data.js";
 import { parseFormPage, } from "./conjugation-source.js";
-/** The conjugation-namespace page that holds one verb's table. */
-export function conjugationPageUrl(lemma) {
-    return `https://fr.wiktionary.org/w/api.php?format=json&formatversion=2&action=parse&prop=text&page=${encodeURIComponent(`Conjugaison:français/${lemma}`)}`;
+/**
+ * The URL that lists the pages one verb's conjugation table links to.
+ *
+ * The table itself is not requested: rendering it costs 52–106 KB of HTML for
+ * every verb, and this Host caps a fetched body at `maxBodyChars` (100 000 by
+ * default), so the whole page came back `truncated` and was refused — which is
+ * exactly how `retrouver` (105 797 chars of markup for 15 537 chars of text)
+ * failed. The same link set as JSON is **1.3–1.5 KB**, measured on
+ * `venir` / `arriver` / `être` / `aller` / `retrouver`, and it carries the same
+ * names: `retrouvé`, `retrouvant`, `retrouvassions` … with their accents.
+ *
+ * `plcontinue` pages a list longer than the API's per-response cap, so a big
+ * paradigm costs two or three of these requests and never a partial silent read.
+ */
+export function conjugationLinksUrl(lemma, continueFrom = null) {
+    const base = 'https://fr.wiktionary.org/w/api.php?format=json&formatversion=2'
+        + '&action=query&prop=links&pllimit=max'
+        + `&titles=${encodeURIComponent(`Conjugaison:français/${lemma}`)}`;
+    return continueFrom === null ? base : `${base}&plcontinue=${encodeURIComponent(continueFrom)}`;
 }
 /** The URL that returns many pages' wikitext at once. */
 export function formTitlesUrl(titles) {
@@ -38,38 +60,35 @@ const NOT_A_FORM = new Set([
     'conjugaison', 'français', 'voix', 'active', 'passive', 'temps', 'personne',
 ]);
 /**
- * The candidate form names on a rendered conjugation page.
+ * The candidate form names among the pages a conjugation table links to.
  *
  * Read from the table's own links rather than from the template call: the page's
  * wikitext is one `{{fr-conj-3-enir|…}}` invocation whose forms are generated, so
- * only the rendered table lists them.
+ * only the table's links list them — and the links are available as JSON without
+ * rendering the table (`conjugationLinksUrl`).
+ *
+ * Deliberately name-only: a link carries the page title, not the surface form, and
+ * redirect titles (`retrouvasses` → `retrouver`) are kept because the form's own
+ * page is what states its written form and its slots.
  */
-export function extractFormNames(html, lemma) {
+export function formNamesFromLinks(titles, lemma) {
     const names = new Set();
-    for (const match of html.matchAll(/href="\/wiki\/([^"#?]+)"/gu)) {
-        const raw = match[1] ?? '';
-        let decoded = raw;
-        try {
-            decoded = decodeURIComponent(raw);
-        }
-        catch {
-            continue;
-        }
+    for (const title of titles) {
         // Only single-word page names: a namespace, a phrase or an annex is not a form.
-        if (!/^[a-zà-öø-ÿ'’-]+$/u.test(decoded))
+        if (!/^[a-zà-öø-ÿ'’-]+$/u.test(title))
             continue;
-        if (decoded.length < 2 || decoded.length > 40)
+        if (title.length < 2 || title.length > 40)
             continue;
-        if (NOT_A_FORM.has(decoded))
+        if (NOT_A_FORM.has(title))
             continue;
-        if (decoded === lemma)
+        if (title === lemma)
             continue;
-        names.add(decoded);
+        names.add(title);
     }
     return [...names].sort();
 }
 const DEFAULT_SPACING_MS = 1_200;
-const DEFAULT_MAX_REQUESTS = 6;
+const DEFAULT_MAX_REQUESTS = 12;
 /**
  * Fetch and derive one verb's paradigm.
  *
@@ -85,42 +104,78 @@ export async function fetchConjugationDataset(input) {
     const now = input.now ?? (() => new Date().toISOString());
     const notes = [];
     let requests = 0;
-    const first = await request(input.fetchPage, conjugationPageUrl(input.lemma), input.signal);
-    requests += 1;
-    if (first.status !== 'ok') {
-        return {
-            status: first.status === 'rate-limited' ? 'rate-limited' : 'failed',
-            dataset: null,
-            missingForms: [],
-            requests,
-            failure: first.message,
-            notes: [`未取得变位表：${first.message}`],
-        };
+    let partialList = false;
+    // Phase one: the table's link set, as JSON. Paged, because the API caps one
+    // response's link list; a list we could not finish is a gap, never a silent
+    // shorter paradigm.
+    const candidates = [];
+    const seenTitles = new Set();
+    let continueFrom = null;
+    for (;;) {
+        if (requests >= maxRequests) {
+            partialList = true;
+            notes.push(`已达请求上限 ${String(maxRequests)}，形式清单未取完`);
+            break;
+        }
+        const response = await request(input.fetchPage, conjugationLinksUrl(input.lemma, continueFrom), input.signal);
+        requests += 1;
+        if (response.status !== 'ok') {
+            if (candidates.length === 0) {
+                return {
+                    status: response.status === 'rate-limited' ? 'rate-limited' : 'failed',
+                    dataset: null,
+                    missingForms: [],
+                    requests,
+                    failure: response.message,
+                    notes: [`未取得形式清单：${response.message}`],
+                };
+            }
+            partialList = true;
+            notes.push(`形式清单未取完（${response.message}）`);
+            break;
+        }
+        let payload;
+        try {
+            payload = JSON.parse(response.wikitext);
+        }
+        catch (error) {
+            return {
+                status: 'failed', dataset: null, missingForms: [], requests,
+                failure: `形式清单不是 JSON：${String(error)}`.slice(0, 200), notes: notes,
+            };
+        }
+        const page = payload.query?.pages;
+        const first = Array.isArray(page) ? page[0] : undefined;
+        if (first === undefined) {
+            return {
+                status: 'no-forms', dataset: null, missingForms: [], requests,
+                failure: '形式清单页面没有内容',
+                notes: [`Conjugaison:français/${input.lemma} 没有可读的链接`],
+            };
+        }
+        if (Array.isArray(first.links)) {
+            for (const link of first.links) {
+                const title = link.title;
+                if (typeof title === 'string' && !seenTitles.has(title)) {
+                    seenTitles.add(title);
+                    candidates.push(title);
+                }
+            }
+        }
+        const next = payload.continue?.plcontinue;
+        if (typeof next !== 'string' || next === '')
+            break;
+        continueFrom = next;
+        await sleep(spacing);
     }
-    let payload;
-    try {
-        payload = JSON.parse(first.wikitext);
-    }
-    catch (error) {
-        return {
-            status: 'failed', dataset: null, missingForms: [], requests,
-            failure: `变位表不是 JSON：${String(error)}`.slice(0, 200), notes: notes,
-        };
-    }
-    const html = payload.parse?.text;
-    if (typeof html !== 'string' || html === '') {
-        return {
-            status: 'no-forms', dataset: null, missingForms: [], requests,
-            failure: '变位表页面没有内容',
-            notes: [`Conjugaison:français/${input.lemma} 没有可读的表格`],
-        };
-    }
-    const candidates = extractFormNames(html, input.lemma);
-    if (candidates.length === 0) {
+    // The names actually worth asking about: single-word, not table furniture, not
+    // the lemma itself. Sorted and deduplicated, so the batches below are stable.
+    const wanted = formNamesFromLinks(candidates, input.lemma);
+    if (wanted.length === 0) {
         return {
             status: 'no-forms', dataset: null, missingForms: [], requests,
             failure: '变位表中没有可识别的形式',
-            notes: ['表格中未找到形式链接：该动词可能尚未收录变位表'],
+            notes: ['表中未找到形式链接：该动词可能尚未收录变位表'],
         };
     }
     const rows = [];
@@ -131,19 +186,51 @@ export async function fetchConjugationDataset(input) {
     const unreadable = [];
     let limited = false;
     let exhausted = false;
-    for (let at = 0; at < candidates.length; at += MAX_TITLES_PER_REQUEST) {
+    let halved = false;
+    /**
+     * The forms still to ask for, in batches of the API's own title limit.
+     *
+     * A response this Host refuses as truncated is **split and retried**, not
+     * abandoned: fifty titles of wikitext can exceed the body cap on its own —
+     * measured, fifty of `aller`'s forms are 133 953 characters — and dropping the
+     * batch would report a paradigm as unreadable when two smaller batches read it
+     * whole. Splitting stops at a single title, where a truncation really is the
+     * page's own fault and the form is named as unreadable instead.
+     */
+    let queue = wanted.slice(0, MAX_TITLES_PER_REQUEST);
+    let pending = wanted.slice(MAX_TITLES_PER_REQUEST);
+    /** How many titles the next request may carry; halved after a truncation. */
+    let batchSize = MAX_TITLES_PER_REQUEST;
+    /** Take the next batch, refilling from `pending` — never aliased to `queue`. */
+    const nextBatch = (size) => {
+        const batch = queue.slice(0, size);
+        queue = queue.length > size ? queue.slice(size) : pending.splice(0, MAX_TITLES_PER_REQUEST);
+        return batch;
+    };
+    while (queue.length > 0) {
         if (requests >= maxRequests) {
             exhausted = true;
-            notes.push(`已达请求上限 ${String(maxRequests)}，其余形式未取：${candidates.slice(at).join('、')}`);
+            notes.push(`已达请求上限 ${String(maxRequests)}，其余形式未取：${[...queue, ...pending].join('、')}`);
             break;
         }
-        const batch = candidates.slice(at, at + MAX_TITLES_PER_REQUEST);
+        const batch = nextBatch(batchSize);
         const response = await request(input.fetchPage, formTitlesUrl(batch), input.signal);
         requests += 1;
         if (response.status === 'rate-limited') {
             limited = true;
-            notes.push(`来源限流，剩余 ${String(candidates.length - at)} 个形式未取`);
+            notes.push(`来源限流，剩余 ${String(batch.length + pending.length)} 个形式未取`);
             break;
+        }
+        if (response.status === 'truncated' && batch.length > 1) {
+            // Too much wikitext for one body: put the batch back and ask for fewer
+            // titles next time. At one title there is nothing left to split, and a
+            // truncated single page is that page's own fault — it is named unreadable.
+            halved = true;
+            batchSize = Math.max(1, Math.floor(batch.length / 2));
+            queue = [...batch, ...queue];
+            notes.push(`一批 ${String(batch.length)} 个形式的响应被截断，改为每批 ${String(batchSize)} 个重取`);
+            await sleep(spacing);
+            continue;
         }
         if (response.status !== 'ok') {
             unreadable.push(...batch);
@@ -183,18 +270,20 @@ export async function fetchConjugationDataset(input) {
             seen.add(title);
             rows.push(row);
         }
-        if (at + MAX_TITLES_PER_REQUEST < candidates.length)
+        // Courtesy spacing only while there is more to ask for.
+        if (queue.length > 0)
             await sleep(spacing);
     }
     const turned = new Set(rows.map((row) => row.written));
     // Everything the table listed that did not become a form is a gap the card names.
-    const missingForms = candidates.filter((name) => !turned.has(name));
+    const missingForms = wanted.filter((name) => !turned.has(name));
     if (rows.length === 0) {
-        const status = limited ? 'rate-limited' : exhausted ? 'partial' : 'no-forms';
+        const status = limited ? 'rate-limited'
+            : (exhausted || partialList ? 'partial' : 'no-forms');
         return {
             status,
             dataset: null,
-            missingForms: candidates,
+            missingForms: wanted,
             requests,
             failure: limited
                 ? '来源限流'
@@ -208,6 +297,8 @@ export async function fetchConjugationDataset(input) {
     if (unreadable.length > 0) {
         notes.push(`这些形式页面无法读取：${unreadable.slice(0, 12).join('、')}${unreadable.length > 12 ? ' 等' : ''}`);
     }
+    if (halved)
+        notes.push('为绕开单次响应上限，本次抓取使用了更小的批次');
     const dataset = deriveConjugationDataset(input.lemma, rows, {
         kind: 'fr-wiktionary',
         version: 'api',
@@ -223,7 +314,7 @@ export async function fetchConjugationDataset(input) {
     // source has not created yet.
     const status = limited
         ? 'rate-limited'
-        : (exhausted || unreadable.length > 0 || missingForms.length > 0 ? 'partial' : 'ok');
+        : (exhausted || partialList || unreadable.length > 0 || missingForms.length > 0 ? 'partial' : 'ok');
     return {
         status,
         dataset,

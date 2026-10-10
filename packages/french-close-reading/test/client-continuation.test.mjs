@@ -32,6 +32,7 @@ async function panel(services = {}, browser = {}) {
     },
     useRef(initial) { const index = refIndex++; return refs[index] ??= { current: initial } },
     useEffect(factory) { effects.push(factory) }, useLayoutEffect() {}, useCallback: (fn) => fn, useMemo: (fn) => fn(),
+    Component: class { constructor(props) { this.props = props; this.state = {} } },
   }
   const storage = new Map()
   const memoryStorage = { getItem: (key) => storage.get(key) ?? null, setItem: (key, value) => storage.set(key, value), removeItem: (key) => storage.delete(key) }
@@ -55,7 +56,26 @@ async function panel(services = {}, browser = {}) {
     remote: { frenchReader: api, $mount: async () => async () => {} },
   }
   await registration.factory(() => React).apply(ctx)
-  return { render() { stateIndex = 0; refIndex = 0; return component(props) }, values, effects, refs, storage, memoryStorage }
+  return { render() {
+    stateIndex = 0; refIndex = 0
+    // The slot now registers the error boundary; unwrap function elements until
+    // the page body runs. The boundary itself uses no hooks, so the historical
+    // hook indices below it are unchanged.
+    // The slot now registers the error boundary; execute only the wrapper
+    // chain (function components and the boundary class) until the tree root
+    // is a plain element — deeper components stay unexecuted, as before.
+    const unwrap = (node) => {
+      if (Array.isArray(node)) return node.map(unwrap)
+      if (node !== null && typeof node === 'object' && typeof node.type === 'function') {
+        if (node.type.prototype !== undefined && typeof node.type.prototype.render === 'function') {
+          return unwrap(new node.type(node.props).render())
+        }
+        return unwrap(node.type(node.props))
+      }
+      return node
+    }
+    return unwrap(component(props))
+  }, values, effects, refs, storage, memoryStorage }
 }
 function all(node, predicate) {
   if (node == null || typeof node !== 'object') return []
@@ -840,8 +860,8 @@ test('empty input and source length boundaries do not reach save or invalid prev
  * moved to another passage must not touch that passage's composer.
  *
  * State indices are the component's useState order: 27 backend, 29 model,
- * 30 discussion, 31 askDraft, 32 contextPreview, 33 askBusy, 34 askStatus,
- * 35 streamText, 50 selectedNode.
+ * 30 discussion, 31 askDrafts (per branch), 32 askReceipts (per branch),
+ * 33 contextPreview, 34 askBusy, 35 streamText, 50 selectedNode.
  */
 const discussionBranch = (branchId, anchorId = 'p1.s1') => ({
   branchId, anchorId, kind: 'discussion', title: `分支 ${anchorId}`, parentId: null,
@@ -854,14 +874,14 @@ function openComposer(p, branch, { preview = null, draft = '这一句怎么读�
   p.values.set(27, 'stub')
   p.values.set(29, 'stub-model')
   p.values.set(30, { branches: [branch], conclusions: [] })
-  p.values.set(31, draft)
+  p.values.set(31, { [branch.branchId]: draft })
   const passageId = p.values.get(10)?.id ?? null
   const requestId = p.refs[26]?.current ?? 0
   const previewWithIdentity = preview === null ? null : {
     ...preview,
     previewIdentity: JSON.stringify([passageId, requestId, branch.branchId, 'stub', 'stub-model', draft.trim()]),
   }
-  p.values.set(32, previewWithIdentity)
+  p.values.set(33, previewWithIdentity)
   p.values.set(50, { id: branch.branchId, anchorId: branch.anchorId, kind: 'discussion', title: branch.title })
 }
 
@@ -873,6 +893,10 @@ const flush = async (times = 3) => {
 async function switchTo(p, title) {
   all(p.render(), (node) => node.type === 'button' && node.props.className?.includes('shelfPassage') && text(node).includes(title))[0].props.onClick()
   await flush()
+  // A turn in flight parks the switch behind the cancel guard (R7-U04): the reader
+  // confirms, and the switch then runs.
+  const confirm = button(p.render(), '切换并取消解析')
+  if (confirm !== undefined) { confirm.props.onClick(); await flush() }
   p.effects.filter((factory) => factory.toString().includes('loadDiscussion(activePassage.id)')).pop()()
   await flush()
 }
@@ -972,16 +996,16 @@ test('a preview that answers after the reader switched passages changes nothing 
   openComposer(p, discussionBranch('b1'))
   button(p.render(), '查看本次上下文').props.onClick()
   await flush()
-  assert.equal(p.values.get(33), true, 'the preview is in flight')
+  assert.equal(p.values.get(34), true, 'the preview is in flight')
 
   await switchTo(p, 'Fast passage')
   resolvePreview(ok({ ok: true, characters: 12, materials: [{ refId: 'p1' }], fingerprint: 'f1' }))
   await flush()
 
   assert.equal(p.values.get(10).id, 'fast')
-  assert.equal(p.values.get(32), null, 'the late preview is not shown on the new passage')
+  assert.equal(p.values.get(33), null, 'the late preview is not shown on the new passage')
   assert.equal(p.values.get(14), '', 'and no error from it either')
-  assert.equal(p.values.get(33), false, 'the switch reset the busy flag; the late finally left it alone')
+  assert.equal(p.values.get(34), false, 'the switch reset the busy flag; the late finally left it alone')
 })
 
 test('stream deltas from the previous passage never reach the new passage', async () => {
@@ -1001,17 +1025,17 @@ test('stream deltas from the previous passage never reach the new passage', asyn
   assert.equal(p.values.get(35), '前半句', 'the delta arrives while the turn is current')
 
   await switchTo(p, 'Fast passage')
-  p.values.set(31, '给 B 的问题')
-  p.values.set(32, { fingerprint: 'f2', characters: 9, materials: [{}] })
+  p.values.set(31, { b2: '给 B 的问题' })
+  p.values.set(33, { fingerprint: 'f2', characters: 9, materials: [{}] })
   stream.push({ kind: 'delta', text: '后半句' })
   stream.push({ kind: 'done', result: { ok: true, finish: 'stop', model: 'stub-model', resolvedModel: 'stub-model' } })
   stream.close()
   await flush()
 
   assert.equal(p.values.get(35), '', 'a late delta from the old passage is refused')
-  assert.equal(p.values.get(31), '给 B 的问题', 'the new passage’s draft is untouched')
-  assert.deepEqual(p.values.get(32), { fingerprint: 'f2', characters: 9, materials: [{}] }, 'its context preview too')
-  assert.equal(p.values.get(34), '', 'and the old turn’s success is not reported here')
+  assert.deepEqual(Object.entries(p.values.get(31) ?? {}), [['b2', '给 B 的问题']], 'the new passage’s draft is untouched')
+  assert.deepEqual(p.values.get(33), { fingerprint: 'f2', characters: 9, materials: [{}] }, 'its context preview too')
+  assert.deepEqual(Object.keys(p.values.get(32) ?? {}), [], 'and the old turn’s success is not reported here')
 })
 
 test('an old turn’s finally does not clear the new passage’s busy state', async () => {
@@ -1027,25 +1051,25 @@ test('an old turn’s finally does not clear the new passage’s busy state', as
   openComposer(p, discussionBranch('b1'), { preview: { fingerprint: 'f1', characters: 12, materials: [{}] } })
   button(p.render(), '发送').props.onClick()
   await flush()
-  assert.equal(p.values.get(33), true)
+  assert.equal(p.values.get(34), true)
 
   await switchTo(p, 'Fast passage')
-  assert.equal(p.values.get(33), false, 'the switch hands the busy state to the new passage')
+  assert.equal(p.values.get(34), false, 'the switch hands the busy state to the new passage')
   openComposer(p, discussionBranch('b2'), { preview: { fingerprint: 'f2', characters: 9, materials: [{}] }, draft: 'B 的问题' })
   button(p.render(), '发送').props.onClick()
   await flush()
-  assert.equal(p.values.get(33), true, 'the new passage’s turn is busy')
+  assert.equal(p.values.get(34), true, 'the new passage’s turn is busy')
 
   // The old turn only now finishes: its finally must not touch the new turn.
   streams.get('b1').push({ kind: 'done', result: { ok: true, finish: 'stop', model: 'stub-model', resolvedModel: 'stub-model' } })
   streams.get('b1').close()
   await flush()
-  assert.equal(p.values.get(33), true, 'the new turn is still busy')
+  assert.equal(p.values.get(34), true, 'the new turn is still busy')
   assert.equal(p.values.get(35), '', 'and no stream text leaked across')
   streams.get('b2').push({ kind: 'done', result: { ok: true, finish: 'stop', model: 'stub-model', resolvedModel: 'stub-model' } })
   streams.get('b2').close()
   await flush()
-  assert.equal(p.values.get(33), false, 'the new turn settles its own state')
+  assert.equal(p.values.get(34), false, 'the new turn settles its own state')
 })
 
 test('a preview failure from the previous passage shows no error on the new one', async () => {
@@ -1155,7 +1179,8 @@ test('the ＋讨论 entry starts with a first question and an optional editable 
   assert.equal(requests[1].forkedFrom, null, 'a new root discussion is not attached to an unrelated parent')
   assert.equal(p.values.get(50)?.id, 'new-branch', 'creation selects the new discussion')
   assert.ok(discussionReads > 0, 'a successful create refreshes the discussion before selecting the branch')
-  assert.equal(p.values.get(31), '这里的 allée 是什么形式？', 'the first question becomes the composer draft')
+  assert.deepEqual(Object.entries(p.values.get(31) ?? {}), [['new-branch', '这里的 allée 是什么形式？']],
+    'the first question becomes that branch’s composer draft')
   tree = p.render()
   assert.ok(all(tree, (node) => node.props?.className === 'composer')[0], 'the question composer opens immediately')
 })
@@ -1188,7 +1213,7 @@ test('a first-question fork keeps the exact parent message and passage captured 
   assert.equal(requests[0].parentId, 'parent-branch')
   assert.equal(requests[0].forkedFrom.branchId, 'parent-branch')
   assert.equal(requests[0].forkedFrom.messageId, 'm1')
-  assert.equal(p.values.get(31), '为什么这里这样表达？')
+  assert.deepEqual(Object.entries(p.values.get(31) ?? {}), [['child-branch', '为什么这里这样表达？']])
   assert.equal(p.values.get(50)?.id, 'child-branch')
 })
 
@@ -1472,7 +1497,9 @@ test('asking about a miss creates a ready discussion without another title dialo
   all(p.render(), (node) => node.props?.id === 'lookupInput')[0].props.onChange({ target: { value: 'allée' } })
   button(p.render(), '查阅').props.onClick()
   await flush()
+  await flush()
   button(all(p.render(), (node) => node.props?.className === 'lookupResult')[0], '在讨论中询问').props.onClick()
+  await flush()
   await flush()
 
   assert.equal(created.length, 1)
@@ -1480,7 +1507,8 @@ test('asking about a miss creates a ready discussion without another title dialo
   assert.equal(created[0].kind, 'vocabulary')
   assert.equal(created[0].anchorId, 'passage')
   const tree = p.render()
-  assert.match(p.values.get(31), /原形、词性、在此句中的含义/u, 'the composer is prefilled with a focused question')
+  const wordDraft = Object.values(p.values.get(31) ?? {}).join(' ')
+  assert.match(wordDraft, /原形、词性、在此句中的含义/u, 'the composer is prefilled with a focused question')
   assert.ok(button(tree, '查看本次上下文'), 'the model turn still requires an explicit context review')
 })
 
@@ -1608,15 +1636,17 @@ test('a stored conclusion is routable and navigates back to its source branch (F
 })
 
 test('cancelling a turn reads the persisted terminal state instead of always claiming unconfirmed', async () => {
-  const branch = {
+  // The cancelled message carries the time the Host finished writing it, which
+  // is what the panel correlates against the run it belongs to.
+  const branch = () => ({
     ...discussionBranch('b1'),
     messages: [
-      { messageId: 'q1', author: 'user', text: '这一句怎么读？', status: null, createdAt: '2026-01-01T00:00:00.000Z' },
+      { messageId: 'q1', author: 'user', text: '这一句怎么读？', status: null, createdAt: new Date().toISOString() },
       { messageId: 'a1', author: 'model', text: '', status: 'cancelled', backend: 'stub', model: 'stub-model',
         resolvedModel: 'stub-model', failure: 'DeepSeek Messages request aborted', contextId: null,
-        createdAt: '2026-01-01T00:00:01.000Z', extraction: null },
+        createdAt: new Date().toISOString(), extraction: null },
     ],
-  }
+  })
   const p = await panel({
     streamAsk: (request, signal) => (async function* () {
       await new Promise((resolve, reject) => {
@@ -1624,7 +1654,7 @@ test('cancelling a turn reads the persisted terminal state instead of always cla
       })
       yield { kind: 'done', result: { ok: false, finish: 'cancelled' } }
     })(),
-    listDiscussion: async () => ok({ branches: [branch], conclusions: [] }),
+    listDiscussion: async () => ok({ branches: [branch()], conclusions: [] }),
   })
   openComposer(p, discussionBranch('b1'), {
     preview: { ok: true, fingerprint: 'fp-cancel', characters: 0, materials: [], prompt: '' },
@@ -1635,17 +1665,66 @@ test('cancelling a turn reads the persisted terminal state instead of always cla
   assert.ok(runStatus, 'the run status with the cancel entry is shown')
   button(runStatus, '取消').props.onClick()
   await flush()
-  assert.equal(p.values.get(34), '已取消，讨论记录中该回答已标记为取消状态。',
+  assert.equal(Object.values(p.values.get(32) ?? {})[0], '已取消，讨论记录中该回答已标记为取消状态。',
     'a persisted cancelled message confirms the cancellation')
+})
+
+test('cancellation converges when the record finishes writing after the first read (R6-B02)', async () => {
+  // The real race from round six: the abort lands client-side before the Host
+  // has written the cancelled message, so the first reads see no terminal
+  // state; the panel must keep checking and converge on its own.
+  let writes = 0
+  const branchAt = (withCancelled) => {
+    const messages = [
+      { messageId: 'q1', author: 'user', text: '这一句怎么读？', status: null, createdAt: new Date().toISOString() },
+    ]
+    if (withCancelled) {
+      messages.push({ messageId: 'a1', author: 'model', text: '', status: 'cancelled', backend: 'stub',
+        model: 'stub-model', resolvedModel: 'stub-model', failure: 'DeepSeek Messages request aborted',
+        contextId: null, createdAt: new Date().toISOString(), extraction: null })
+    }
+    return { ...discussionBranch('b1'), messages }
+  }
+  const timers = []
+  const p = await panel({
+    streamAsk: (request, signal) => (async function* () {
+      await new Promise((resolve, reject) => {
+        signal.addEventListener('abort', () => reject(new Error('DeepSeek Messages request aborted')))
+      })
+      yield { kind: 'done', result: { ok: false, finish: 'cancelled' } }
+    })(),
+    listDiscussion: async () => {
+      writes += 1
+      // The Host persists the cancelled message only after the third read.
+      return ok({ branches: [branchAt(writes > 3)], conclusions: [] })
+    },
+  }, { setTimeout: (callback) => { timers.push(callback); return timers.length } })
+  openComposer(p, discussionBranch('b1'), {
+    preview: { ok: true, fingerprint: 'fp-cancel-late', characters: 0, materials: [], prompt: '' },
+  })
+  button(p.render(), '发送').props.onClick()
+  await flush()
+  button(all(p.render(), (node) => node.props?.className === 'askRunStatus')[0], '取消').props.onClick()
+  await flush()
+  assert.equal(Object.values(p.values.get(32) ?? {})[0], '正在核对讨论记录中的取消状态…', 'the panel says it is verifying instead of judging one snapshot')
+  // Run the scheduled re-reads: attempt 1 finds nothing, attempt 2 still nothing,
+  // attempt 3 sees the persisted cancelled message and confirms.
+  for (let index = 0; index < 40 && timers.length > 0; index += 1) {
+    timers.shift()()
+    await flush()
+  }
+  assert.equal(Object.values(p.values.get(32) ?? {})[0], '已取消，讨论记录中该回答已标记为取消状态。',
+    'a late-written cancelled message converges the status without a manual refresh')
 })
 
 test('a turn whose record stays silent about cancellation still reports it as unconfirmed', async () => {
   const branch = {
     ...discussionBranch('b1'),
     messages: [
-      { messageId: 'q1', author: 'user', text: '这一句怎么读？', status: null, createdAt: '2026-01-01T00:00:00.000Z' },
+      { messageId: 'q1', author: 'user', text: '这一句怎么读？', status: null, createdAt: new Date().toISOString() },
     ],
   }
+  const timers = []
   const p = await panel({
     streamAsk: (request, signal) => (async function* () {
       await new Promise((resolve, reject) => {
@@ -1654,7 +1733,9 @@ test('a turn whose record stays silent about cancellation still reports it as un
       yield { kind: 'done', result: { ok: false, finish: 'cancelled' } }
     })(),
     listDiscussion: async () => ok({ branches: [branch], conclusions: [] }),
-  })
+    // Run every scheduled verification tick immediately so the bounded loop
+    // finishes inside the test.
+  }, { setTimeout: (callback) => { timers.push(callback); return timers.length } })
   openComposer(p, discussionBranch('b1'), {
     preview: { ok: true, fingerprint: 'fp-cancel-2', characters: 0, materials: [], prompt: '' },
   })
@@ -1662,6 +1743,257 @@ test('a turn whose record stays silent about cancellation still reports it as un
   await flush()
   button(all(p.render(), (node) => node.props?.className === 'askRunStatus')[0], '取消').props.onClick()
   await flush()
-  assert.equal(p.values.get(34), '连接已停止，但取消状态尚未确认；请检查讨论记录中的部分回答后再重试。',
-    'without a persisted cancelled message the panel keeps the honest unconfirmed state')
+  assert.equal(Object.values(p.values.get(32) ?? {})[0], '正在核对讨论记录中的取消状态…', 'verification starts instead of claiming a verdict')
+  for (let index = 0; index < 40 && timers.length > 0; index += 1) {
+    timers.shift()()
+    await flush()
+  }
+  assert.equal(Object.values(p.values.get(32) ?? {})[0], '连接已停止，但取消状态尚未确认；请检查讨论记录中的部分回答后再重试。',
+    'when no cancelled message ever appears the verdict stays honestly unconfirmed')
 })
+
+test('a cancelled placeholder never surfaces as a new-answer notification (R6-B03)', async () => {
+  // The cancelled turn saves an explanation as the model message; its text is
+  // non-empty, so the old fresh-answer filter accepted it and pinned a jump.
+  const branch = () => ({
+    ...discussionBranch('b1'),
+    messages: [
+      { messageId: 'q1', author: 'user', text: '这一句怎么读？', status: null, createdAt: new Date().toISOString() },
+      { messageId: 'a1', author: 'model', text: '（已取消；无正文返回）', status: 'cancelled', backend: 'stub',
+        model: 'stub-model', resolvedModel: 'stub-model', failure: 'request aborted', contextId: null,
+        createdAt: new Date().toISOString(), extraction: null },
+    ],
+  })
+  const p = await panel({
+    streamAsk: (request, signal) => (async function* () {
+      await new Promise((resolve, reject) => {
+        signal.addEventListener('abort', () => reject(new Error('request aborted')))
+      })
+      yield { kind: 'done', result: { ok: false, finish: 'cancelled' } }
+    })(),
+    listDiscussion: async () => ok({ branches: [branch()], conclusions: [] }),
+  })
+  openComposer(p, discussionBranch('b1'), {
+    preview: { ok: true, fingerprint: 'fp-cancel-notify', characters: 0, materials: [], prompt: '' },
+  })
+  // Keep the reader away from the tail so a notification would pin instead of auto-scroll.
+  const scroller = { scrollTop: 400, scrollHeight: 1000, clientHeight: 300 }
+  all(p.render(), (node) => node.props?.className === 'detailScroll')[0].props.ref.current = scroller
+  button(p.render(), '发送').props.onClick()
+  await flush()
+  button(all(p.render(), (node) => node.props?.className === 'askRunStatus')[0], '取消').props.onClick()
+  await flush()
+  assert.doesNotMatch(text(p.render()), /新回答已生成/u,
+    'the cancelled explanation is not announced as a new answer')
+})
+
+test('jumping to a new answer on another branch selects that branch instead of doing nothing (R6-B03)', async () => {
+  const answer = {
+    messageId: 'answer-b1', author: 'model', text: '这是首分支的新回答。', status: 'complete',
+    backend: 'stub', model: 'stub-model', resolvedModel: 'stub-model', failure: null,
+    contextId: 'context-b1', createdAt: new Date().toISOString(), extraction: null,
+  }
+  const original = {
+    ...discussionBranch('b1'),
+    messages: [
+      { messageId: 'q1', author: 'user', text: '第一句怎么读？', status: null, createdAt: new Date().toISOString() },
+    ],
+  }
+  const answered = { ...original, messages: [...original.messages, answer] }
+  const other = { ...discussionBranch('b2'), title: '另一分支' }
+  let served = null
+  const p = await panel({
+    streamAsk: () => (async function* () {
+      yield { kind: 'done', result: { ok: true, finish: 'stop', model: 'stub-model', resolvedModel: 'stub-model' } }
+    })(),
+    listDiscussion: async () => ok(served),
+  }, { document: { getElementById: () => null } })
+  served = { branches: [answered, other], conclusions: [] }
+  openComposer(p, original, {
+    preview: { ok: true, fingerprint: 'fp-jump-cross', characters: 0, materials: [], prompt: '' },
+  })
+  const scroller = { scrollTop: 400, scrollHeight: 1000, clientHeight: 300 }
+  all(p.render(), (node) => node.props?.className === 'detailScroll')[0].props.ref.current = scroller
+  button(p.render(), '发送').props.onClick()
+  await flush()
+  p.render()
+  // The stub records effects instead of running them: fire the answer-reveal one.
+  const revealPending = p.effects.filter((factory) => factory.toString().includes('pendingAnswerRevealRef.current')).at(-1)
+  assert.ok(revealPending)
+  revealPending()
+  await flush()
+  // The pinned notification survives the reader switching to another branch.
+  p.values.set(50, { id: 'b2', anchorId: 'p1.s1', kind: 'discussion', title: '另一分支' })
+  let tree = p.render()
+  const jump = button(tree, '新回答已生成 · 跳转到回答')
+  assert.ok(jump, 'the jump is pinned while the reader is elsewhere')
+  jump.props.onClick()
+  await flush()
+  const selected = p.values.get(50)
+  assert.equal(selected?.id, 'b1', 'the jump selects the branch that owns the answer')
+  tree = p.render()
+  assert.doesNotMatch(text(tree), /新回答已生成/u, 'and the notification is consumed by the jump')
+})
+
+/**
+ * R7-B02: a branch keeps its own draft and its own receipt. The composer used to
+ * share one draft and one status line across every branch, so a fork's cancelled
+ * turn and its typed question reappeared on the main discussion.
+ */
+test('each discussion branch keeps its own question draft and receipt (R7-B02)', async () => {
+  const b1 = discussionBranch('b1')
+  const b2 = discussionBranch('b2')
+  const p = await panel()
+  p.values.set(16, { paragraphs: [{ id: 'p1', text: 'Je lis.', start: 0, end: 7,
+    sentences: [{ id: 'p1.s1', text: 'Je lis.', start: 0, end: 7 }] }] })
+  p.values.set(18, 'p1.s1')
+  p.values.set(30, { branches: [b1, b2], conclusions: [] })
+  p.values.set(31, { b1: '第一分支的问题' })
+  p.values.set(32, { b1: '已取消，讨论记录中该回答已标记为取消状态。' })
+  p.values.set(50, { id: 'b1', anchorId: 'p1.s1', kind: 'discussion', title: b1.title })
+
+  const draftArea = () => all(p.render(), (node) => node.type === 'textarea' && node.props.className === 'draft')[0]
+  const receipt = () => all(p.render(), (node) => node.props?.className === 'status' && text(node).includes('已取消'))
+  assert.equal(draftArea().props.value, '第一分支的问题')
+  assert.equal(receipt().length, 1, 'b1 shows its own receipt')
+
+  p.values.set(50, { id: 'b2', anchorId: 'p1.s1', kind: 'discussion', title: b2.title })
+  assert.equal(draftArea().props.value, '', 'b2 has no draft of its own')
+  assert.deepEqual(receipt(), [], 'and it never shows b1’s cancel receipt')
+
+  draftArea().props.onChange({ target: { value: '第二分支的问题' } })
+  p.values.set(50, { id: 'b1', anchorId: 'p1.s1', kind: 'discussion', title: b1.title })
+  assert.equal(draftArea().props.value, '第一分支的问题', 'b1’s draft is still b1’s')
+  p.values.set(50, { id: 'b2', anchorId: 'p1.s1', kind: 'discussion', title: b2.title })
+  assert.equal(draftArea().props.value, '第二分支的问题', 'and b2’s draft is still b2’s')
+})
+
+/**
+ * R7-B03: a captured phrase belongs to the sentence it was selected in. Switching
+ * sentence clears it, and a phrase from another sentence is never looked up.
+ */
+test('a selected phrase is bound to its sentence and cleared when the focus moves (R7-B03)', async () => {
+  const lookups = []
+  const p = await panel({ lookupMot: async ({ mot }) => { lookups.push(mot); return ok({ found: false, candidates: [] }) } })
+  p.values.set(16, { paragraphs: [{ id: 'p1', text: 'Je lis. Tu lis.', start: 0, end: 14,
+    sentences: [{ id: 'p1.s1', text: 'Je lis.', start: 0, end: 7 }, { id: 'p1.s2', text: 'Tu lis.', start: 8, end: 14 }] }] })
+  p.values.set(18, 'p1.s1')
+  p.values.set(55, { text: 'Je lis', anchorId: 'p1.s1' })
+  assert.match(text(all(p.render(), (node) => node.props?.className === 'selectedWord')[0]), /Je lis/u)
+
+  button(p.render(), '→').props.onClick()
+  assert.equal(p.values.get(18), 'p1.s2', 'the focus moved')
+  assert.equal(p.values.get(55), null, 'and the old phrase was cleared with it')
+
+  // A phrase whose sentence is no longer in focus is displayed as nothing and never
+  // becomes a lookup: the guard is on the anchor, not on the text.
+  p.values.set(55, { text: 'Je lis', anchorId: 'p1.s1' })
+  assert.equal(text(all(p.render(), (node) => node.props?.className === 'selectedWord')[0]), '')
+  button(p.render(), '查词').props.onClick()
+  await flush()
+  assert.deepEqual(lookups, [], 'the stale phrase is not looked up')
+  assert.equal(p.values.get(52), true, 'the empty-selection dialog opens instead')
+})
+
+/**
+ * R7-B05/U07: an import reports what it did, where the buttons are, with the
+ * counts the reader can check and the keys it refused.
+ */
+test('an import result is shown with its counts and conflicts (R7-B05)', async () => {
+  const p = await panel({
+    listPassages: async () => ok({ items: [], hasMore: false, total: 0 }),
+    importLibrary: async () => ok({ imported: 3, skipped: 1, conflicts: [{ key: 'records/abc', reason: 'content-differs' }] }),
+  })
+  p.values.set(10, null)
+  const bundle = {
+    schemaVersion: 2,
+    hostLibrary: { schemaVersion: 1, exportedAt: '2026-10-10T00:00:00.000Z', records: [] },
+    browserLibrary: { schemaVersion: 1, bookshelf: { books: [], placements: {} }, continuations: {} },
+  }
+  const input = all(p.render(), (node) => node.type === 'input' && node.props.type === 'file')[0]
+  input.props.onChange({ currentTarget: { files: [{ text: async () => JSON.stringify(bundle) }], value: '' } })
+  await flush(6)
+  const notice = all(p.render(), (node) => node.props?.className?.includes('libraryNotice'))[0]
+  assert.ok(notice, 'the result is on screen, not only in state')
+  assert.match(text(notice), /新增 3 条/u)
+  assert.match(text(notice), /冲突 1 条/u)
+  assert.match(text(notice), /records\/abc/u, 'the refused key is named')
+})
+
+/**
+ * R7-U01: a miss reaches a compiled question without the reader walking the
+ * create → preview walk by hand; send still requires the compiled material.
+ */
+test('asking about a miss compiles the question in one step (R7-U01)', async () => {
+  const previews = []
+  let lookupCalls = 0
+  const p = await panel({
+    lookupMot: async () => { lookupCalls += 1; return ok({ found: false, entries: [], candidates: [] }) },
+    createBranch: async () => ok({ kind: 'created', branchId: 'word-branch' }),
+    listDiscussion: async () => ok({ branches: [], conclusions: [] }),
+    previewAsk: async (request) => {
+      previews.push(request)
+      return ok({ ok: true, contextId: 'c1', fingerprint: 'f1', characters: 128, backend: 'stub',
+        model: 'stub-model', materials: [], prompt: 'PROMPT' })
+    },
+  })
+  p.values.set(18, 'passage')
+  p.values.set(27, 'stub')
+  p.values.set(29, 'stub-model')
+  p.values.set(16, { paragraphs: [{ id: 'p1', text: 'Je lis.', start: 0, end: 7,
+    sentences: [{ id: 'p1.s1', text: 'Je lis.', start: 0, end: 7 }] }] })
+  button(p.render(), '查词').props.onClick()
+  all(p.render(), (node) => node.props?.id === 'lookupInput')[0].props.onChange({ target: { value: 'allée' } })
+  button(p.render(), '查阅').props.onClick()
+  await flush()
+  button(all(p.render(), (node) => node.props?.className === 'lookupResult')[0], '在讨论中询问').props.onClick()
+  await flush(6)
+
+  assert.equal(previews.length, 1, 'the material is compiled right after the branch exists')
+  assert.equal(previews[0].branchId, 'word-branch')
+  assert.match(previews[0].question, /原形、词性、在此句中的含义/u, 'the compiled turn is the word question')
+  assert.ok(button(p.render(), '发送'), 'one press away from sending, with the material reviewed')
+})
+
+/**
+ * The guard covers a discussion turn as well: a sent question is cancelled by the
+ * same navigation that cancels an analysis, and it used to vanish without a word.
+ */
+test('a navigation during a discussion turn also asks first (R7-U04)', async () => {
+  const p = await panel()
+  p.values.set(16, { paragraphs: [{ id: 'p1', text: 'Je lis. Tu lis.', start: 0, end: 14,
+    sentences: [{ id: 'p1.s1', text: 'Je lis.', start: 0, end: 7 }, { id: 'p1.s2', text: 'Tu lis.', start: 8, end: 14 }] }] })
+  p.values.set(18, 'p1.s1')
+  // 72 is `askRun`: a real turn is in flight (a preview alone is not guarded).
+  p.values.set(72, { runId: 1, startedAt: Date.now(), model: 'stub-model', question: '为什么？',
+    passageId: p.values.get(10)?.id ?? null, anchorId: 'p1.s1', branchId: 'b1', cancelPending: false })
+  button(p.render(), '→').props.onClick()
+  await flush()
+  assert.equal(p.values.get(18), 'p1.s1', 'the focus has not moved yet')
+  assert.match(text(p.render()), /解析正在进行/u, 'the reader is told what switching would cancel')
+  button(p.render(), '切换并取消解析').props.onClick()
+  await flush()
+  assert.equal(p.values.get(18), 'p1.s2', 'the confirmed switch goes through')
+})
+
+/**
+ * R7-U04: navigating away cancels the run, so the panel asks first.
+ */
+test('a navigation that would cancel a running analysis asks first (R7-U04)', async () => {
+  const p = await panel()
+  p.values.set(16, { paragraphs: [{ id: 'p1', text: 'Je lis. Tu lis.', start: 0, end: 14,
+    sentences: [{ id: 'p1.s1', text: 'Je lis.', start: 0, end: 7 }, { id: 'p1.s2', text: 'Tu lis.', start: 8, end: 14 }] }] })
+  p.values.set(18, 'p1.s1')
+  // The busy flag the guard reads is a ref: a run is in flight.
+  p.refs[20] = { current: true }
+  button(p.render(), '→').props.onClick()
+  await flush()
+  assert.equal(p.values.get(18), 'p1.s1', 'the focus has not moved yet')
+  assert.match(text(p.render()), /解析正在进行/u, 'the reader is told what switching would cancel')
+
+  button(p.render(), '切换并取消解析').props.onClick()
+  await flush()
+  assert.equal(p.values.get(18), 'p1.s2', 'the confirmed switch goes through')
+})
+
+

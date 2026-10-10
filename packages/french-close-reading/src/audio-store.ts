@@ -1,0 +1,395 @@
+/**
+ * The audio take store: one record per source fingerprint, append-only inside it.
+ *
+ * The rules the contract states are implemented here as arithmetic on one list,
+ * not as conventions a caller has to remember:
+ *
+ * - **append**: a regeneration adds a take; no stored take is replaced in place;
+ * - **idempotent**: the same `takeId` — or the same `requestId`, which is what a
+ *   retry actually repeats — finds its take instead of writing a second one;
+ * - **revision-scoped**: the record key is derived from the fingerprint, so the
+ *   takes of an older `sourceRevision`/`sentenceRevision` are a *different*
+ *   record. "That audio is stale" is answered by absence rather than by a flag
+ *   someone could forget to set;
+ * - **select**: a selection names one stored take of this exact fingerprint;
+ *   nothing else is selectable.
+ *
+ * The bytes live in the record as base64, with the mime type, the measured
+ * duration and the byte count beside them, so a card can say how long a take is
+ * without decoding it.
+ */
+import type { RecordTable } from './lexicon-store.ts'
+import type {
+  StoredAudioVoice,
+  StoredInflectionAudioStore,
+  StoredInflectionAudioTake,
+  StoredSentenceAudioStore,
+  StoredSentenceAudioTake,
+  StoredSpeechBackend,
+} from './domain.ts'
+
+/**
+ * How many takes one source keeps.
+ *
+ * Audio is stored inside the record, so the list cannot grow without bound. The
+ * cap is generous (a reader would have to regenerate the same sentence two dozen
+ * times) and trimming is reported back rather than hidden: the oldest takes
+ * beyond it are dropped, and the selected take is never one of them.
+ */
+export const MAX_AUDIO_TAKES = 24
+
+export interface SentenceAudioLocator {
+  passageId: string
+  sentenceId: string
+  sourceRevision: number
+  sentenceRevision: number
+}
+
+export interface InflectionAudioLocator {
+  formId: string
+  inflectionRevision: number
+}
+
+/**
+ * The source fingerprint: what identifies the audio's source and nothing else.
+ *
+ * Titles, chapter names and the current selection are deliberately absent from
+ * it — renaming a paragraph must not invalidate audio — while both revisions are
+ * present, because a corrected sentence does.
+ */
+export function sentenceAudioSourceKey(source: SentenceAudioLocator): string {
+  return `${source.passageId}|${source.sentenceId}|${String(source.sourceRevision)}|${String(source.sentenceRevision)}`
+}
+
+export function inflectionAudioSourceKey(source: InflectionAudioLocator): string {
+  return `${source.formId}|${String(source.inflectionRevision)}`
+}
+
+/** A record key is path-safe, so the fingerprint itself is hashed. */
+async function audioRecordKey(prefix: 'saudio' | 'iaudio', fingerprint: string): Promise<string> {
+  const bytes = new TextEncoder().encode(`audio\u0000${fingerprint}`)
+  const digest = new Uint8Array(await globalThis.crypto.subtle.digest('SHA-256', bytes))
+  const hex = [...digest.slice(0, 16)].map((byte) => byte.toString(16).padStart(2, '0')).join('')
+  return `${prefix}_${hex}`
+}
+
+export const sentenceAudioRecordKey = (fingerprint: string): Promise<string> =>
+  audioRecordKey('saudio', fingerprint)
+
+export const inflectionAudioRecordKey = (fingerprint: string): Promise<string> =>
+  audioRecordKey('iaudio', fingerprint)
+
+/** What one append did, so a replay and a trim are both visible to the caller. */
+export interface AppendTakeOutcome<Take> {
+  take: Take
+  /** False when this takeId or requestId was already stored: nothing was written twice. */
+  appended: boolean
+  /** How many older takes the cap dropped; never the selected one. */
+  trimmed: number
+  /** The fingerprint this take belongs to. */
+  sourceKey: string
+  recordKey: string
+}
+
+/** Every take of one fingerprint, newest first. */
+export interface AudioTakeList<Take> {
+  sourceKey: string
+  takes: Take[]
+  selectedTakeId: string | null
+}
+
+export type SelectTakeOutcome =
+  | { kind: 'selected'; takeId: string }
+  | { kind: 'already-selected'; takeId: string }
+  | { kind: 'unknown-source' }
+  | { kind: 'unknown-take' }
+  /** The stored take belongs to another revision than the one asked for. */
+  | { kind: 'revision-mismatch'; storedRevision: number }
+
+/** One stored audio asset, as a caller reads it to hand to a player. */
+export interface StoredAudioAsset {
+  takeId: string
+  mimeType: string
+  /** The bytes themselves, base64-encoded. */
+  base64: string
+  bytes: number
+  durationMs: number
+  createdAt: string
+}
+
+interface TakeShape {
+  takeId: string
+  requestId: string
+  createdAt: string
+}
+
+/** Newest first, with the id as the tie-break so two takes in one millisecond still order. */
+function newestFirst<T extends TakeShape>(takes: readonly T[]): T[] {
+  return [...takes].sort((left, right) =>
+    right.createdAt.localeCompare(left.createdAt) || right.takeId.localeCompare(left.takeId))
+}
+
+/**
+ * Append one take, or recognise that it is already there.
+ *
+ * A retry is recognised by `takeId` *and* by `requestId`: the same request may
+ * arrive again with a freshly generated id, and that must still be the same one
+ * piece of work rather than a second version.
+ */
+function appendToTakes<T extends TakeShape>(
+  takes: readonly T[],
+  take: T,
+  selectedTakeId: string | null,
+): { takes: T[], appended: boolean, trimmed: number } {
+  const byId = takes.find((entry) => entry.takeId === take.takeId)
+  if (byId !== undefined) return { takes: newestFirst(takes), appended: false, trimmed: 0 }
+  const byRequest = takes.find((entry) => entry.requestId === take.requestId)
+  if (byRequest !== undefined) return { takes: newestFirst(takes), appended: false, trimmed: 0 }
+
+  const ordered = newestFirst([...takes, take])
+  const kept: T[] = []
+  let trimmed = 0
+  for (const entry of ordered) {
+    // The selected take is never trimmed: dropping the take the reader is
+    // listening to would be data loss disguised as housekeeping.
+    if (kept.length < MAX_AUDIO_TAKES || entry.takeId === selectedTakeId) kept.push(entry)
+    else trimmed += 1
+  }
+  return { takes: kept, appended: true, trimmed }
+}
+
+/** The one stored take a selection names, or why it cannot be named. */
+function takeForSelection<T extends TakeShape>(
+  takes: readonly T[],
+  takeId: string,
+  /** True when this take really belongs to the source the caller named. */
+  belongsToSource: (take: T) => boolean,
+  /** The revision to report when it does not. */
+  revisionOf: (take: T) => number,
+): { kind: 'ok', take: T } | { kind: 'unknown-take' } | { kind: 'revision-mismatch', storedRevision: number } {
+  const take = takes.find((entry) => entry.takeId === takeId)
+  if (take === undefined) return { kind: 'unknown-take' }
+  if (!belongsToSource(take)) return { kind: 'revision-mismatch', storedRevision: revisionOf(take) }
+  return { kind: 'ok', take }
+}
+
+/* --------------------------------------------------------------- sentence --- */
+
+export async function appendSentenceAudioTake(
+  table: RecordTable,
+  take: StoredSentenceAudioTake,
+): Promise<AppendTakeOutcome<StoredSentenceAudioTake>> {
+  const sourceKey = sentenceAudioSourceKey(take.source)
+  const recordKey = await sentenceAudioRecordKey(sourceKey)
+  const existing = readSentenceAudioStore(table, recordKey)
+  const merged = appendToTakes(existing?.takes ?? [], take, existing?.selectedTakeId ?? null)
+  const stored = merged.appended
+    ? take
+    : (existing?.takes ?? []).find((entry) => entry.takeId === take.takeId)
+      ?? (existing?.takes ?? []).find((entry) => entry.requestId === take.requestId)
+      ?? take
+  await table.put(recordKey, {
+    kind: 'sentenceAudioTake',
+    recordVersion: 1,
+    payload: {
+      fingerprint: sourceKey,
+      takes: merged.takes,
+      selectedTakeId: existing?.selectedTakeId ?? null,
+      updatedAt: new Date().toISOString(),
+    },
+  })
+  return { take: stored, appended: merged.appended, trimmed: merged.trimmed, sourceKey, recordKey }
+}
+
+export async function listSentenceAudioTakes(
+  table: RecordTable,
+  source: SentenceAudioLocator,
+): Promise<AudioTakeList<StoredSentenceAudioTake>> {
+  const sourceKey = sentenceAudioSourceKey(source)
+  const record = readSentenceAudioStore(table, await sentenceAudioRecordKey(sourceKey))
+  return {
+    sourceKey,
+    takes: newestFirst(record?.takes ?? []),
+    selectedTakeId: record?.selectedTakeId ?? null,
+  }
+}
+
+export async function selectSentenceAudioTake(
+  table: RecordTable,
+  source: SentenceAudioLocator,
+  takeId: string,
+): Promise<SelectTakeOutcome> {
+  const sourceKey = sentenceAudioSourceKey(source)
+  const recordKey = await sentenceAudioRecordKey(sourceKey)
+  const record = readSentenceAudioStore(table, recordKey)
+  if (record === undefined) return { kind: 'unknown-source' }
+  const found = takeForSelection(
+    record.takes, takeId,
+    (take) => take.source.sentenceRevision === source.sentenceRevision
+      && take.source.sourceRevision === source.sourceRevision,
+    (take) => take.source.sentenceRevision,
+  )
+  if (found.kind === 'unknown-take') return found
+  if (found.kind === 'revision-mismatch') return { kind: 'revision-mismatch', storedRevision: found.storedRevision }
+  if (record.selectedTakeId === takeId) return { kind: 'already-selected', takeId }
+  await table.put(recordKey, {
+    kind: 'sentenceAudioTake',
+    recordVersion: 1,
+    payload: { ...record, selectedTakeId: takeId, updatedAt: new Date().toISOString() },
+  })
+  return { kind: 'selected', takeId }
+}
+
+export async function readSentenceAudioAsset(
+  table: RecordTable,
+  source: SentenceAudioLocator,
+  takeId: string,
+): Promise<StoredAudioAsset | null> {
+  const record = readSentenceAudioStore(table, await sentenceAudioRecordKey(sentenceAudioSourceKey(source)))
+  const take = record?.takes.find((entry) => entry.takeId === takeId)
+  return take === undefined ? null : toAsset(take)
+}
+
+/** The newest take of this fingerprint made by exactly this backend and voice. */
+export function newestSentenceAudioTake(
+  list: AudioTakeList<StoredSentenceAudioTake>,
+  wanted: { backend: StoredSpeechBackend, voice: StoredAudioVoice },
+  agrees?: (take: StoredSentenceAudioTake) => boolean,
+): StoredSentenceAudioTake | null {
+  return newestMatching(list.takes, wanted, agrees)
+}
+
+/* ------------------------------------------------------------- inflection --- */
+
+export async function appendInflectionAudioTake(
+  table: RecordTable,
+  take: StoredInflectionAudioTake,
+): Promise<AppendTakeOutcome<StoredInflectionAudioTake>> {
+  const sourceKey = inflectionAudioSourceKey(take.source)
+  const recordKey = await inflectionAudioRecordKey(sourceKey)
+  const existing = readInflectionAudioStore(table, recordKey)
+  const merged = appendToTakes(existing?.takes ?? [], take, existing?.selectedTakeId ?? null)
+  const stored = merged.appended
+    ? take
+    : (existing?.takes ?? []).find((entry) => entry.takeId === take.takeId)
+      ?? (existing?.takes ?? []).find((entry) => entry.requestId === take.requestId)
+      ?? take
+  await table.put(recordKey, {
+    kind: 'inflectionAudioTake',
+    recordVersion: 1,
+    payload: {
+      fingerprint: sourceKey,
+      takes: merged.takes,
+      selectedTakeId: existing?.selectedTakeId ?? null,
+      updatedAt: new Date().toISOString(),
+    },
+  })
+  return { take: stored, appended: merged.appended, trimmed: merged.trimmed, sourceKey, recordKey }
+}
+
+export async function listInflectionAudioTakes(
+  table: RecordTable,
+  source: InflectionAudioLocator,
+): Promise<AudioTakeList<StoredInflectionAudioTake>> {
+  const sourceKey = inflectionAudioSourceKey(source)
+  const record = readInflectionAudioStore(table, await inflectionAudioRecordKey(sourceKey))
+  return {
+    sourceKey,
+    takes: newestFirst(record?.takes ?? []),
+    selectedTakeId: record?.selectedTakeId ?? null,
+  }
+}
+
+export async function selectInflectionAudioTake(
+  table: RecordTable,
+  source: InflectionAudioLocator,
+  takeId: string,
+): Promise<SelectTakeOutcome> {
+  const sourceKey = inflectionAudioSourceKey(source)
+  const recordKey = await inflectionAudioRecordKey(sourceKey)
+  const record = readInflectionAudioStore(table, recordKey)
+  if (record === undefined) return { kind: 'unknown-source' }
+  const found = takeForSelection(
+    record.takes, takeId,
+    (take) => take.source.inflectionRevision === source.inflectionRevision,
+    (take) => take.source.inflectionRevision,
+  )
+  if (found.kind === 'unknown-take') return found
+  if (found.kind === 'revision-mismatch') return { kind: 'revision-mismatch', storedRevision: found.storedRevision }
+  if (record.selectedTakeId === takeId) return { kind: 'already-selected', takeId }
+  await table.put(recordKey, {
+    kind: 'inflectionAudioTake',
+    recordVersion: 1,
+    payload: { ...record, selectedTakeId: takeId, updatedAt: new Date().toISOString() },
+  })
+  return { kind: 'selected', takeId }
+}
+
+export async function readInflectionAudioAsset(
+  table: RecordTable,
+  source: InflectionAudioLocator,
+  takeId: string,
+): Promise<StoredAudioAsset | null> {
+  const record = readInflectionAudioStore(table, await inflectionAudioRecordKey(inflectionAudioSourceKey(source)))
+  const take = record?.takes.find((entry) => entry.takeId === takeId)
+  return take === undefined ? null : toAsset(take)
+}
+
+export function newestInflectionAudioTake(
+  list: AudioTakeList<StoredInflectionAudioTake>,
+  wanted: { backend: StoredSpeechBackend, voice: StoredAudioVoice },
+  agrees?: (take: StoredInflectionAudioTake) => boolean,
+): StoredInflectionAudioTake | null {
+  return newestMatching(list.takes, wanted, agrees)
+}
+
+/* ----------------------------------------------------------------- shared --- */
+
+interface AudioTakeIdentity {
+  backend: StoredSpeechBackend
+  voice: StoredAudioVoice
+}
+
+/**
+ * A cached take is only a cache hit for the same backend, model and voice.
+ *
+ * The audio itself is what must match: answering a request for another voice
+ * with the previous take would be playing the wrong thing, not a cache hit. The
+ * caller may narrow it further — a stored take whose *reading* differs from the
+ * one asked for is not that reading's audio either.
+ */
+function newestMatching<T extends AudioTakeIdentity>(
+  takes: readonly T[],
+  wanted: { backend: StoredSpeechBackend, voice: StoredAudioVoice },
+  agrees?: (take: T) => boolean,
+): T | null {
+  return takes.find((take) =>
+    (agrees === undefined || agrees(take))
+    && take.backend.kind === wanted.backend.kind
+    && take.backend.providerId === wanted.backend.providerId
+    && take.backend.modelId === wanted.backend.modelId
+    && take.voice.voiceId === wanted.voice.voiceId
+    && take.voice.rate === wanted.voice.rate) ?? null
+}
+
+function toAsset(take: StoredSentenceAudioTake | StoredInflectionAudioTake): StoredAudioAsset {
+  return {
+    takeId: take.takeId,
+    mimeType: take.mimeType,
+    base64: take.audioBase64,
+    bytes: take.bytes,
+    durationMs: take.durationMs,
+    createdAt: take.createdAt,
+  }
+}
+
+/** One stored take, or undefined when the record is absent or of another kind. */
+function readSentenceAudioStore(table: RecordTable, recordKey: string): StoredSentenceAudioStore | undefined {
+  const record = table.get(recordKey)
+  return record?.kind === 'sentenceAudioTake' ? record.payload : undefined
+}
+
+function readInflectionAudioStore(table: RecordTable, recordKey: string): StoredInflectionAudioStore | undefined {
+  const record = table.get(recordKey)
+  return record?.kind === 'inflectionAudioTake' ? record.payload : undefined
+}

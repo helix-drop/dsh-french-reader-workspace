@@ -44,6 +44,7 @@ function materialize(registration) {
       useEffect: () => {},
       useRef: (value) => ({ current: value }),
       useState: (value) => [value, () => {}],
+    Component: class { constructor(props) { this.props = props; this.state = {} } },
     }
   }
   return { plugin: registration.factory(require), requests }
@@ -95,7 +96,16 @@ test('apply mounts exactly the endpoints of the generated Host contract', async 
 
   // Array.from rehomes the cross-realm array the vm context produced.
   const ids = Array.from(mounted[0].descriptors, (descriptor) => descriptor.id).sort()
-  assert.deepEqual(ids, hostTypert.invocations.map((item) => item.id).sort())
+  const hostIds = hostTypert.invocations.map((item) => item.id).sort()
+  // The client half used to land separately, so a Host endpoint it had not wired
+  // yet was *named* here rather than silently tolerated. The audio endpoints were
+  // the last eight; the list is empty now and must stay that way — any Host
+  // endpoint the client has not wired fails this assertion with its name.
+  const PENDING_CLIENT_ENDPOINTS = []
+  assert.deepEqual(hostIds.filter((id) => !ids.includes(id)), PENDING_CLIENT_ENDPOINTS,
+    'a Host endpoint the client has not wired yet must be listed as pending')
+  assert.deepEqual(ids.filter((id) => !hostIds.includes(id)), [],
+    'the client must not mount an endpoint the Host does not declare')
   for (const descriptor of mounted[0].descriptors) {
     for (const parameter of descriptor.parameters) {
       assert.equal(parameter.codec.mode, 'strict')
@@ -203,11 +213,42 @@ test('the role mapping is by role, with a neutral fallback', () => {
  * for it were added, so each capability is now asserted by its definition AND its
  * use, not by a label alone.
  */
+test('every call the panel destructures is actually wired into its face', () => {
+  // R7-B01: `readConjugation`/`fetchConjugation` were declared, implemented and
+  // rendered — but missing from the face the slot injects, so the verb card's
+  // ConjugationView called `undefined` inside an effect and React unmounted the
+  // whole panel. A prop without a face entry is that bug, so the two lists are
+  // compared instead of trusted.
+  const signatureStart = source.indexOf('function PassagePage({')
+  assert.notEqual(signatureStart, -1)
+  const signatureEnd = source.indexOf('}) {', signatureStart)
+  const signature = source.slice(signatureStart, signatureEnd)
+  const props = new Set([...signature.matchAll(/([A-Za-z][A-Za-z0-9_]*)\s*[,}]/gu)].map((match) => match[1]))
+  assert.ok(props.size > 30, `the page takes ${String(props.size)} wired props`)
+
+  const faceStart = source.indexOf('const face = {')
+  const faceEnd = source.indexOf("ctx.slots.inject('main'", faceStart)
+  assert.notEqual(faceStart, -1)
+  assert.notEqual(faceEnd, -1)
+  const face = source.slice(faceStart, faceEnd)
+  // Shorthand entries (`t,`) count as wired just as `name: value` does.
+  const wired = new Set([...face.matchAll(/^\s{10}([A-Za-z][A-Za-z0-9_]*)\s*[,:]/gmu)].map((match) => match[1]))
+
+  const missing = [...props].filter((name) => !wired.has(name))
+  assert.deepEqual(missing, [], 'a destructured call with no face entry runs as undefined in the panel')
+})
+
 test('every panel capability is defined and actually rendered', () => {
   const required = [
     ['knowledge section definition', 'function KnowledgeSection('],
     ['knowledge section rendered', 'h(KnowledgeSection'],
     ['vocabulary tab', "t('lexiconTab')"],
+    // R7-B04: the list's tab, search and filter live on the page, so opening an
+    // entry and coming back cannot reset them to the vocabulary tab.
+    ['the library view belongs to the page', 'view: knowledgeList,'],
+    ['the library reads its tab from that view', "const tab = view?.tab === 'grammar' ? 'grammar' : 'vocab'"],
+    ['returning restores the tab the entry was opened from',
+      "setKnowledgeList((current) => ({ ...current, tab: knowledgeTab === 'grammar' ? 'grammar' : 'vocab' }))"],
     ['grammar tab', "setTab('grammar')"],
     ['card request', 'renderLexicon({ entryId: entry.entryId'],
     ['card verdict shown', 'card.value.errors'],
@@ -219,7 +260,10 @@ test('every panel capability is defined and actually rendered', () => {
     ['confirm before save', "t('confirmSave')"],
     ['selection captured in the quote', 'function captureReadingSelection()'],
     ['the capture is strict about the quote', "start?.closest?.('.quote')"],
-    ['the captured word drives the lookup', "void lookupWord(selectedWord)"],
+    ['the captured word drives the lookup', 'void lookupWord(selectedWord.text)'],
+    // A selection carries the sentence it was made in: the toolbar never acts on
+    // a phrase from a sentence the reader has left (R7-B03).
+    ['the selection is bound to its sentence', 'selectedWord.anchorId === anchorId'],
     ['sentences are focusable', 'tabIndex: 0'],
     ['sentences are selectable', "className: 'paragraphSentence"],
     ['keyboard activation', "event.key !== 'Enter'"],
@@ -227,7 +271,7 @@ test('every panel capability is defined and actually rendered', () => {
     // The offset is measured inside the paragraph text element alone; measuring
     // the section would count the chip and badges rendered beside it.
     ['selection captured inside the quote', 'function captureReadingSelection()'],
-    ['the lookup acts on the captured word', "void lookupWord(selectedWord)"],
+    ['the lookup acts on the captured word', 'void lookupWord(selectedWord.text)'],
     ['exact Mot creation is an explicit reader action', 'await createLexiconEntry({'],
     ['the backup exports the whole library', 'await exportLibrary()'],
     // The generation surface: the reader picks a backend and model, sees what a
@@ -258,19 +302,33 @@ test('every panel capability is defined and actually rendered', () => {
     ['coverage is measured', 'await readAnalysisCoverage({ passageId })'],
     ['analysis materials are previewed before generation', 'await previewAnalysisContext({'],
     ['generation is pinned to the reviewed material fingerprint', 'expectedFingerprint: confirmedContext.fingerprint'],
-    ['the analysis is generated on demand', 'await analyseSentence({'],
+    ['the analysis is generated on demand', 'analyseSentence({'],
+    ['the run names its stage while it waits', "run.stage('analysisStageReceiving')"],
+    ['a navigation that would cancel the run asks first', 'guardedNavigation(() => {'],
     ['a refused analysis shows the gate reason', "format(t, 'analysisRefused', { reason: value.reason, detail: value.failure ?? '' })"],
     ['the colour comes from the role token', 'color: tokenForRole(piece.role)'],
     ['explanations carry their certainty', 't(`certainty_${explanation.kind}`)'],
     ['clauses are drawn with their nesting', 'clauseRows(found.clauses)'],
     // A reader works a paragraph at a time, and the batch spends one call per
     // sentence, so the label carries the count before anything is sent.
-    ['the paragraph batch is wired', 'await analyseParagraph({'],
+    ['the paragraph batch is wired', 'analyseParagraph({'],
     ['a failed sentence is named', "format(t, 'paragraphFailed', { anchorId: first.anchorId, reason: first.reason })"],
     ['sources-only export stays separate', 'await exportPassages()'],
     // Both are used through format(t, key, …), so the key is the marker.
     ['endpoint failures are reported', "'knowledgeUnavailable'"],
     ['missing preview endpoint handled', "'previewUnavailable'"],
+    // The audio surface, defined and actually rendered. Each marker is a rule from
+    // the reserved contracts, not a label: cache-first playback, append-only
+    // regeneration, an unconfigured control that asks for nothing, and the form
+    // surface's own calls.
+    ['the toolbar audio control is rendered', 'sentenceAudio === null ? null : h(AudioControls, {'],
+    ['the sentence source is the focused sentence', 'sentenceSpeechSource(passage, segmentation, focusedSentence)'],
+    ['a stored take is played, not re-synthesized', 'else void playTake(playable)'],
+    ['regeneration appends a version', "versionPolicy: 'append',"],
+    ['unconfigured audio is disabled, not queued', 'disabled: !configured || busy || current === null'],
+    ['the reading toolbar names the audio group', "t('audioGroupLabel')"],
+    ['every conjugation row carries its own audio', 'source: inflectionSpeechSource(lemma, tense, form),'],
+    ['the paradigm head states the audio it has', 'conjTop(t, tense, baseCount, mode, setMode, audioState)'],
   ]
   const missing = required.filter(([, marker]) => !source.includes(marker)).map(([label]) => label)
   assert.deepEqual(missing, [], 'a panel capability lost its definition or its use')

@@ -3,10 +3,10 @@ import { FRENCH_READER_DOMAIN } from "./domain.js";
 import { buildFrenchReaderTool } from "./tools.js";
 export const name = 'french-close-reading';
 export const inject = ['storageDomain', 'tools', 'typertGateway'];
-export async function apply(ctx) {
+export async function apply(ctx, config = {}) {
     const domain = await ctx.storageDomain.open(FRENCH_READER_DOMAIN);
     ctx.effect(() => () => domain.close(), 'french-close-reading: storage domain');
-    const controller = new FrenchReaderController(ctx, domain);
+    const controller = new FrenchReaderController(ctx, domain, null, { config: config.audio });
     // Stored records are brought forward before anything can read them. This runs
     // once: the migration empties the legacy arrays it moved, so a second open finds
     // nothing to do. A failure is reported and never fatal — reads fall back to the

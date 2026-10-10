@@ -374,6 +374,105 @@ export const ConjugationDatasetRecordSchema = z.object({
     updatedAt: z.string().datetime(),
 }).strict();
 /**
+ * The one immutable source a sentence's audio belongs to.
+ *
+ * A take is addressed by this whole tuple, never by the sentence id alone and
+ * never by whatever the panel currently has selected: `sourceRevision` and
+ * `sentenceRevision` are part of the identity, so audio made from an earlier
+ * text can never be played as if it belonged to the current one. Renaming a
+ * chapter or a paragraph changes none of these fields.
+ */
+export const SentenceSpeechSourceSchema = z.object({
+    passageId: z.string().uuid(),
+    sentenceId: z.string().min(1).max(40),
+    sourceRevision: z.number().int().min(1),
+    sentenceRevision: z.number().int().min(1),
+    /** Exactly one sentence. This field, and nothing around it, is synthesized. */
+    text: z.string().min(1).max(MAX_SOURCE_CHARACTERS),
+    language: z.string().min(2).max(35),
+}).strict();
+/**
+ * The one form a conjugation row's audio belongs to.
+ *
+ * `utterance` is real French — never IPA and never slash-separated
+ * alternatives — because it is what the provider is asked to say. The written
+ * form, lemma, tense and person travel with it so a take can be audited against
+ * the row it was made for instead of trusting a row index.
+ */
+export const InflectionSpeechSourceSchema = z.object({
+    kind: z.literal('inflection'),
+    formId: z.string().min(1).max(160),
+    inflectionRevision: z.number().int().min(1),
+    lemma: z.string().min(1).max(80),
+    tense: z.string().min(1).max(60),
+    formKind: z.enum(['finite', 'compound-infinitive', 'participle']),
+    person: z.union([
+        z.literal(1), z.literal(2), z.literal(3), z.literal(4), z.literal(5), z.literal(6), z.null(),
+    ]),
+    form: z.string().min(1).max(120),
+    utterance: z.string().min(1).max(200),
+    language: z.string().min(2).max(35),
+}).strict();
+/** The voice a take was made with. It is part of the take's identity. */
+export const AudioVoiceSchema = z.object({
+    voiceId: z.string().min(1).max(80).nullable(),
+    rate: z.number().min(0.25).max(4),
+}).strict();
+/** Which adapter produced a take, recorded so audio is never attributed to another model. */
+export const SpeechBackendSchema = z.object({
+    kind: z.enum(['live', 'tts']),
+    providerId: z.string().min(1).max(40),
+    modelId: z.string().min(1).max(160),
+}).strict();
+/**
+ * One immutable audio version of one sentence.
+ *
+ * Every regeneration appends a take; nothing here is ever overwritten in place.
+ * The audio travels inside the record as base64 — the contract stores bytes,
+ * not a pointer to a file that may be gone — with the mime type, the measured
+ * duration and the byte count recorded next to it, so a duration is a
+ * measurement rather than a guess.
+ */
+export const SentenceAudioTakeSchema = z.object({
+    takeId: z.string().uuid(),
+    /** The caller's request id: a retry of the same request finds this take. */
+    requestId: z.string().min(1).max(120),
+    source: SentenceSpeechSourceSchema,
+    backend: SpeechBackendSchema,
+    voice: AudioVoiceSchema,
+    previousTakeId: z.string().uuid().nullable().default(null),
+    audioAssetId: z.string().min(1).max(120),
+    mimeType: z.string().min(1).max(80),
+    durationMs: z.number().int().min(0),
+    bytes: z.number().int().min(0),
+    audioBase64: z.string().min(1),
+    createdAt: z.string().datetime(),
+}).strict();
+export const InflectionAudioTakeSchema = SentenceAudioTakeSchema.extend({
+    source: InflectionSpeechSourceSchema,
+}).strict();
+/**
+ * Every take of one source fingerprint, plus which one is current.
+ *
+ * The record is keyed by the fingerprint, so takes of an older revision are a
+ * different record and are simply not in this list: "the audio you have is
+ * stale" is answered by absence, not by a flag someone could forget to set.
+ */
+export const SentenceAudioStoreSchema = z.object({
+    /** `passageId|sentenceId|sourceRevision|sentenceRevision`. */
+    fingerprint: z.string().min(1).max(240),
+    takes: z.array(SentenceAudioTakeSchema),
+    selectedTakeId: z.string().uuid().nullable().default(null),
+    updatedAt: z.string().datetime(),
+}).strict();
+/** The same, for one form: `formId|inflectionRevision`. */
+export const InflectionAudioStoreSchema = z.object({
+    fingerprint: z.string().min(1).max(240),
+    takes: z.array(InflectionAudioTakeSchema),
+    selectedTakeId: z.string().uuid().nullable().default(null),
+    updatedAt: z.string().datetime(),
+}).strict();
+/**
  * One generation the Host owes the reader: created before the model is called,
  * updated as the answer arrives, and left behind with its outcome.
  *
@@ -511,6 +610,16 @@ const PassageRecordSchema = z.discriminatedUnion('kind', [z.object({
         kind: z.literal('conjugationDataset'),
         recordVersion: z.literal(1),
         payload: ConjugationDatasetRecordSchema,
+    }).strict(),
+    z.object({
+        kind: z.literal('sentenceAudioTake'),
+        recordVersion: z.literal(1),
+        payload: SentenceAudioStoreSchema,
+    }).strict(),
+    z.object({
+        kind: z.literal('inflectionAudioTake'),
+        recordVersion: z.literal(1),
+        payload: InflectionAudioStoreSchema,
     }).strict(),
     z.object({
         kind: z.literal('conclusions'),

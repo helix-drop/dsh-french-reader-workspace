@@ -5,9 +5,9 @@ import { fileURLToPath } from 'node:url'
 
 import {
   MAX_TITLES_PER_REQUEST,
-  conjugationPageUrl,
-  extractFormNames,
+  conjugationLinksUrl,
   fetchConjugationDataset,
+  formNamesFromLinks,
   formTitlesUrl,
 } from '../lib/conjugation-fetch.js'
 import { conjugationKey, writeConjugationDataset, answerForLemma } from '../lib/conjugation-store.js'
@@ -24,6 +24,16 @@ const fixture = (name) =>
   JSON.parse(readFileSync(fileURLToPath(new URL(`./fixtures/wiktionary/${name}`, import.meta.url)), 'utf8'))
 
 const conjugationPage = fixture('conjugation-page-venir.json')
+/**
+ * The same table's link set, as JSON — the route the walk really uses.
+ *
+ * Kept beside the old rendered page so the size difference stays visible: the
+ * fixture below is 1.5 KB where the rendered page is 52 KB, and one verb's page
+ * (`retrouver`) exceeded this Host's 100 000-character body cap outright.
+ */
+const conjugationLinks = fixture('conjugation-links-venir.json')
+const retrouverLinks = fixture('conjugation-links-retrouver.json')
+const linkTitles = (fixtureValue) => fixtureValue.query.pages[0].links.map((link) => link.title)
 const formPages = {
   viens: fixture('viens.json').parse.wikitext,
   venons: fixture('venons.json').parse.wikitext,
@@ -35,10 +45,11 @@ const ok = (content) => ({ statusCode: 200, body: { kind: 'html', content }, tru
 const signal = () => new AbortController().signal
 
 /** A fetcher that answers the conjugation page, then one batch of form pages. */
-function stubFetcher({ forms = formPages, conjugation = conjugationPage, onBatch } = {}) {
+function stubFetcher({ forms = formPages, conjugation = conjugationLinks, onBatch } = {}) {
   const calls = []
   const fetchPage = async (url) => {
     calls.push(url)
+    if (url.includes('action=query&prop=links')) return ok(JSON.stringify(conjugation))
     if (url.includes('action=parse')) return ok(JSON.stringify(conjugation))
     if (onBatch !== undefined) {
       const answer = onBatch(url)
@@ -66,8 +77,8 @@ const walk = (overrides = {}) => fetchConjugationDataset({
   ...overrides,
 })
 
-test('the form list comes from the rendered conjugation table', () => {
-  const names = extractFormNames(conjugationPage.parse.text, 'venir')
+test('the form list comes from the table’s link set, without rendering it', () => {
+  const names = formNamesFromLinks(linkTitles(conjugationLinks), 'venir')
   // The table lists the whole paradigm; these are the ones a reader sees on the card.
   for (const wanted of ['viens', 'venons', 'venaient', 'viendrai', 'vins', 'vinsse', 'vîntes']) {
     assert.equal(names.includes(wanted), true, `${wanted} is discovered`)
@@ -132,7 +143,17 @@ test('the request budget cuts the walk and says so', async () => {
 })
 
 test('a table that lists no form is its own outcome, not an empty paradigm', async () => {
-  const stub = stubFetcher({ conjugation: { parse: { title: 'x', text: '<table><tr><td>nothing</td></tr></table>' } } })
+  // Links, but none of them a form: the table's furniture only.
+  const stub = stubFetcher({
+    conjugation: {
+      query: {
+        pages: [{
+          title: 'Conjugaison:français/x',
+          links: ['gérondif', 'infinitif', 'participe', 'mode'].map((title) => ({ ns: 0, title })),
+        }],
+      },
+    },
+  })
   const outcome = await walk({ fetchPage: stub.fetchPage })
   assert.equal(outcome.status, 'no-forms')
   assert.equal(outcome.dataset, null)
@@ -140,13 +161,13 @@ test('a table that lists no form is its own outcome, not an empty paradigm', asy
   assert.equal(outcome.notes.some((note) => /未找到形式链接/u.test(note)), true)
 })
 
-test('a table that cannot be fetched fails without inventing anything', async () => {
+test('a link list that cannot be fetched fails without inventing anything', async () => {
   const outcome = await walk({
     fetchPage: async () => ({ statusCode: 500, body: { kind: 'text', content: '' }, truncated: false }),
   })
   assert.equal(outcome.status, 'failed')
   assert.equal(outcome.dataset, null)
-  assert.match(outcome.notes[0], /变位表/u)
+  assert.match(outcome.notes[0], /形式清单/u)
 })
 
 test('a missing form page is a gap, and a form of another verb is skipped', async () => {
@@ -194,8 +215,13 @@ test('the walk stores what it derived, and the card reads it back', async () => 
 })
 
 test('the request URLs stay inside the declared endpoint and respect the title limit', () => {
-  assert.match(conjugationPageUrl('venir'), /^https:\/\/fr\.wiktionary\.org\/w\/api\.php\?/u)
-  assert.match(conjugationPageUrl("avoir été"), /page=Conjugaison%3Afran%C3%A7ais%2Favoir%20%C3%A9t%C3%A9/u)
+  assert.match(conjugationLinksUrl('venir'), /^https:\/\/fr\.wiktionary\.org\/w\/api\.php\?/u)
+  assert.match(conjugationLinksUrl('venir'), /action=query&prop=links/u)
+  assert.match(conjugationLinksUrl("avoir été"), /titles=Conjugaison%3Afran%C3%A7ais%2Favoir%20%C3%A9t%C3%A9/u)
+  // A paged list keeps its own cursor, so a big paradigm costs a second request
+  // rather than a silently shorter one.
+  assert.match(conjugationLinksUrl('venir', 'plcontinue-token'), /plcontinue=plcontinue-token/u)
+  assert.equal(conjugationLinksUrl('venir', null).includes('plcontinue'), false)
   const many = Array.from({ length: MAX_TITLES_PER_REQUEST }, (_, index) => `form${String(index)}`)
   assert.match(formTitlesUrl(many), /titles=form0%7Cform1/u)
   assert.equal(MAX_TITLES_PER_REQUEST, 50, 'the API limit this walk batches against')
@@ -228,4 +254,91 @@ test('a failed re-fetch keeps the dataset an earlier fetch proved', async () => 
   assert.equal(read.state, 'dataset', 'the proved data is still what the card reads')
   assert.equal(read.tenses.length > 0, true)
   assert.equal(read.fetchStatus, 'failed', 'the failed refresh is still recorded as failed')
+})
+
+/**
+ * The regression this route exists for.
+ *
+ * This Host caps a fetched body at `maxBodyChars` (100 000 by default) and marks
+ * anything longer `truncated`; `conjugation-source.ts` refuses a truncated body,
+ * which is correct — but the rendered conjugation table for `retrouver` is
+ * 105 797 characters of HTML (15 537 of them text), so **every** fetch of it came
+ * back truncated and the walk failed before it read a single form. Measured
+ * against the live source at the time of the fix:
+ *
+ * | route                                   | payload      |
+ * | ---                                     | ---          |
+ * | `action=parse&prop=text` (old)          | 106–116 KB   |
+ * | `action=query&prop=links` (now)         | 1.3–1.5 KB   |
+ *
+ * So this test pins the property, not the plumbing: on the very verb that failed,
+ * the walk must reach the form pages. A stub that answers the old rendered-table
+ * route is not enough — the walk never asks for it.
+ */
+test('a verb whose rendered table exceeded the Host body cap still yields a paradigm', async () => {
+  const stub = stubFetcher({ conjugation: retrouverLinks })
+  const outcome = await fetchConjugationDataset({
+    lemma: 'retrouver',
+    fetchPage: stub.fetchPage,
+    signal: signal(),
+    sleep: async () => {},
+    spacingMs: 0,
+    now: () => '2026-10-10T00:00:00.000Z',
+  })
+
+  // The whole point: the walk runs at all. Before the fix the only request it made
+  // came back truncated and the paradigm never started.
+  // The stub's own form pages are `venir`'s, so nothing derives — but the walk got
+  // as far as asking, which is exactly what used to be impossible.
+  assert.notEqual(outcome.status, 'failed', 'the first request is not refused')
+  assert.equal(outcome.requests >= 2, true, 'the walk reached the form-page phase')
+  assert.equal(outcome.missingForms.length > 30, true, 'the discovered paradigm was carried that far')
+  assert.equal(stub.calls.some((url) => url.includes('action=parse&prop=text')), false,
+    'the rendered table — the response that exceeded the Host cap — is never requested')
+  assert.equal(stub.calls[0].includes('action=query&prop=links'), true,
+    'the walk starts from the link set')
+
+  // And the names it discovered are the source's own, accents included: that is what
+  // the second phase needs to ask for `retrouvé` / `retrouvant` at all.
+  const discovered = formNamesFromLinks(linkTitles(retrouverLinks), 'retrouver')
+  for (const name of ['retrouvé', 'retrouvant', 'retrouvassions', 'retrouvèrent']) {
+    assert.equal(discovered.includes(name), true, `${name} is discovered from the link set`)
+  }
+  assert.equal(outcome.missingForms.includes('retrouvé'), true,
+    'the stub owns no retrouvé page, so it is named as a gap rather than invented')
+})
+
+/**
+ * The counter-case, which the old code could not express: a truncated *first*
+ * response is a refusal, never a shorter paradigm.
+ */
+test('a truncated link list refuses instead of deriving from half a table', async () => {
+  const outcome = await fetchConjugationDataset({
+    lemma: 'retrouver',
+    fetchPage: async (url) => (url.includes('action=query&prop=links')
+      ? { statusCode: 200, body: { kind: 'text', content: JSON.stringify(retrouverLinks) }, truncated: true }
+      : ok(JSON.stringify({ query: { pages: [] } }))),
+    signal: signal(),
+    sleep: async () => {},
+    spacingMs: 0,
+    now: () => '2026-10-10T00:00:00.000Z',
+  })
+  assert.equal(outcome.status, 'failed')
+  assert.equal(outcome.dataset, null)
+  assert.match(outcome.failure, /截断/u)
+  assert.equal(outcome.missingForms.length, 0, 'nothing is named as a gap when nothing was read')
+})
+
+/**
+ * The size property itself, over every verb fixture we hold: the first request must
+ * stay well inside the Host's cap with room for a longer paradigm than the ones
+ * measured. This is what would have caught the original defect at review time.
+ */
+test('the first request of a walk stays far inside the Host body cap', () => {
+  const HOST_BODY_CAP = 100_000
+  for (const [name, value] of [['venir', conjugationLinks], ['retrouver', retrouverLinks]]) {
+    const body = JSON.stringify(value)
+    assert.equal(body.length < HOST_BODY_CAP / 10, true,
+      `${name}: ${String(body.length)} chars must sit an order of magnitude under the cap`)
+  }
 })

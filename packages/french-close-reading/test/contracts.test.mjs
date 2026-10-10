@@ -37,7 +37,7 @@ test('strict Host and Client Remote contracts expose the same endpoints', () => 
   const host = hostTypert.invocations.map((item) => item.id).sort()
   const client = clientRemote.descriptors.map((item) => item.id).sort()
   assert.deepEqual(client, host)
-  assert.equal(host.length, 45)
+  assert.equal(host.length, 54)
   for (const invocation of hostTypert.invocations) {
     assert.equal(invocation.namespace, 'frenchReader')
     assert.equal(invocation.result.mode, 'strict')
@@ -47,10 +47,12 @@ test('strict Host and Client Remote contracts expose the same endpoints', () => 
     'addBranch', 'adoptTranslation', 'analyseParagraph', 'analyseSentence', 'archivePassage', 'ask', 'cancelAnalysis', 'createBranch', 'createLexiconEntry', 'createPassage',
     'createSelection', 'exportLibrary', 'exportPassages', 'fetchConjugation', 'fetchLexiconSource', 'getPassage',
     'getSegmentation', 'importLibrary', 'listAnalysis', 'listArchivedPassages', 'listBackendModels', 'listBackends', 'listDiscussion',
-    'listGrammar', 'listLexicon', 'listLexiconSources', 'listPassages', 'lookupMot', 'previewAnalysisContext', 'previewAsk',
-    'previewImport', 'publishAnalysis', 'putSentenceAnalysis', 'readAnalysisCoverage',
-    'readConjugation', 'readContext', 'readSentenceAnalysis', 'recordConclusion', 'renderLexicon',
-    'resolveGrammarCandidate', 'restorePassage', 'saveTranslation', 'setBranchState', 'setGrammarMastery', 'streamAsk',
+    'listGrammar', 'listInflectionAudio', 'listLexicon', 'listLexiconSources', 'listPassages', 'listSentenceAudio', 'lookupMot', 'mergeGrammarEntries',
+    'previewAnalysisContext', 'previewAsk', 'previewImport', 'publishAnalysis', 'putSentenceAnalysis', 'readAnalysisCoverage',
+    'readConjugation', 'readContext', 'readInflectionAudioAsset', 'readSentenceAnalysis', 'readSentenceAudioAsset', 'recordConclusion',
+    'renderLexicon', 'resolveGrammarCandidate', 'restorePassage', 'saveTranslation', 'selectInflectionAudio', 'selectSentenceAudio',
+    'setBranchState', 'setGrammarMastery', 'streamAsk',
+    'synthesizeInflectionAudio', 'synthesizeSentenceAudio',
   ])
 })
 

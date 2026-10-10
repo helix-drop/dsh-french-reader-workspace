@@ -4,17 +4,46 @@ import { TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol';
 import type { SourceFetch } from './source-gate.ts';
 import { type GenerationBackend } from './generation.ts';
 import { FRENCH_READER_DOMAIN, type StoredContextManifest, type StoredSentenceAnalysis, type StoredDiscussionBranch, type StoredRun, type StoredRunExtraction, type StoredGenerationJob, type StoredGrammarEntry, type StoredGrammarPending } from './domain.ts';
-import type { AskInput, AskPreview, AskRequest, AskFrame, AskResult, BackendModelView, BackendStatus, CreateBranchRequest, CreateBranchValue, DiscussionView, ListBackendModelsRequest, ListBackendModelsValue, ListBackendsRequest, ListBackendsValue, ListDiscussionRequest, PreviewAskRequest, PreviewAskValue, FetchLexiconSourceRequest, FetchLexiconSourceValue, ListLexiconSourcesRequest, ListLexiconSourcesValue, ReadContextRequest, ReadContextValue, AnalyseParagraphRequest, AnalyseParagraphResult, AnalyseSentenceRequest, AnalyseSentenceResult, PreviewAnalysisContextRequest, PreviewAnalysisContextValue, CancelAnalysisRequest, CancelAnalysisValue, AnalysisCoverageValue, ReadAnalysisCoverageRequest, PublishAnalysisRequest, PublishAnalysisValue, PutSentenceAnalysisRequest, PutSentenceAnalysisValue, ReadSentenceAnalysisRequest, ReadSentenceAnalysisValue, SetGrammarMasteryRequest, SetGrammarMasteryValue, RecordConclusionRequest, RecordConclusionValue, SetBranchStateRequest, SetBranchStateValue } from './generation-types.ts';
+import type { AskInput, AskPreview, AskRequest, AskFrame, AskResult, BackendModelView, BackendStatus, CreateBranchRequest, CreateBranchValue, DiscussionView, ListBackendModelsRequest, ListBackendModelsValue, ListBackendsRequest, ListBackendsValue, ListDiscussionRequest, ListInflectionAudioRequest, ListSentenceAudioRequest, PreviewAskRequest, PreviewAskValue, FetchLexiconSourceRequest, FetchLexiconSourceValue, ListLexiconSourcesRequest, ListLexiconSourcesValue, ReadContextRequest, ReadContextValue, ReadInflectionAudioAssetRequest, ReadInflectionAudioAssetValue, ReadSentenceAudioAssetRequest, ReadSentenceAudioAssetValue, AnalyseParagraphRequest, AnalyseParagraphResult, AnalyseSentenceRequest, AnalyseSentenceResult, PreviewAnalysisContextRequest, PreviewAnalysisContextValue, CancelAnalysisRequest, CancelAnalysisValue, AnalysisCoverageValue, ReadAnalysisCoverageRequest, PublishAnalysisRequest, PublishAnalysisValue, PutSentenceAnalysisRequest, PutSentenceAnalysisValue, ReadSentenceAnalysisRequest, ReadSentenceAnalysisValue, SelectInflectionAudioRequest, SelectInflectionAudioValue, SelectSentenceAudioRequest, SelectSentenceAudioValue, SentenceAudioListValue, SetGrammarMasteryRequest, SetGrammarMasteryValue, MergeGrammarEntriesRequest, MergeGrammarEntriesValue, SynthesizeInflectionAudioRequest, SynthesizeInflectionAudioValue, SynthesizeSentenceAudioRequest, SynthesizeSentenceAudioValue, InflectionAudioListValue, RecordConclusionRequest, RecordConclusionValue, SetBranchStateRequest, SetBranchStateValue } from './generation-types.ts';
+import { type WebSocketFactory } from './audio.ts';
 import type { AddBranchRequest, AddBranchValue, ArchivePassageRequest, ArchivePassageValue, RestorePassageRequest, RestorePassageValue, CreateSelectionRequest, CreateSelectionValue, ListGrammarRequest, ListGrammarValue, ConjugationRequest, FetchConjugationValue, ListLexiconRequest, ListLexiconValue, ReadConjugationValue, RenderLexiconRequest, RenderLexiconValue, ResolveGrammarRequest, ResolveGrammarValue, CreatePassageRequest, CreatePassageValue, ExportLibraryRequest, ExportLibraryValue, ImportLibraryRequest, ImportLibraryValue, ExportPassagesValue, GetPassageRequest, GetPassageValue, ImportPreviewValue, PreviewImportRequest, GetSegmentationRequest, GetSegmentationValue, ListAnalysisRequest, ListAnalysisValue, LexiconLookup, LookupMotRequest, CreateLexiconEntryRequest, CreateLexiconEntryValue, AdoptTranslationRequest, AdoptTranslationValue, LexiconView, ListPassagesRequest, ListPassagesValue, SaveTranslationRequest, SaveTranslationValue } from './types.ts';
+/**
+ * What the audio surface needs from outside itself.
+ *
+ * `config` is the plugin's own `audio` section, exactly as cordis delivered it:
+ * the controller validates it through the schema in `audio.ts` rather than
+ * trusting it. The transports are the test seam — production reads the global
+ * `fetch` and `WebSocket` — and the environment is read here only, so a key can
+ * come from `config.audio.apiKey` or from `GEMINI_API_KEY` and from nowhere else.
+ */
+export interface AudioRuntimeOptions {
+    config?: unknown;
+    fetch?: typeof globalThis.fetch;
+    webSocket?: WebSocketFactory;
+    env?: Record<string, string | undefined>;
+}
 /** Host service behind the generated `ctx.remote.frenchReader` namespace. */
 export declare class FrenchReaderController extends TypertRemoteService {
     private readonly domain;
     private writeTail;
     private readonly activeAnalyses;
     private readonly queuedAnalysisCancellations;
+    /** Every synthesis currently in flight, keyed by the caller's request id. */
+    private readonly audioInFlight;
+    /**
+     * The newest request started for each source fingerprint.
+     *
+     * It is deliberately not cleared when a request finishes: a take that lands
+     * after a newer request has begun is appended to the versions, but it must not
+     * become the current one behind the newer request's back. One short key per
+     * source that has ever been synthesized is the whole cost.
+     */
+    private readonly audioNewestRequest;
+    /** The audio config section and the transports it is reached through. */
+    private readonly audioRuntime;
     /** The one storage table this plugin owns; the store modules take it as data. */
     private table;
-    constructor(ctx: Context, domain: Domain<typeof FRENCH_READER_DOMAIN>, backends?: GenerationBackend[] | null);
+    constructor(ctx: Context, domain: Domain<typeof FRENCH_READER_DOMAIN>, backends?: GenerationBackend[] | null, audio?: AudioRuntimeOptions | null);
     listPassages(request: ListPassagesRequest, signal: AbortSignal): Promise<ListPassagesValue>;
     listArchivedPassages(request: ListPassagesRequest, signal: AbortSignal): Promise<ListPassagesValue>;
     getPassage(request: GetPassageRequest, signal: AbortSignal): Promise<GetPassageValue>;
@@ -73,6 +102,14 @@ export declare class FrenchReaderController extends TypertRemoteService {
      * writes this field.
      */
     setGrammarMasteryRemote(request: SetGrammarMasteryRequest, signal: AbortSignal): Promise<SetGrammarMasteryValue>;
+    /**
+     * Merge same-named grammar entries, on the reader's explicit decision.
+     *
+     * This is the only path that deletes a grammar entry: the automatic extraction
+     * never merges, which is exactly why duplicates accumulate and why closing them
+     * is the reader's call.
+     */
+    mergeGrammarEntriesRemote(request: MergeGrammarEntriesRequest, signal: AbortSignal): Promise<MergeGrammarEntriesValue>;
     /** The exact text one stored answer was sent with, so a claim can be audited. */
     readContextRemote(request: ReadContextRequest, signal: AbortSignal): ReadContextValue;
     /**
@@ -507,6 +544,70 @@ export declare class FrenchReaderController extends TypertRemoteService {
         fetchStatus: string;
         fetchedAt: string;
     }[];
+    /**
+     * Synthesize one sentence, and append the take it produces.
+     *
+     * The gates run in the contract's order, and each one answers as itself:
+     *
+     * 1. **unconfigured** — before anything else, because a control that cannot
+     *    request audio must never be told a take is queued, generating or ready;
+     * 2. **the source** — the passage and the sentence it really is, at the
+     *    revisions it really has (a paragraph's own text is refused here);
+     * 3. **the request id** — a retry finds its take, or the work already running;
+     * 4. **the cache** — a stored take is played, and `generate` never synthesizes
+     *    again; `regenerate` is the separate action that appends a new version;
+     * 5. **the provider** — and a late success appends without preempting a newer
+     *    request.
+     */
+    synthesizeSentenceAudioRemote(request: SynthesizeSentenceAudioRequest, signal: AbortSignal): Promise<SynthesizeSentenceAudioValue>;
+    synthesizeSentenceAudio(input: SynthesizeSentenceAudioRequest, signal: AbortSignal): Promise<SynthesizeSentenceAudioValue>;
+    listSentenceAudioRemote(request: ListSentenceAudioRequest, signal: AbortSignal): Promise<SentenceAudioListValue>;
+    listSentenceAudio(input: ListSentenceAudioRequest, signal: AbortSignal): Promise<SentenceAudioListValue>;
+    selectSentenceAudioRemote(request: SelectSentenceAudioRequest, signal: AbortSignal): Promise<SelectSentenceAudioValue>;
+    readSentenceAudioAssetRemote(request: ReadSentenceAudioAssetRequest, signal: AbortSignal): Promise<ReadSentenceAudioAssetValue>;
+    /**
+     * Synthesize one conjugated form.
+     *
+     * Deliberately separate state from the sentence surface, as the contract
+     * requires: changing which sentence is selected cannot reroute a form's audio,
+     * and the two share no asset key.
+     */
+    synthesizeInflectionAudioRemote(request: SynthesizeInflectionAudioRequest, signal: AbortSignal): Promise<SynthesizeInflectionAudioValue>;
+    synthesizeInflectionAudio(input: SynthesizeInflectionAudioRequest, signal: AbortSignal): Promise<SynthesizeInflectionAudioValue>;
+    listInflectionAudioRemote(request: ListInflectionAudioRequest, signal: AbortSignal): Promise<InflectionAudioListValue>;
+    selectInflectionAudioRemote(request: SelectInflectionAudioRequest, signal: AbortSignal): Promise<SelectInflectionAudioValue>;
+    readInflectionAudioAssetRemote(request: ReadInflectionAudioAssetRequest, signal: AbortSignal): Promise<ReadInflectionAudioAssetValue>;
+    /** One sentence's audio, produced once and appended as a new version. */
+    private runSentenceSynthesis;
+    /** The same, for one form: separate keys, separate selection, separate state. */
+    private runInflectionSynthesis;
+    /** The audio configuration, secrets included, for the synthesis path only. */
+    private audioConfiguration;
+    /** The same, said without the key, for anything that crosses the wire. */
+    private audioConfigurationView;
+    private audioTransport;
+    /**
+     * A synthesis failure, classified, always as a value.
+     *
+     * A Remote call that throws leaves the panel with an unclassified error and
+     * nothing to show; every ending this module can produce is therefore reported
+     * as its own kind, and an unexpected throw is still a `provider-error` with
+     * its own text rather than a lost answer.
+     */
+    private audioFailure;
+    /**
+     * Whether the sentence this request names really is the sentence it claims.
+     *
+     * The checks only speak when there is evidence: a stored segmentation whose
+     * revision disagrees with the request is refused, and a sentence whose stored
+     * text disagrees with the submitted text is refused — which is what keeps a
+     * paragraph body, a title, a translation or a discussion out of the synthesis
+     * input even if a client sends one. With nothing stored there is no evidence,
+     * and the text checks in `audio.ts` are what remain.
+     */
+    private sentenceSourceRefusal;
+    /** The segmentation of one source revision, when one was ever derived and stored. */
+    private segmentationForRevision;
     /**
      * Move one grammar entry's mastery, as the reader's own act.
      *

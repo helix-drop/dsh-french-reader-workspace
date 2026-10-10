@@ -488,7 +488,96 @@ window.__ModuleLoader__.load({
     function contextPreviewIdentity(passageId, requestId, branchId, backend, model, question) {
       return JSON.stringify([passageId, requestId, branchId, backend, model, question.trim()])
     }
-    const internals = { measureSelection, paragraphOffsetBefore, tokenForRole, renderConstituents, renderMarkdown, contextPreviewIdentity, conjugationPersonLabel, mergeShelf, mergeContinuationLinks, ConjugationView, KnowledgeEntry, GrammarDetail }
+
+    /**
+     * One reading's speech, as the panel sends and receives it (`generation-types.ts`).
+     *
+     * Two sources travel here and nothing else does: exactly one sentence, or
+     * exactly one conjugated form. The source is named in full — both revisions,
+     * and the text itself — so a take is routed by `sentenceId + revision +
+     * requestId` rather than by whatever the panel currently has selected. A
+     * paragraph title, a paragraph body, a translation and a discussion have no
+     * field to travel in, which is what keeps them out of the synthesis input.
+     *
+     * `versionPolicy` is the literal `'append'`: a regeneration is a new version,
+     * and a request that asked to overwrite anything is refused. `voice: null` is
+     * "the voice the Host is configured with" — the panel never invents a
+     * `voiceId`, and plays a take at the rate that take itself records.
+     */
+    const sentenceSpeechSourceShape = S.obj({
+      passageId: S.str, sentenceId: S.str, sourceRevision: S.num, sentenceRevision: S.num,
+      text: S.str, language: S.str,
+    })
+    const inflectionSpeechSourceShape = S.obj({
+      kind: S.lit('inflection'), formId: S.str, inflectionRevision: S.num, lemma: S.str, tense: S.str,
+      formKind: S.oneOf(S.lit('finite'), S.lit('compound-infinitive'), S.lit('participle')),
+      // 1–3 are the singular persons, 4–6 the plural; null for a non-finite form.
+      person: S.oneOf(S.lit(1), S.lit(2), S.lit(3), S.lit(4), S.lit(5), S.lit(6), S.nil),
+      form: S.str, utterance: S.str, language: S.str,
+    })
+    const audioVoiceShape = S.obj({ voiceId: S.nilable(S.str), rate: S.num })
+    const speechBackendShape = S.obj({
+      kind: S.oneOf(S.lit('live'), S.lit('tts')), providerId: S.str, modelId: S.str,
+    })
+    const sentenceAudioTakeShape = S.obj({
+      takeId: S.str, requestId: S.str, source: sentenceSpeechSourceShape, backend: speechBackendShape,
+      voice: audioVoiceShape, previousTakeId: S.nilable(S.str), audioAssetId: S.str,
+      mimeType: S.str, durationMs: S.num, bytes: S.num, createdAt: S.str, selected: S.bool,
+    })
+    const inflectionAudioTakeShape = S.obj({
+      takeId: S.str, requestId: S.str, source: inflectionSpeechSourceShape, backend: speechBackendShape,
+      voice: audioVoiceShape, previousTakeId: S.nilable(S.str), audioAssetId: S.str,
+      mimeType: S.str, durationMs: S.num, bytes: S.num, createdAt: S.str, selected: S.bool,
+    })
+    /** Why audio cannot be requested at all. `configured: false` is the whole answer. */
+    const audioConfigurationShape = S.obj({
+      configured: S.bool,
+      reason: S.oneOf(S.lit('disabled'), S.lit('no-api-key'), S.lit('invalid-config'),
+        S.lit('transport-unavailable'), S.nil),
+      message: S.nilable(S.str),
+      backend: S.oneOf(speechBackendShape, S.nil),
+      streaming: S.bool, cancellation: S.bool, maxCharacters: S.num,
+    })
+    const audioUnconfiguredReason = S.oneOf(S.lit('disabled'), S.lit('no-api-key'),
+      S.lit('invalid-config'), S.lit('transport-unavailable'))
+    /** One synthesis, eight outcomes — the same eight on both surfaces. */
+    const synthesisResultShape = (takeShape) => S.oneOf(
+      S.obj({ kind: S.lit('ready'), take: takeShape }),
+      S.obj({ kind: S.lit('cached'), take: takeShape }),
+      S.obj({ kind: S.lit('replayed'), take: takeShape }),
+      S.obj({ kind: S.lit('generating'), requestId: S.str }),
+      S.obj({ kind: S.lit('unconfigured'), reason: audioUnconfiguredReason, message: S.str }),
+      S.obj({
+        kind: S.lit('rejected'),
+        reason: S.oneOf(S.lit('blank'), S.lit('multi-sentence'), S.lit('too-long'), S.lit('not-french'),
+          S.lit('source-unknown'), S.lit('source-mismatch'), S.lit('revision-mismatch'), S.lit('voice-invalid')),
+        message: S.str,
+      }),
+      S.obj({ kind: S.lit('cancelled'), requestId: S.str }),
+      S.obj({
+        kind: S.lit('failed'),
+        reason: S.oneOf(S.lit('unconfigured'), S.lit('unauthorized'), S.lit('rate-limited'),
+          S.lit('timeout'), S.lit('cancelled'), S.lit('provider-error')),
+        message: S.str,
+      }),
+    )
+    const audioListShape = (takeShape) => S.obj({
+      sourceKey: S.str, takes: S.arr(takeShape), selectedTakeId: S.nilable(S.str),
+      configuration: audioConfigurationShape,
+    })
+    const selectAudioShape = S.oneOf(
+      S.obj({ kind: S.lit('selected'), takeId: S.str }),
+      S.obj({ kind: S.lit('already-selected'), takeId: S.str }),
+      S.obj({
+        kind: S.lit('conflict'),
+        reason: S.oneOf(S.lit('unknown-source'), S.lit('unknown-take'), S.lit('revision-mismatch')),
+      }),
+    )
+    const readAudioAssetShape = S.obj({
+      kind: S.oneOf(S.lit('found'), S.lit('missing')), takeId: S.str, mimeType: S.nilable(S.str),
+      base64: S.str, bytes: S.num, durationMs: S.num, createdAt: S.nilable(S.str),
+    })
+    const internals = { measureSelection, paragraphOffsetBefore, tokenForRole, renderConstituents, renderMarkdown, contextPreviewIdentity, conjugationPersonLabel, mergeShelf, mergeContinuationLinks, ConjugationView, KnowledgeEntry, GrammarDetail, LexiconCard, KnowledgeLibrary, duplicateTopicKey, AudioControls, audioSourceKey, sentenceSpeechSource, inflectionSpeechSource, inflectionUtterance }
 
     const TYPES = '@local/french-close-reading/types#'
     const remoteContribution = {
@@ -1213,6 +1302,36 @@ window.__ModuleLoader__.load({
         },
         {
           /**
+           * Merge same-named grammar entries, on the reader's explicit decision.
+           * The only call in the panel that deletes a grammar entry.
+           */
+          id: '@local/french-close-reading#frenchReader/mergeGrammarEntries',
+          service: 'frenchReader',
+          namespace: 'frenchReader',
+          method: 'mergeGrammarEntries',
+          invocation: { kind: 'direct' },
+          parameters: [{
+            name: 'request', wire: 'request', source: 'json',
+            codec: strict(`${TYPES}MergeGrammarEntriesRequest`, S.obj({
+              keepEntryId: S.str, mergeEntryIds: S.arr(S.str), operationId: S.str,
+            })),
+          }],
+          cancellation: { parameter: 'signal' },
+          result: strict(`${TYPES}MergeGrammarEntriesValue`, S.oneOf(
+            S.obj({
+              kind: S.lit('merged'), entryId: S.str, revision: S.num,
+              examples: S.num, pitfalls: S.num,
+              mastery: S.oneOf(S.lit('learning'), S.lit('reviewing'), S.lit('known')),
+            }),
+            S.obj({ kind: S.lit('already-merged'), entryId: S.str }),
+            S.obj({
+              kind: S.lit('conflict'),
+              reason: S.oneOf(S.lit('entry-unknown'), S.lit('revision-conflict'), S.lit('nothing-to-merge')),
+            }),
+          )),
+        },
+        {
+          /**
            * Exact-Mot lookup. A hit is the stored entry; a miss returns candidates that
            * were never merged into the Mot — lookup and collection stay separate.
            */
@@ -1461,6 +1580,138 @@ window.__ModuleLoader__.load({
           cancellation: { parameter: 'signal' },
           result: strict(`${TYPES}ListAnalysisValue`, S.obj({ analysis: S.oneOf(analysisShape, S.nil) })),
         },
+        // The audio surface. Four calls per source kind, all direct and all
+        // cancellable: `list` says what is stored and whether audio is configured
+        // at all, `synthesize` is the reader's own press (idempotent by
+        // `requestId`, appending by `versionPolicy`), `select` records which
+        // version is current, and `readAsset` returns the WAV bytes to play.
+        // There is no cancel endpoint: cancelling aborts this call's own signal.
+        {
+          id: '@local/french-close-reading#frenchReader/synthesizeSentenceAudio',
+          service: 'frenchReader',
+          namespace: 'frenchReader',
+          method: 'synthesizeSentenceAudio',
+          invocation: { kind: 'direct' },
+          parameters: [{
+            name: 'request', wire: 'request', source: 'json',
+            codec: strict(`${TYPES}SynthesizeSentenceAudioRequest`, S.obj({
+              requestId: S.str,
+              action: S.oneOf(S.lit('generate'), S.lit('regenerate')),
+              source: sentenceSpeechSourceShape,
+              previousTakeId: S.nilable(S.str),
+              versionPolicy: S.lit('append'),
+              voice: S.oneOf(audioVoiceShape, S.nil),
+            })),
+          }],
+          cancellation: { parameter: 'signal' },
+          result: strict(`${TYPES}SynthesizeSentenceAudioValue`, synthesisResultShape(sentenceAudioTakeShape)),
+        },
+        {
+          id: '@local/french-close-reading#frenchReader/listSentenceAudio',
+          service: 'frenchReader',
+          namespace: 'frenchReader',
+          method: 'listSentenceAudio',
+          invocation: { kind: 'direct' },
+          parameters: [{
+            name: 'request', wire: 'request', source: 'json',
+            codec: strict(`${TYPES}ListSentenceAudioRequest`, S.obj({ source: sentenceSpeechSourceShape })),
+          }],
+          cancellation: { parameter: 'signal' },
+          result: strict(`${TYPES}SentenceAudioListValue`, audioListShape(sentenceAudioTakeShape)),
+        },
+        {
+          id: '@local/french-close-reading#frenchReader/selectSentenceAudio',
+          service: 'frenchReader',
+          namespace: 'frenchReader',
+          method: 'selectSentenceAudio',
+          invocation: { kind: 'direct' },
+          parameters: [{
+            name: 'request', wire: 'request', source: 'json',
+            codec: strict(`${TYPES}SelectSentenceAudioRequest`, S.obj({
+              source: sentenceSpeechSourceShape, takeId: S.str,
+            })),
+          }],
+          cancellation: { parameter: 'signal' },
+          result: strict(`${TYPES}SelectSentenceAudioValue`, selectAudioShape),
+        },
+        {
+          id: '@local/french-close-reading#frenchReader/readSentenceAudioAsset',
+          service: 'frenchReader',
+          namespace: 'frenchReader',
+          method: 'readSentenceAudioAsset',
+          invocation: { kind: 'direct' },
+          parameters: [{
+            name: 'request', wire: 'request', source: 'json',
+            codec: strict(`${TYPES}ReadSentenceAudioAssetRequest`, S.obj({
+              source: sentenceSpeechSourceShape, takeId: S.str,
+            })),
+          }],
+          cancellation: { parameter: 'signal' },
+          result: strict(`${TYPES}ReadSentenceAudioAssetValue`, readAudioAssetShape),
+        },
+        {
+          id: '@local/french-close-reading#frenchReader/synthesizeInflectionAudio',
+          service: 'frenchReader',
+          namespace: 'frenchReader',
+          method: 'synthesizeInflectionAudio',
+          invocation: { kind: 'direct' },
+          parameters: [{
+            name: 'request', wire: 'request', source: 'json',
+            codec: strict(`${TYPES}SynthesizeInflectionAudioRequest`, S.obj({
+              requestId: S.str,
+              action: S.oneOf(S.lit('generate'), S.lit('regenerate')),
+              source: inflectionSpeechSourceShape,
+              previousTakeId: S.nilable(S.str),
+              versionPolicy: S.lit('append'),
+              voice: S.oneOf(audioVoiceShape, S.nil),
+            })),
+          }],
+          cancellation: { parameter: 'signal' },
+          result: strict(`${TYPES}SynthesizeInflectionAudioValue`, synthesisResultShape(inflectionAudioTakeShape)),
+        },
+        {
+          id: '@local/french-close-reading#frenchReader/listInflectionAudio',
+          service: 'frenchReader',
+          namespace: 'frenchReader',
+          method: 'listInflectionAudio',
+          invocation: { kind: 'direct' },
+          parameters: [{
+            name: 'request', wire: 'request', source: 'json',
+            codec: strict(`${TYPES}ListInflectionAudioRequest`, S.obj({ source: inflectionSpeechSourceShape })),
+          }],
+          cancellation: { parameter: 'signal' },
+          result: strict(`${TYPES}InflectionAudioListValue`, audioListShape(inflectionAudioTakeShape)),
+        },
+        {
+          id: '@local/french-close-reading#frenchReader/selectInflectionAudio',
+          service: 'frenchReader',
+          namespace: 'frenchReader',
+          method: 'selectInflectionAudio',
+          invocation: { kind: 'direct' },
+          parameters: [{
+            name: 'request', wire: 'request', source: 'json',
+            codec: strict(`${TYPES}SelectInflectionAudioRequest`, S.obj({
+              source: inflectionSpeechSourceShape, takeId: S.str,
+            })),
+          }],
+          cancellation: { parameter: 'signal' },
+          result: strict(`${TYPES}SelectInflectionAudioValue`, selectAudioShape),
+        },
+        {
+          id: '@local/french-close-reading#frenchReader/readInflectionAudioAsset',
+          service: 'frenchReader',
+          namespace: 'frenchReader',
+          method: 'readInflectionAudioAsset',
+          invocation: { kind: 'direct' },
+          parameters: [{
+            name: 'request', wire: 'request', source: 'json',
+            codec: strict(`${TYPES}ReadInflectionAudioAssetRequest`, S.obj({
+              source: inflectionSpeechSourceShape, takeId: S.str,
+            })),
+          }],
+          cancellation: { parameter: 'signal' },
+          result: strict(`${TYPES}ReadInflectionAudioAssetValue`, readAudioAssetShape),
+        },
       ],
     }
     const PAGE_SIZE = 25
@@ -1543,13 +1794,28 @@ window.__ModuleLoader__.load({
       navZoomOut: '缩小', navZoomIn: '放大', navCollapse: '收起路线',
       nextPassage: '录入下一段', startNextPassage: '开始下一段', nextPassageHint: '标题自动接续段落编号，可手动修改。保存后继续学习当前段。',
       saveNextPassage: '保存，继续当前段', nextPassageSaved: '下一段已保存，准备好后即可开始。', resumeReading: '返回当前段',
-      navStageLabel: '可缩放导航；加减号缩放，方向键平移', navHint: '双指滑动平移 · 捏合缩放', navFit: '全览',
+      navStageLabel: '可缩放导航；加减号缩放，方向键平移', navHint: '双指滑动平移 · 捏合缩放', navFit: '全览', navPosition: '位移 x {x} · y {y}',
       progressSentences: '{covered} / {total} 句', paragraphAnchor: '段落后重新解析',
       audioGenerate: '▷ 发音', audioRegenerate: '↻ 重新生成',
       audioNotWired: '逐句发音，接口尚未接入', switchPassage: '切换段落',
       audioRegenerateShort: '↻ 重生成', audioReserved: '接口预留',
       audioSentence: '第 {index} 句发音', audioRegenerateSentence: '重新生成第 {index} 句发音',
       audioNotWiredSentence: '第 {index} 句：{action} 接口尚未接入',
+      // The connected audio surface. 未配置 is a state of the control, never a
+      // claim that something is queued or ready.
+      audioGroupLabel: '句子发音', audioSpeakLabel: '朗读当前句', audioFormSpeakLabel: '朗读 {form}',
+      audioFormHint: '逐行按需发音', audioCached: '已存 {count} 个版本，直接播放',
+      audioGenerating: '生成中…', audioNotConfigured: '未配置', audioPlaying: '播放中',
+      audioCancelled: '已取消生成', audioRefused: '未合成：{reason}', audioFailed: '发音失败：{reason}',
+      audioListFailed: '无法读取发音记录', audioPlaybackFailed: '无法播放这段音频：{reason}',
+      audioAssetMissing: '宿主的音频已不可用，请重新生成',
+      // A control that cannot act must say so. The two prefixes are the whole
+      // diagnosis: the panel builds one fingerprint, the Host answers under its
+      // own, and "nothing happens" is what the difference used to look like.
+      audioSourceMismatch: '发音记录未匹配本句：界面 {local} · 宿主 {host}。请切换句子后重试。',
+      audioNotListed: '这段发音记录没有列出本句，未做任何请求。',
+      audioRecorded: '发音记录：{text}',
+      audioListFailure: '读取发音记录失败。',
       chapterLabel: '章节 {index}', routeCaption: 'PARCOURS',
       previousSentence: '上一句', nextSentence: '下一句', locateNavigation: '定位 ↙',
       locatedSentence: '已定位到第 {index} 句',
@@ -1656,6 +1922,7 @@ window.__ModuleLoader__.load({
       askCancelRequesting: '正在请求宿主停止；状态尚未确认。',
       askCancelUnconfirmed: '连接已停止，但取消状态尚未确认；请检查讨论记录中的部分回答后再重试。',
       askCancelledConfirmed: '已取消，讨论记录中该回答已标记为取消状态。',
+      askCancelVerifying: '正在核对讨论记录中的取消状态…',
       answerDone: '已回答（{model}）。',
       answerPartial: '回答结束于 {finish}，可能不完整。',
       historyCount: '本次请求携带 {count} 条历史',
@@ -1716,6 +1983,35 @@ window.__ModuleLoader__.load({
       knowledgeUnavailable: '无法读取知识库：{reason}（宿主可能需要重启以提供该端点）。',
       activationFailed: '插件界面未能挂载 Remote 契约。',
       activationFailedHint: '应用本身未受影响：这一条只是本插件自己的失败信息。请在控制台查看完整堆栈，修好后重新加载页面。',
+      selectedWordFrom: '选自在第 {index} 句',
+      backupFileName: '文件：{file}',
+      backupMoreConflicts: '另有 {count} 条冲突未列出',
+      dismissNotice: '知道了',
+      analysisStageRequesting: '正在请求模型',
+      analysisStageReceiving: '正在接收结果',
+      analysisStageValidating: '正在校验并保存',
+      navGuardTitle: '解析正在进行',
+      navGuardBody: '切换句子或段落会取消正在进行的解析或讨论回答，已经生成的部分不会写入。',
+      navGuardConfirm: '切换并取消解析',
+      navGuardStay: '继续解析',
+      contextReadyHint: '材料已编译：下面是这次要发送的内容，确认后即可发送。',
+      grammarDuplicates: '同名 {count} 条',
+      grammarDuplicatesTitle: '同名条目分组：共 {count} 条',
+      grammarMergeOpen: '核对差异并合并',
+      grammarMergeInto: '并入保留条目',
+      grammarMergeSelectionRequired: '请至少勾选一条要并入的条目。',
+      grammarDuplicateHelp: '这些条目同名但内容不同：来源、例句与掌握状态分散在多条记录中。核对差异后可以把它们合并为一条。',
+      grammarMergeKeep: '保留这条',
+      grammarMergeButton: '合并所选条目',
+      grammarMergeConfirm: '确认合并：其余同名条目会被删除，例句与易错点并入保留的条目。',
+      grammarMergeConfirmButton: '确认合并',
+      grammarMergeDone: '已合并 {examples} 条例句、{pitfalls} 条易错点。',
+      grammarMergeFailed: '合并失败：{reason}',
+      grammarDiffExamples: '例句 {count}',
+      grammarDiffAsks: '提问 {count}',
+      panelCrashed: '阅读面板渲染出错，面板已保护性暂停。',
+      panelCrashedHint: '应用本身未受影响。点击下面按钮回到书架首页即可继续；若同一操作再次触发本提示，请把控制台错误堆栈反馈给插件维护者。',
+      backToShelf: '回到书架首页',
     }
     const en = {
       shelfTitle: 'Books', shelfHome: 'Library', shelfToggle: 'Contents', closeDirectory: 'Close contents', removeEmptyBook: 'Remove empty book', unfilePassage: 'Unfile passage', newBook: 'Add book', newChapter: 'Add chapter',
@@ -1791,13 +2087,23 @@ window.__ModuleLoader__.load({
       nextPassage: 'Add next passage', startNextPassage: 'Read next passage', nextPassageHint: 'The paragraph number advances automatically. You can edit the title. Saving keeps the current passage open.',
       saveNextPassage: 'Save and keep reading', nextPassageSaved: 'Next passage saved. Start it when ready.', resumeReading: 'Back to current passage',
       navStageLabel: 'Zoomable navigation; minus and plus zoom, arrow keys pan',
-      navHint: 'Two-finger swipe to pan · pinch to zoom', navFit: 'Fit',
+      navHint: 'Two-finger swipe to pan · pinch to zoom', navFit: 'Fit', navPosition: 'offset x {x} · y {y}',
       progressSentences: '{covered} / {total} sentences', paragraphAnchor: 'Paragraph anchor',
       audioGenerate: '▷ Speak', audioRegenerate: '↻ Regenerate',
       audioNotWired: 'Per-sentence audio is not connected yet', switchPassage: 'Switch passage',
       audioRegenerateShort: '↻ Regenerate', audioReserved: 'not wired',
       audioSentence: 'Speak sentence {index}', audioRegenerateSentence: 'Regenerate sentence {index} audio',
       audioNotWiredSentence: 'Sentence {index}: {action} is not connected yet',
+      audioGroupLabel: 'Sentence audio', audioSpeakLabel: 'Speak this sentence', audioFormSpeakLabel: 'Speak {form}',
+      audioFormHint: 'Speak each row on demand', audioCached: '{count} stored version(s) — plays directly',
+      audioGenerating: 'Generating…', audioNotConfigured: 'not configured', audioPlaying: 'playing',
+      audioCancelled: 'Generation cancelled', audioRefused: 'Not synthesized: {reason}', audioFailed: 'Speech failed: {reason}',
+      audioListFailed: 'Cannot read the stored audio', audioPlaybackFailed: 'Cannot play this audio: {reason}',
+      audioAssetMissing: 'The Host no longer holds this audio — regenerate it',
+      audioSourceMismatch: 'The stored audio does not match this sentence: panel {local} · Host {host}. Switch sentence and try again.',
+      audioNotListed: 'This listing does not contain this sentence; nothing was requested.',
+      audioRecorded: 'Audio record: {text}',
+      audioListFailure: 'Reading the audio record failed.',
       chapterLabel: 'Chapter {index}', routeCaption: 'PARCOURS',
       previousSentence: 'Previous sentence', nextSentence: 'Next sentence', locateNavigation: 'Locate ↙',
       locatedSentence: 'Located sentence {index}',
@@ -1909,6 +2215,7 @@ window.__ModuleLoader__.load({
       askCancelRequesting: 'Asking the Host to stop; cancellation is not confirmed yet.',
       askCancelUnconfirmed: 'The connection stopped but cancellation was not confirmed; check the discussion for a partial answer before retrying.',
       askCancelledConfirmed: 'Cancelled; the discussion record marks this answer as cancelled.',
+      askCancelVerifying: 'Checking the discussion record for the cancellation…',
       answerDone: 'Answered ({model}).',
       answerPartial: 'The answer ended at {finish} and may be incomplete.',
       historyCount: '{count} messages carried into this request',
@@ -1970,6 +2277,35 @@ window.__ModuleLoader__.load({
       knowledgeUnavailable: 'Could not read the knowledge library: {reason} (the Host may need a restart for this endpoint).',
       activationFailed: 'The panel could not mount the Remote contract.',
       activationFailedHint: 'The app is unaffected; this is only this plugin reporting its own failure. Check the console for the stack, then reload the page.',
+      selectedWordFrom: 'Selected in sentence {index}',
+      backupFileName: 'File: {file}',
+      backupMoreConflicts: '{count} more conflicts not listed',
+      dismissNotice: 'Dismiss',
+      analysisStageRequesting: 'Requesting the model',
+      analysisStageReceiving: 'Receiving the result',
+      analysisStageValidating: 'Validating and saving',
+      navGuardTitle: 'An analysis is running',
+      navGuardBody: 'Switching sentence or paragraph cancels the running analysis or discussion turn; nothing generated so far is written.',
+      navGuardConfirm: 'Switch and cancel',
+      navGuardStay: 'Keep analysing',
+      contextReadyHint: 'The material is compiled: below is exactly what will be sent. Confirm to send it.',
+      grammarDuplicates: '{count} entries share this name',
+      grammarDuplicatesTitle: 'Same-named entries: {count} in total',
+      grammarMergeOpen: 'Review and merge',
+      grammarMergeInto: 'merge into the kept entry',
+      grammarMergeSelectionRequired: 'Tick at least one entry to merge in.',
+      grammarDuplicateHelp: 'These entries share a name but not their content: sources, examples and mastery are spread across records. Review the differences, then merge them into one.',
+      grammarMergeKeep: 'Keep this one',
+      grammarMergeButton: 'Merge selected entries',
+      grammarMergeConfirm: 'Confirm the merge: the other same-named entries are deleted and their examples and pitfalls move into the kept entry.',
+      grammarMergeConfirmButton: 'Confirm merge',
+      grammarMergeDone: 'Merged {examples} examples and {pitfalls} pitfalls.',
+      grammarMergeFailed: 'Merge failed: {reason}',
+      grammarDiffExamples: '{count} examples',
+      grammarDiffAsks: '{count} questions',
+      panelCrashed: 'The reading panel hit a rendering error and paused itself to protect your data.',
+      panelCrashedHint: 'The app is unaffected. Use the button below to go back to the shelf and keep reading; if the same action triggers this again, send the console stack to the plugin maintainer.',
+      backToShelf: 'Back to the shelf',
     }
 
     /**
@@ -2266,6 +2602,20 @@ window.__ModuleLoader__.load({
       /* The model the run will use — visible and changeable, not implicit. */
       .fr-root .readingActions select.modelSelect{font-size:11px;max-width:200px;min-width:0;padding:3px 6px;border:1px solid var(--line);border-radius:6px;background:var(--paper);color:var(--ink)}
 
+      /* Narrow panels float the directory over the page instead of squeezing it. */
+      .fr-root .directoryBackdrop{position:absolute;inset:0;z-index:39;border:0;border-radius:0;background:var(--fr-c83);padding:0}
+      .fr-root .directoryBackdrop:hover{background:var(--fr-c83);border:0}
+      .fr-root.bookLayout .bookDirectory.directoryOverlay{z-index:40}
+      .fr-root .composerFoot .contextReady{color:var(--green)}
+      .fr-root .navFoot .navPosition{font-size:10px;color:var(--muted);font-variant-numeric:tabular-nums}
+      .fr-root .libraryNotice{width:100%;margin-top:8px;padding:9px 10px;border:1px solid var(--line);border-radius:8px;background:var(--fr-c07);font-size:11px;line-height:1.7}
+      .fr-root .libraryNotice p{margin:0 0 4px}
+      .fr-root .libraryNotice.warn{background:var(--fr-c13);border-color:var(--fr-c08)}
+      .fr-root .libraryNotice.error{background:var(--fr-c02);border-color:var(--fr-c34);color:var(--fr-c34)}
+      .fr-root .libraryNotice ul{margin:4px 0 0;padding-left:16px}
+      .fr-root .libraryNotice small{display:block;margin-top:3px;color:var(--muted);overflow-wrap:anywhere}
+      .fr-root .libraryNotice button{margin-top:6px}
+
       /* Book-first entrance and contextual reading tools. */
       .fr-root.bookLayout .bookDirectory{position:absolute;left:0;top:46px;bottom:0;width:270px;z-index:4;display:flex;flex-direction:column;border-right:1px solid var(--line);background:var(--paper)}
       .fr-root.bookLayout .bookDirectory.hiddenDirectory{display:none}
@@ -2303,6 +2653,18 @@ window.__ModuleLoader__.load({
       .fr-root .readingSource>summary.sourceSectionHead{display:list-item;cursor:pointer;padding:4px 0;font-size:11px}.fr-root .readingSource>summary span{margin-left:15px}.fr-root .sentenceWorkspace .readingActions button.primary{background:var(--green);color:var(--paper);border:1px solid var(--green);padding:5px 12px}.fr-root .sentenceWorkspace .readingActions button.primary:disabled{opacity:.45}
       .fr-root.bookLayout .modal.switcher .passageComposer .modalFoot{position:sticky;bottom:0;z-index:2;background:var(--paper);border-top:1px solid var(--line);padding-top:10px;padding-bottom:max(10px,env(safe-area-inset-bottom,0px))}.fr-root .modelEntryConfirm{display:flex;align-items:flex-start;gap:9px}.fr-root .modelEntryConfirm input{width:auto;min-width:auto;margin-top:3px}.fr-root .modelEntryNotice{padding:8px 12px;background:var(--pale);border-left:2px solid var(--green);margin:12px 0}.fr-root .previewDetail{margin:10px 0 4px;border-top:1px solid var(--line)}.fr-root .previewBlock{padding:8px 0;border-bottom:1px solid var(--line)}.fr-root .previewExcerpt,.fr-root .previewSentenceText{margin-top:4px;white-space:pre-wrap;overflow-wrap:anywhere;font:13px/1.7 Georgia,serif}.fr-root .previewSentence{padding:4px 0;border-top:1px dotted var(--line)}.fr-root .previewSentenceText{margin-top:2px}.fr-root .previewFlagClean{margin:8px 0 0}.fr-root .analysisContextMaterial{display:grid;grid-template-columns:18px minmax(0,1fr);gap:8px 10px;padding:12px 0;border-bottom:1px solid var(--line)}.fr-root .analysisContextMaterial input{grid-row:span 2;width:auto;min-width:auto;margin-top:3px}.fr-root .analysisContextMaterialLabel{font-size:11px;color:var(--muted)}.fr-root .analysisContextMaterial .previewExcerpt{grid-column:2;margin-top:0}.fr-root .analysisContextModal .modalFoot{position:sticky;bottom:0;background:var(--paper);padding:12px 0 max(8px,env(safe-area-inset-bottom,0px));border-top:1px solid var(--line)}
       .fr-root .previewPrompt{max-height:240px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;line-height:1.7;padding:10px;border:1px solid var(--line);border-radius:6px;margin:6px 0 0}
+      /* The audio control states one fact at a time: 未配置, 生成中…, 播放中, the
+         version count, or the reason a request did not become audio. The reason is
+         the only one that is an alert. */
+      .fr-root .audioStatus{font-size:10px;line-height:1.5;color:var(--dsw-alias-label-secondary);min-width:0;overflow-wrap:anywhere}
+      .fr-root .audioStatus[role='alert']{color:var(--dsw-alias-state-error-primary)}
+      .fr-root .conjAudio{display:inline-flex;align-items:center;gap:2px;min-width:0}
+      /* The evidence behind a disabled control, on the panel rather than in a log:
+         the fingerprint the panel built, the one the Host answered under, and what
+         the last exchange was. One monospaced block, and only when there is
+         something to explain. */
+      .fr-root .audioDiagnostic{flex:1 1 100%;min-width:0;margin-top:4px;padding:6px 8px;border-left:2px solid var(--dsw-alias-state-error-primary);background:var(--dsw-alias-bg-layer-1);border-radius:4px;display:flex;flex-direction:column;gap:2px}
+      .fr-root .audioDiagnostic span{font:10px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--dsw-alias-label-secondary);overflow-wrap:anywhere;word-break:break-all}
     `
 
     function format(t, key, values = {}) {
@@ -2494,12 +2856,50 @@ window.__ModuleLoader__.load({
      * Opening an entry keeps the panel's existing card renderer for now — the card's own
      * restyle is the rest of this milestone — but the list itself is the prototype's.
      */
-    function KnowledgeLibrary({ t, listLexicon, listGrammar, resolveGrammarCandidate, onReturn, onOpenEntry }) {
-      const [tab, setTab] = useState('vocab')
+    /**
+     * One vocabulary for mastery. The list used to print the wire value
+     * (`learning`/`reviewing`) while the card and the filter spoke Chinese, so the
+     * same state read as two different things (R7-U05).
+     */
+    /**
+     * The key two grammar topics share when the reader would read them as one name:
+     * case, runs of whitespace, zero-width characters and trailing punctuation are
+     * not a difference, while the words themselves are.
+     */
+    function duplicateTopicKey(topic) {
+      return String(topic ?? '')
+        .normalize('NFC')
+        .replace(/[\u200b-\u200d\ufeff]/gu, '')
+        .trim()
+        .toLowerCase()
+        .replace(/\s+/gu, ' ')
+        .replace(/[。．.,，;；:：!！?？~～]+$/u, '')
+    }
+
+        const MASTERY_LABELS = { learning: 'masteryLearning', reviewing: 'masteryReviewing', known: 'masteryKnown' }
+    function masteryLabel(t, value) {
+      const key = MASTERY_LABELS[value]
+      if (key !== undefined) return t(key)
+      return typeof value === 'string' && value !== '' ? value : t('masteryUnknown')
+    }
+
+    function KnowledgeLibrary({ t, listLexicon, listGrammar, resolveGrammarCandidate, onReturn, onOpenEntry, view, onView, mergeGrammarEntries }) {
+      // The list's tab, search text and mastery filter live on the page, not in
+      // this component: opening an entry and coming back must return the reader
+      // to the list they were reading, not to the vocabulary tab (R7-B04).
+      const tab = view?.tab === 'grammar' ? 'grammar' : 'vocab'
+      const query = typeof view?.query === 'string' ? view.query : ''
+      const mastery = typeof view?.mastery === 'string' ? view.mastery : 'all'
+      // Only the fields the control actually changed travel to the page. Sending
+      // the whole render-scoped view made the second call of `setTab('grammar');
+      // setQuery('')` carry the old tab and undo the first — the tab click did
+      // nothing at all (found in the 2026-10-10 in-app acceptance run).
+      const patchView = (patch) => onView(patch)
+      const setTab = (next) => patchView({ tab: next })
+      const setQuery = (next) => patchView({ query: next })
+      const setMastery = (next) => patchView({ mastery: next })
       const [lexicon, setLexicon] = useState(null)
       const [grammar, setGrammar] = useState(null)
-      const [query, setQuery] = useState('')
-      const [mastery, setMastery] = useState('all')
       const [error, setError] = useState('')
       const [reloadTick, setReloadTick] = useState(0)
 
@@ -2543,6 +2943,19 @@ window.__ModuleLoader__.load({
         if (query.trim() !== '' && !`${entry.name} ${entry.subline}`.toLowerCase().includes(query.trim().toLowerCase())) return false
         return true
       })
+      // Same-named grammar entries: named here, with their real differences, so a
+      // duplicate is recognisable as one instead of looking like two topics. The
+      // key is the reader's own reading of "same name": case, spacing, invisible
+      // characters and trailing punctuation do not make two topics (R7-U06).
+      const duplicateGroups = tab !== 'grammar' ? [] : [...filtered.reduce((groups, entry) => {
+        const key = duplicateTopicKey(entry.name)
+        const group = groups.get(key) ?? { topic: entry.name, entries: [] }
+        group.entries.push((grammar?.entries ?? []).find((item) => item.entryId === entry.id)
+          ?? { entryId: entry.id, topic: entry.name })
+        groups.set(key, group)
+        return groups
+      }, new Map()).values()]
+        .filter((group) => group.entries.length > 1)
 
       return h('div', null,
         h('div', { className: 'kbBar' },
@@ -2583,9 +2996,13 @@ window.__ModuleLoader__.load({
                 h('div', { className: 'name' }, entry.name),
                 h('div', { className: 'subline' }, entry.subline)),
               h('span', { className: 'kbStatus' }, format(t, 'exampleCount', { count: entry.examples })),
-              tab === 'grammar' ? h('span', { className: 'kbStatus' }, entry.mastery) : null))),
+              tab === 'grammar' ? h('span', { className: 'kbStatus' }, masteryLabel(t, entry.mastery)) : null))),
         // The undecided grammar proposals are library-scope management: they live
         // here under the grammar list, with their own title, never on one entry's page.
+        tab !== 'grammar' ? null : h(GrammarDuplicatePanel, {
+          t, groups: duplicateGroups, mergeGrammarEntries,
+          onChanged: async () => setReloadTick((tick) => tick + 1),
+        }),
         tab !== 'grammar' ? null : h(GrammarPendingPanel, {
           t, pending: grammar?.pending ?? [], resolveGrammarCandidate,
           onChanged: async () => setReloadTick((tick) => tick + 1),
@@ -2623,12 +3040,508 @@ window.__ModuleLoader__.load({
      * Written as one small function returning one element: a five-kilobyte nested `h()` tree
      * is what broke the first attempt, so each piece is kept shallow and parse-checked.
      */
+    /* ---------------------------------------------------------------- audio --- */
+
+    /**
+     * Reading a sentence, or one conjugated form, aloud.
+     *
+     * Four rules from the reserved contracts decide the shape of this code, and
+     * each is written where a later edit could otherwise quietly undo it:
+     *
+     * 1. **cache first** — a stored take is played through `readAsset`; only the
+     *    reader's own press on a source with no take reaches `synthesize`;
+     * 2. **append, never overwrite** — every regeneration sends a new `requestId`
+     *    with `versionPolicy: 'append'`, and the take before it stays in the list;
+     * 3. **the last playable take survives** — a failure or a running generation
+     *    never clears what is already listed, so the previous audio still plays;
+     * 4. **unconfigured is not queued** — `configuration.configured === false`
+     *    disables the control and says 未配置: nothing is requested, and nothing is
+     *    claimed to be queued, generating or ready.
+     *
+     * Listing is a read, not a generation, so navigating, zooming or reopening a
+     * sentence may list but must never synthesize — that is why the mount effect
+     * is the only automatic call here.
+     */
+
+    /** The person codes the Host's paradigm uses, as the contract's 1…6. */
+    const CONJ_PERSON_NUMBERS = Object.freeze({ '1s': 1, '2s': 2, '3s': 3, '1p': 4, '2p': 5, '3p': 6 })
+
+    /**
+     * The subject a form is read with. The contract's own example is `nous venons`,
+     * so a representative pronoun is named; the row label's `/`-separated pair
+     * (`il / elle`) is a label, not something to say aloud.
+     */
+    const CONJ_SUBJECTS = Object.freeze({ '1s': 'je', '2s': 'tu', '3s': 'il', '1p': 'nous', '2p': 'vous', '3p': 'ils' })
+
+    const FRENCH_VOWEL_START = /^[aàâäeéèêëiîïoôöuùûüyœæ]/iu
+
+    /**
+     * What the reader hears for one form: the written form, read with its subject.
+     *
+     * `je` elides before a vowel — `j’écarte`, never `je écarte`. A leading `h`
+     * deliberately keeps `je`: mute and aspirated `h` cannot be told apart from
+     * spelling (`j’habite`, but `je hais`), and since the Host checks the utterance
+     * against the written form instead of guessing, the panel does not guess either.
+     */
+    function inflectionUtterance(person, written) {
+      const subject = CONJ_SUBJECTS[person]
+      const form = String(written ?? '').trim()
+      if (subject === undefined || form === '') return form
+      return subject === 'je' && FRENCH_VOWEL_START.test(form) ? `j’${form}` : `${subject} ${form}`
+    }
+
+    /** The conjugation dataset carries no revision of its own; its identity is 1. */
+    const INFLECTION_REVISION = 1
+
+    /**
+     * One form's immutable source. `formId` is the row's identity rather than its
+     * position, so re-ordering the table cannot re-point a take at another row.
+     */
+    function inflectionSpeechSource(lemma, tense, form) {
+      const code = String(form.person ?? '')
+      return {
+        kind: 'inflection',
+        formId: `${lemma}#${tense.mood}.${tense.tense}.${code}`,
+        inflectionRevision: INFLECTION_REVISION,
+        lemma,
+        tense: `${tense.mood}.${tense.tense}`,
+        // Every cell the Host's paradigm returns is a finite person form; a form
+        // the data does not cover is reported as `missingPersons`, not as a row.
+        formKind: 'finite',
+        person: CONJ_PERSON_NUMBERS[code] ?? null,
+        form: form.written,
+        utterance: inflectionUtterance(code, form.written),
+        language: 'fr',
+      }
+    }
+
+    /**
+     * The fingerprint a take belongs to, built exactly as the Host builds it:
+     * both revisions are in it and the title is not, so a renamed chapter keeps its
+     * audio and a corrected sentence does not.
+     */
+    function audioSourceKey(kind, source) {
+      if (source === null || source === undefined) return ''
+      return kind === 'inflection'
+        ? `${source.formId}|${String(source.inflectionRevision)}`
+        : `${source.passageId}|${source.sentenceId}|${String(source.sourceRevision)}|${String(source.sentenceRevision)}`
+    }
+
+    /**
+     * One sentence's immutable source. The text is the sentence's own text from the
+     * Host's segmentation — never the paragraph body it was cut from, and never a
+     * translation of it. Both revisions travel with it, so a corrected sentence is
+     * a different source rather than a stale take somebody forgot to invalidate.
+     */
+    function sentenceSpeechSource(passage, segmentation, sentence) {
+      return {
+        passageId: passage.id,
+        sentenceId: sentence.id,
+        sourceRevision: passage.sourceRevision,
+        sentenceRevision: segmentation.revision,
+        text: sentence.text,
+        language: 'fr',
+      }
+    }
+
+    /**
+     * Play one take's WAV bytes: base64 → Blob → object URL → `<audio>`.
+     *
+     * The URL is revoked when playback ends, fails, or is replaced by another take:
+     * a reader who plays a hundred sentences must not leak a hundred blobs. The
+     * take's own `rate` becomes `playbackRate`, so what is heard is what the Host
+     * recorded rather than a speed this panel invented.
+     */
+    function startWavPlayback(base64, mimeType, rate, onEnded) {
+      const decode = globalThis.atob
+      const BlobCtor = globalThis.Blob
+      const createObjectURL = globalThis.URL?.createObjectURL
+      const AudioCtor = globalThis.Audio
+      if (typeof decode !== 'function' || typeof BlobCtor !== 'function'
+        || typeof createObjectURL !== 'function' || typeof AudioCtor !== 'function') {
+        throw new Error('audio playback is unavailable in this environment')
+      }
+      const binary = decode(base64)
+      const bytes = new Uint8Array(binary.length)
+      for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index)
+      const objectUrl = createObjectURL(new BlobCtor([bytes], { type: mimeType ?? 'audio/wav' }))
+      const element = new AudioCtor(objectUrl)
+      element.playbackRate = rate
+      let released = false
+      const finish = () => {
+        if (released) return
+        released = true
+        element.removeEventListener?.('ended', finish)
+        element.removeEventListener?.('error', finish)
+        globalThis.URL?.revokeObjectURL?.(objectUrl)
+        onEnded?.()
+      }
+      element.addEventListener?.('ended', finish)
+      element.addEventListener?.('error', finish)
+      const started = element.play()
+      if (started?.catch) started.catch(() => finish())
+      return { stop() { element.pause?.(); finish() } }
+    }
+
+    /**
+     * One source's audio control: list what is stored, play it, and synthesize only
+     * on the reader's own press.
+     *
+     * `compact` is the conjugation row's inline button; the toolbar uses the wide
+     * form, where the generation state, its `取消` and the separate `重新生成`
+     * entry are all visible. `configuration` lets a table that already knows the
+     * Host has no audio configured say so once instead of asking per row.
+     */
+    function AudioControls({ t, kind, source, calls, compact = false, configuration = undefined }) {
+      const [listing, setListing] = useState(null)
+      const [phase, setPhase] = useState('idle')
+      const [message, setMessage] = useState('')
+      const [playing, setPlaying] = useState('')
+      // The listing's own failure is kept apart from `message`: that one is about
+      // an action the reader asked for, this one is the read that never answered.
+      // Without it a failed read leaves the same silent, permanently-disabled
+      // control a mismatched fingerprint does (the round-6 「点了没反应」 report).
+      const [listingError, setListingError] = useState('')
+      // What the last call actually exchanged, for the control to show when it
+      // cannot act. This is the difference between "it does nothing" and a
+      // sentence naming which half sent what.
+      const [lastCall, setLastCall] = useState(null)
+      // The attempt remembers the request id a retry must reuse; `abort` is the
+      // Remote call's own signal, which is what cancelling this call aborts.
+      const attempt = useRef(null)
+      const abort = useRef(null)
+      const player = useRef(null)
+      const sourceKey = audioSourceKey(kind, source)
+      // The configuration is authoritative wherever it is already known: a Host
+      // with no audio configured must not be asked once per row, and must never be
+      // described as generating anything.
+      const blocked = configuration?.configured === false
+
+      /** One line about the last exchange: what was asked, and what came back. */
+      function diagnosticAt(stage, detail) {
+        setLastCall({
+          at: new Date().toISOString().slice(11, 19), stage, detail: String(detail).slice(0, 320),
+        })
+      }
+
+      useEffect(() => {
+        // A read, never a generation. `calls` is deliberately not a dependency:
+        // the face is fixed for the panel's lifetime, while the source key is what
+        // decides which audio this control is even about.
+        if (typeof calls?.list !== 'function' || sourceKey === '' || blocked) return undefined
+        let cancelled = false
+        abort.current?.abort?.()
+        abort.current = null
+        player.current?.stop?.()
+        player.current = null
+        setListing(null)
+        setMessage('')
+        setListingError('')
+        setPlaying('')
+        setLastCall(null)
+        setPhase('listing')
+        diagnosticAt('list', `${kind} ${sourceKey}`)
+        void (async () => {
+          try {
+            const value = unwrap(await calls.list({ source }), t)
+            if (cancelled) return
+            setListing(value)
+            setPhase('idle')
+            // The Host answers under its own fingerprint. Reporting both here is
+            // what makes a disagreement visible instead of silent.
+            diagnosticAt('listed', `host ${String(value?.sourceKey ?? '')} · takes ${String(value?.takes?.length ?? 0)}`
+              + ` · configured ${String(value?.configuration?.configured)}`)
+          } catch (cause) {
+            if (cancelled) return
+            setPhase('failed')
+            setListingError(`${t('audioListFailed')}：${String(cause?.message ?? cause)}`)
+            setLastCall(null)
+          }
+        })()
+        // Leaving this source cancels what it was doing and stops its audio: the
+        // next source starts from its own listing, never from the last one's take.
+        return () => {
+          cancelled = true
+          abort.current?.abort?.()
+          abort.current = null
+          player.current?.stop?.()
+          player.current = null
+        }
+      }, [sourceKey, blocked])
+
+      // A listing belongs to the source that asked for it. Comparing the Host's own
+      // `sourceKey` keeps the panel from showing — or playing — the previous
+      // sentence's take for the frame before the new listing arrives.
+      const current = listing !== null && listing.sourceKey === sourceKey ? listing : null
+      const takes = current?.takes ?? []
+      const selected = takes.find((take) => take.takeId === current?.selectedTakeId) ?? null
+      const hostKey = listing === null ? '' : String(listing.sourceKey ?? '')
+      // Listed and not this sentence's: a read that answered under another
+      // fingerprint, which no press may paper over.
+      const mismatched = listing !== null && current === null
+      // The Host lists newest first and names the current take; either is playable.
+      const playable = selected ?? takes[0] ?? null
+      const configured = !blocked && current?.configuration?.configured !== false
+      const reason = blocked
+        ? (configuration.message ?? configuration.reason ?? '')
+        : (current?.configuration?.message ?? current?.configuration?.reason ?? '')
+      const busy = phase === 'synthesizing'
+
+      function mintRequestId(action) {
+        // The same attempt retried reuses its id — the Host answers a repeat with
+        // `replayed` instead of queueing a second job — while a new intent mints a
+        // new one, which is what makes two regenerations two takes.
+        const pending = attempt.current
+        if (pending !== null && pending.action === action && pending.settled !== true) return pending.requestId
+        const requestId = createUuid()
+        attempt.current = { action, requestId, settled: false }
+        return requestId
+      }
+
+      function applySynthesis(value) {
+        if (value.kind === 'ready' || value.kind === 'cached' || value.kind === 'replayed') {
+          // Append, never replace: every version stays in the list. A take the Host
+          // no longer considers current is added without stealing the selection.
+          setListing((state) => ({
+            sourceKey: state?.sourceKey ?? sourceKey,
+            configuration: state?.configuration ?? null,
+            selectedTakeId: value.take.selected === true ? value.take.takeId : (state?.selectedTakeId ?? null),
+            takes: [value.take, ...(state?.takes ?? []).filter((take) => take.takeId !== value.take.takeId)],
+          }))
+          setPhase('idle')
+          // A late take is appended but not played over the newer request.
+          if (value.take.selected !== false) void playTake(value.take)
+          return
+        }
+        // Anything below is the Host's own answer, so a retry is a new request.
+        attempt.current = null
+        if (value.kind === 'generating') {
+          // The same request id is already running: report it instead of queueing
+          // it twice, and keep offering 取消.
+          setPhase('synthesizing')
+          setMessage('')
+          return
+        }
+        if (value.kind === 'unconfigured') {
+          // Rule 4: a control that cannot request audio must not claim anything is
+          // queued or ready. It becomes the unconfigured control, with the Host's
+          // reason, and never shows a generating state again.
+          setListing((state) => ({
+            sourceKey: state?.sourceKey ?? sourceKey,
+            takes: state?.takes ?? [],
+            selectedTakeId: state?.selectedTakeId ?? null,
+            configuration: {
+              ...(state?.configuration ?? { backend: null, streaming: false, cancellation: false, maxCharacters: 0 }),
+              configured: false, reason: value.reason, message: value.message,
+            },
+          }))
+          setPhase('idle')
+          setMessage('')
+          return
+        }
+        setPhase(value.kind === 'cancelled' ? 'idle' : 'failed')
+        setMessage(value.kind === 'cancelled' ? t('audioCancelled')
+          : `${value.kind === 'rejected' ? t('audioRefused') : t('audioFailed')}：${value.message || value.reason}`)
+      }
+
+      async function synthesize(action) {
+        if (typeof calls?.synthesize !== 'function') return
+        const requestId = mintRequestId(action)
+        const controller = new AbortController()
+        abort.current = controller
+        setPhase('synthesizing')
+        setMessage('')
+        diagnosticAt('synthesize', `${action} ${requestId}`)
+        try {
+          const value = unwrap(await calls.synthesize({
+            requestId,
+            action,
+            source,
+            // The take this one follows, so the Host can record the lineage; the
+            // panel never asks to replace it.
+            previousTakeId: playable?.takeId ?? null,
+            versionPolicy: 'append',
+            // null is "the voice the Host is configured with".
+            voice: null,
+          }, controller.signal), t)
+          if (attempt.current?.requestId === requestId) attempt.current.settled = true
+          if (controller.signal.aborted) return
+          diagnosticAt('answer', `${String(value?.kind)} ${String(value?.reason ?? value?.take?.takeId ?? '')}`)
+          applySynthesis(value)
+        } catch (cause) {
+          if (controller.signal.aborted) {
+            setPhase('idle')
+            setMessage(t('audioCancelled'))
+            return
+          }
+          // Nothing authoritative came back, so the request id stays and pressing
+          // again is a retry of the same request rather than a second take.
+          setPhase('failed')
+          setMessage(`${t('audioFailed')}：${String(cause?.message ?? cause)}`)
+          diagnosticAt('threw', String(cause?.message ?? cause))
+        } finally {
+          if (abort.current === controller) abort.current = null
+        }
+      }
+
+      async function playTake(take) {
+        if (typeof calls?.readAsset !== 'function') return
+        player.current?.stop?.()
+        player.current = null
+        try {
+          const asset = unwrap(await calls.readAsset({ source, takeId: take.takeId }), t)
+          if (asset.kind !== 'found' || asset.base64 === '') {
+            setPhase('failed')
+            setMessage(t('audioAssetMissing'))
+            return
+          }
+          player.current = startWavPlayback(asset.base64, asset.mimeType, take.voice?.rate ?? 1,
+            () => setPlaying((id) => (id === take.takeId ? '' : id)))
+          setPlaying(take.takeId)
+          setMessage('')
+          setPhase('idle')
+          // The take the reader actually played is the one the Host should call
+          // current; failing to record that must not stop the audio.
+          if (take.selected !== true && typeof calls.select === 'function') {
+            try {
+              await calls.select({ source, takeId: take.takeId })
+              setListing((state) => (state === null ? state : { ...state, selectedTakeId: take.takeId }))
+            } catch { /* the audio plays whether or not the Host records the choice */ }
+          }
+        } catch (cause) {
+          setPhase('failed')
+          setMessage(`${t('audioPlaybackFailed')}：${String(cause?.message ?? cause)}`)
+        }
+      }
+
+      function onCancel() {
+        // There is no cancel endpoint: this aborts the Remote call's own signal,
+        // which is exactly what the Host's cancellation parameter is for.
+        attempt.current = null
+        abort.current?.abort?.()
+        abort.current = null
+        player.current?.stop?.()
+        player.current = null
+        setPlaying('')
+        setPhase('idle')
+        setMessage(t('audioCancelled'))
+      }
+
+      // Without its calls this control could only throw inside an effect, which
+      // unmounts the whole panel (the R7-B01 failure). Rendering nothing is the
+      // honest degradation for a face that was not wired.
+      if (typeof calls?.list !== 'function') return null
+
+      let status = ''
+      let alert = false
+      if (!configured) {
+        status = reason === '' ? t('audioNotConfigured') : `${t('audioNotConfigured')}：${reason}`
+      } else if (busy) {
+        status = message === '' ? t('audioGenerating') : message
+      } else if (message !== '') {
+        status = message
+        alert = phase === 'failed'
+      } else if (listingError !== '') {
+        status = listingError
+        alert = true
+      } else if (mismatched) {
+        // The listing answered, but under another fingerprint: this control is
+        // disabled by a fact, and saying which fact is the whole difference from
+        // a control that looks broken. Nothing is requested in this state.
+        status = t('audioSourceMismatch')
+          .replace('{local}', sourceKey.slice(0, 12))
+          .replace('{host}', hostKey.slice(0, 12))
+        alert = true
+      } else if (playing !== '') {
+        status = t('audioPlaying')
+      } else if (playable !== null) {
+        // A row already shows that it has audio by offering 重新生成; the wide
+        // control is where the version count is worth saying out loud.
+        status = compact ? '' : format(t, 'audioCached', { count: takes.length })
+      } else if (phase === 'listing') {
+        status = t('loading')
+      }
+      // Why this control cannot act, in the panel itself: the fingerprint it built,
+      // the one the Host answered under, and what the last exchange was. It appears
+      // only when a read did not simply answer — an unconfigured Host is already
+      // stated by `未配置`, and a stored take already says it is playable — because
+      // the state that used to be invisible is exactly this one: the listing came
+      // back, and it is not this sentence's. That is the evidence a live run is read
+      // from, since a control that silently refuses cannot be diagnosed from outside.
+      const diagnosticLines = []
+      if (mismatched) {
+        diagnosticLines.push(`${kind} ${sourceKey}`)
+        if (hostKey !== '') {
+          diagnosticLines.push(format(t, 'audioSourceMismatch', { local: sourceKey, host: hostKey }))
+        } else {
+          diagnosticLines.push(t('audioNotListed'))
+        }
+      } else if (listingError !== '') {
+        diagnosticLines.push(`${kind} ${sourceKey}`)
+        diagnosticLines.push(t('audioListFailure'))
+      }
+      if (diagnosticLines.length > 0 && lastCall !== null) {
+        diagnosticLines.push(format(t, 'audioRecorded', {
+          text: `${lastCall.at} · ${lastCall.stage} · ${lastCall.detail}`,
+        }))
+      }
+      const diagnostic = diagnosticLines.length === 0 ? null
+        : h('div', { className: 'audioDiagnostic', role: 'note' },
+          diagnosticLines.map((line, index) => h('span', { key: `line-${String(index)}` }, line)))
+      const speak = h('button', {
+        className: compact ? 'conjSpeak' : 'small audioSpeak',
+        type: 'button',
+        // Disabled until the listing answers: synthesizing before the cache is
+        // known would spend a request on audio that may already be stored. The
+        // handler repeats the guard, because `disabled` is a rendering fact and
+        // this rule is not: an unconfigured panel requests nothing even if a press
+        // reaches the control before the DOM catches up.
+        disabled: !configured || busy || current === null,
+        'aria-label': compact ? format(t, 'audioFormSpeakLabel', { form: source?.form ?? '' }) : t('audioSpeakLabel'),
+        title: status === '' ? undefined : status,
+        onClick: () => {
+          // A press that the render has not caught up with is not nothing: it is
+          // recorded, so the next look at the panel says the click did arrive.
+          if (!configured || busy || current === null) {
+            diagnosticAt('press-refused', `configured=${String(configured)} busy=${String(busy)}`
+              + ` listed=${String(listing !== null)} mismatched=${String(mismatched)}`)
+            return
+          }
+          if (playable === null) void synthesize('generate')
+          else void playTake(playable)
+        },
+      }, compact ? '▷' : t('audioGenerate'))
+      const regenerate = playable === null ? null : h('button', {
+        className: compact ? 'conjRegenerate' : 'small quiet', type: 'button',
+        disabled: !configured || busy,
+        onClick: () => { if (!configured || busy) return; void synthesize('regenerate') },
+      }, compact ? t('audioRegenerateShort') : t('audioRegenerate'))
+      const cancel = busy ? h('button', {
+        className: compact ? 'conjRegenerate' : 'small quiet', type: 'button', onClick: onCancel,
+      }, t('cancel')) : null
+      return h('div', {
+        className: compact ? 'conjAudio' : 'audioGroup',
+        role: compact ? null : 'group',
+        'aria-label': compact ? null : t('audioGroupLabel'),
+      },
+        speak,
+        regenerate,
+        cancel,
+        status === '' ? null : h('span', {
+          className: compact ? 'audioUnavailable' : 'audioStatus',
+          role: alert ? 'alert' : 'status',
+        }, status),
+        diagnostic,
+      )
+    }
+
+
     /**
      * One person's row. The mode decides what is shown — the pronunciation, the spelling, or
      * both — and opening it repeats the same information in full beside the base it belongs
      * to. A form the Host could not attribute to a base says so rather than guessing.
      */
-    function conjRow(t, form, mode, open, base, onToggle) {
+    function conjRow(t, form, mode, open, base, onToggle, audio = null) {
       const person = conjugationPersonLabel(form.person)
       const muted = base !== null && form.baseIndex !== base
       const head = h('button', { type: 'button', className: 'conjRowHead', onClick: onToggle },
@@ -2644,7 +3557,7 @@ window.__ModuleLoader__.load({
       return h('div', {
         key: form.person,
         className: `conjRow${open ? ' isOpen' : ''}${muted ? ' isMuted' : ''}`,
-      }, head, open ? detail : null)
+      }, head, audio, open ? detail : null)
     }
 
     /** `conjBaseRail`: one button per pronounced base, muted when another base is chosen. */
@@ -2690,7 +3603,7 @@ window.__ModuleLoader__.load({
       }, buttons)
     }
 
-    function conjTop(t, tense, baseCount, mode, onMode) {
+    function conjTop(t, tense, baseCount, mode, onMode, audioState) {
       const modes = [['oral', t('conjModeOral')], ['both', t('conjModeBoth')], ['written', t('conjModeWritten')]]
       return h('div', { className: 'conjTop' },
         h('div', null,
@@ -2698,7 +3611,9 @@ window.__ModuleLoader__.load({
           h('div', { className: 'conjCount' },
             tense === null ? t('conjugationNoData') : tense.label,
             tense === null ? null : ` · ${format(t, 'conjBaseCount', { count: baseCount })}`,
-            h('span', { className: 'conjAudioState' }, ` · ${t('audioUnavailable')}`)),
+            // The head states what the rows below can do: with no audio configured
+            // it says so, rather than the "not wired" line the panel used to carry.
+            h('span', { className: 'conjAudioState' }, ` · ${audioState}`)),
         ),
         h('div', { className: 'conjMode', role: 'group', 'aria-label': t('conjModeLabel') },
           modes.map(([key, label]) => h('button', {
@@ -2712,7 +3627,7 @@ window.__ModuleLoader__.load({
      * The conjugated view of one verb, per the prototype: a head, a base rail, then the rows.
      * The dataset comes from `readConjugation`; **only the reader's own press fetches**.
      */
-    function ConjugationView({ t, lemma, readConjugation, fetchConjugation }) {
+    function ConjugationView({ t, lemma, readConjugation, fetchConjugation, audioCalls }) {
       const [state, setState] = useState(null)
       const [busy, setBusy] = useState(false)
       const [error, setError] = useState('')
@@ -2720,6 +3635,7 @@ window.__ModuleLoader__.load({
       const [base, setBase] = useState(null)
       const [row, setRow] = useState(null)
       const [tenseIndex, setTenseIndex] = useState(0)
+      const [audioConfiguration, setAudioConfiguration] = useState(null)
 
       useEffect(() => {
         let cancelled = false
@@ -2763,6 +3679,25 @@ window.__ModuleLoader__.load({
       const baseCount = tense === null ? 0 : (tense.bases ?? []).length
       const bases = tense === null ? [] : (tense.bases ?? [])
       const groups = bases.map((entry) => entry.persons.map(conjugationPersonLabel).join(' · '))
+      // One probe answers what the whole table needs to know — whether audio is
+      // configured at all. Without it an unconfigured Host would still be asked
+      // once per row: six round trips to be told the same 未配置. The dependency is
+      // the probe row's own source key, never the calls object, which is rebuilt on
+      // every render and would turn this into a loop.
+      const probeTense = tenses[0] ?? null
+      const probeForm = (probeTense?.forms ?? [])[0] ?? null
+      const probeKey = probeForm === null
+        ? ''
+        : audioSourceKey('inflection', inflectionSpeechSource(lemma, probeTense, probeForm))
+      useEffect(() => {
+        if (typeof audioCalls?.list !== 'function' || probeKey === '') return undefined
+        let cancelled = false
+        audioCalls.list({ source: inflectionSpeechSource(lemma, probeTense, probeForm) })
+          .then((result) => { if (!cancelled) setAudioConfiguration(unwrap(result, t).configuration ?? null) })
+          .catch(() => { if (!cancelled) setAudioConfiguration(null) })
+        return () => { cancelled = true }
+      }, [probeKey])
+      const audioState = audioConfiguration?.configured === false ? t('audioNotConfigured') : t('audioFormHint')
       return h('div', { className: 'conjugationView' },
         tenses.length < 2 ? null : h('label', { className: 'conjTensePicker' },
           h('span', null, t('conjugationTenseLabel')),
@@ -2774,7 +3709,7 @@ window.__ModuleLoader__.load({
               setRow(null)
             },
           }, tenses.map((entry, index) => h('option', { key: `${entry.mood}-${entry.tense}-${index}`, value: index }, entry.label)))),
-        conjTop(t, tense, baseCount, mode, setMode),
+        conjTop(t, tense, baseCount, mode, setMode, audioState),
         bases.length === 0 ? null : conjBaseRail(t, bases, groups, base, setBase),
         // `pending`: a previous fetch that never finished. The Host's status and
         // missing forms are rendered from their actual wire fields.
@@ -2787,7 +3722,17 @@ window.__ModuleLoader__.load({
           : null,
         h('div', { className: 'conjRows' }, (tense === null ? [] : (tense.forms ?? []))
           .map((form) => conjRow(t, form, mode, row === form.person, base,
-            () => setRow(row === form.person ? null : form.person)))),
+            () => setRow(row === form.person ? null : form.person),
+            // Each row is its own source with its own takes: the contract keeps
+            // forms and sentences in separate state, so changing the selected
+            // sentence can never reroute a form's audio (or the other way round).
+            h(AudioControls, {
+              key: `audio-${String(form.person)}`,
+              t, kind: 'inflection', compact: true,
+              source: inflectionSpeechSource(lemma, tense, form),
+              calls: audioCalls,
+              configuration: audioConfiguration,
+            })))),
         // What the source did not cover, per person: the prototype keeps these gaps visible.
         (tense?.missingPersons ?? []).length === 0
           ? null
@@ -2886,6 +3831,15 @@ window.__ModuleLoader__.load({
         }
         if (parsed.length === 0) continue
         parsed[parsed.length - 1].body.push(line)
+      }
+      // Sections the Host announced but the rendered card left out (the policy
+      // skips an empty optional section) still get a slot, stated honestly as
+      // not recorded: without a slot the seam below never runs for them, and a
+      // verb's §4 conjugation — the one that carries the fetch entry — stayed
+      // unreachable no matter that the summary listed it (R6-B01).
+      for (const section of sections) {
+        if (parsed.some((entry) => entry.number === section.number)) continue
+        parsed.push({ number: section.number, title: section.title, body: [t('notRecorded')] })
       }
       // Anything the Host rendered but did not announce still has to be reachable.
       const joined = parsed.map((section) => section.body.join('\n')).join('\n')
@@ -3177,7 +4131,7 @@ window.__ModuleLoader__.load({
             h('div', { className: 'fr-entryHead' },
               h('span', { className: 'fr-entryName' }, kind === 'lexicon' ? entry.mot : entry.topic),
               h('span', { className: 'fr-branchKind' },
-                kind === 'lexicon' ? entry.partOfSpeech : entry.mastery),
+                kind === 'lexicon' ? entry.partOfSpeech : masteryLabel(t, entry.mastery)),
               h('span', { className: 'fr-help' }, kind === 'lexicon'
                 ? format(t, 'lexiconMeta', { forms: entry.forms.length, senses: entry.senses.length })
                 : format(t, 'grammarMeta', { count: entry.askCount, status: entry.contentStatus })),
@@ -3186,7 +4140,7 @@ window.__ModuleLoader__.load({
                   key: mastery, className: 'fr-button fr-buttonQuiet', type: 'button',
                   disabled: busy || entry.mastery === mastery,
                   onClick: () => moveMastery(entry, mastery),
-                }, t(`mastery_${mastery}`))),
+                }, masteryLabel(t, mastery))),
               ) : null,
               kind === 'lexicon' ? h('span', { className: 'fr-anchorRowActions', style: { marginLeft: 'auto', display: 'flex', gap: '6px' } },
                 h('button', {
@@ -3356,7 +4310,176 @@ window.__ModuleLoader__.load({
       )
     }
 
-    function PassagePage({t, listPassages, listArchivedPassages, getPassage, createPassage, exportPassages, exportLibrary, importLibrary, previewImport, listLexicon, listGrammar, renderLexicon, resolveGrammarCandidate, listLexiconSources, fetchLexiconSource, setGrammarMastery, readConjugation, fetchConjugation, readSentenceAnalysis, readAnalysisCoverage, previewAnalysisContext, analyseSentence, analyseParagraph, cancelAnalysis, publishAnalysis, createSelection, getSegmentation, listAnalysis, saveTranslation, addBranch, listBackends, listBackendModels, previewAsk, readContext, ask, streamAsk, listDiscussion, createBranch, setBranchState, onClose, lookupMot, createLexiconEntry, recordConclusion, archivePassage, restorePassage}) {
+    /**
+     * A render error must never blank the whole panel silently — that was the
+     * second half of R7-B01's acceptance: the reader had no message and no way
+     * back. The boundary keeps the failure visible, logs the stack for the
+     * maintainer, and offers a way back to the shelf.
+     */
+    class PanelErrorBoundary extends React.Component {
+      constructor(props) {
+        super(props)
+        this.state = { error: null }
+      }
+      static getDerivedStateFromError(error) {
+        return { error }
+      }
+      componentDidCatch(error, info) {
+        console.error('[french-close-reading] panel render failed', error, info?.componentStack ?? '')
+      }
+      render() {
+        if (this.state.error === null) return this.props.children
+        const t = this.props.t
+        const detail = String(this.state.error?.message ?? this.state.error)
+        return h('div', { className: 'fr-page' },
+          h('style', null, `${PROTOTYPE_STYLES}\n${styles}`),
+          h('div', { className: 'fr-shell' },
+            h('p', { className: 'fr-error', role: 'alert' }, t('panelCrashed')),
+            h('pre', { className: 'fr-cardBody' }, detail),
+            h('p', { className: 'fr-help' }, t('panelCrashedHint')),
+            h('button', {
+              className: 'fr-button', type: 'button',
+              onClick: () => this.setState({ error: null }),
+            }, t('backToShelf'))))
+      }
+    }
+
+    /** The slot receives the boundary, so a child throw degrades to the recovery card. */
+    function PanelWithBoundary(props) {
+      return h(PanelErrorBoundary, { t: props.t }, h(PassagePage, props))
+    }
+
+
+    /**
+     * Same-named grammar entries, with their differences and a reader-confirmed merge.
+     *
+     * The automatic extraction keys a rule by its topic, so two answers that phrase
+     * the same rule differently legitimately produce two entries. The panel names
+     * what actually differs (module, level, mastery, examples, questions) and lets
+     * the reader pick the one that survives: merging is a decision, never a
+     * background tidy-up (R7-U06).
+     */
+    function GrammarDuplicatePanel({ t, groups, mergeGrammarEntries, onChanged }) {
+      const [draft, setDraft] = useState(null)
+      const [busy, setBusy] = useState(false)
+      const [error, setError] = useState('')
+      const [status, setStatus] = useState('')
+
+      if (groups.length === 0) return null
+
+      const start = (group) => {
+        setError('')
+        setStatus('')
+        setDraft({
+          topic: group.topic, keepId: group.entries[0].entryId,
+          mergeIds: group.entries.slice(1).map((entry) => entry.entryId),
+          confirming: false,
+        })
+      }
+      const toggleMerge = (entryId) => setDraft((current) => {
+        if (current === null) return current
+        return {
+          ...current,
+          confirming: false,
+          mergeIds: current.mergeIds.includes(entryId)
+            ? current.mergeIds.filter((id) => id !== entryId)
+            : [...current.mergeIds, entryId],
+        }
+      })
+      const chooseKeep = (entryId) => setDraft((current) => current === null ? current : ({
+        ...current,
+        keepId: entryId,
+        confirming: false,
+        mergeIds: current.mergeIds.filter((id) => id !== entryId),
+      }))
+      const merge = async () => {
+        const current = draft
+        if (current === null || busy) return
+        if (current.confirming !== true) { setDraft({ ...current, confirming: true }); return }
+        if (current.mergeIds.length === 0) { setError(t('grammarMergeSelectionRequired')); return }
+        setBusy(true)
+        setError('')
+        try {
+          const value = unwrap(await mergeGrammarEntries({
+            keepEntryId: current.keepId,
+            mergeEntryIds: current.mergeIds,
+            operationId: createUuid(),
+          }), t)
+          if (value.kind === 'conflict') {
+            setError(format(t, 'grammarMergeFailed', { reason: value.reason }))
+          } else {
+            setStatus(format(t, 'grammarMergeDone', {
+              examples: value.kind === 'merged' ? value.examples : 0,
+              pitfalls: value.kind === 'merged' ? value.pitfalls : 0,
+            }))
+            setDraft(null)
+          }
+          await onChanged()
+        } catch (cause) {
+          setError(format(t, 'grammarMergeFailed', { reason: String(cause?.message ?? cause) }))
+        } finally {
+          setBusy(false)
+        }
+      }
+
+      const diffLine = (entry) => [
+        `${entry.module ?? t('masteryUnknown')} · ${entry.level ?? t('masteryUnknown')} · ${masteryLabel(t, entry.mastery)}`,
+        format(t, 'grammarDiffExamples', { count: entry.examples ?? (entry.exampleTexts ?? []).length }),
+        format(t, 'grammarDiffAsks', { count: entry.askCount ?? 0 }),
+      ].join(' · ')
+
+      const rows = groups.map((group) => {
+        const open = draft !== null && draft.topic === group.topic
+        const head = h('div', { className: 'fr-entryHead' },
+          h('span', { className: 'fr-entryName' }, group.topic),
+          h('span', { className: 'fr-branchKind' }, format(t, 'grammarDuplicates', { count: group.entries.length })))
+        const summary = h('p', { className: 'fr-help' }, group.entries.map(diffLine).join(' ｜ '))
+        const actions = open
+          ? h('div', { className: 'fr-decision' },
+            ...group.entries.map((entry) => h('label', { key: entry.entryId, className: 'fr-help' },
+              h('input', {
+                type: 'radio', name: `merge-keep-${group.topic}`, checked: draft.keepId === entry.entryId,
+                disabled: busy, onChange: () => chooseKeep(entry.entryId),
+              }),
+              ` ${t('grammarMergeKeep')} · ${diffLine(entry)}`)),
+            ...group.entries.filter((entry) => entry.entryId !== draft.keepId).map((entry) => h('label', {
+              key: `merge-${entry.entryId}`, className: 'fr-help',
+            },
+              h('input', {
+                type: 'checkbox', checked: draft.mergeIds.includes(entry.entryId), disabled: busy,
+                onChange: () => toggleMerge(entry.entryId),
+              }),
+              ` ${t('grammarMergeInto')}`)),
+            draft.confirming ? h('p', { className: 'fr-help' }, t('grammarMergeConfirm')) : null,
+            h('div', { className: 'fr-anchorRow fr-anchorRowActions' },
+              h('button', {
+                className: 'fr-button', type: 'button', disabled: busy, onClick: merge,
+              }, draft.confirming ? t('grammarMergeConfirmButton') : t('grammarMergeButton')),
+              h('button', {
+                className: 'fr-button fr-buttonQuiet', type: 'button', disabled: busy,
+                onClick: () => { setDraft(null); setError('') },
+              }, t('cancel'))))
+          : h('div', { className: 'fr-anchorRow fr-anchorRowActions' },
+            h('button', {
+              className: 'fr-button fr-buttonQuiet', type: 'button', disabled: busy,
+              onClick: () => start(group),
+            }, t('grammarMergeOpen')))
+        return h('li', { key: group.topic, className: 'fr-entry' }, head, summary, actions)
+      })
+
+      return h('div', { className: 'fr-knowledge' },
+        h('div', { className: 'fr-anchorRow' },
+          h('span', { className: 'fr-label' }, format(t, 'grammarDuplicatesTitle', {
+            count: groups.reduce((total, group) => total + group.entries.length, 0),
+          })),
+          h('span', { className: 'fr-help' }, t('grammarDuplicateHelp'))),
+        error === '' ? null : h('p', { className: 'fr-error', role: 'alert' }, error),
+        status === '' ? null : h('p', { className: 'fr-status', role: 'status' }, status),
+        h('ul', { className: 'fr-entryList' }, rows),
+      )
+    }
+
+    function PassagePage({t, listPassages, listArchivedPassages, getPassage, createPassage, exportPassages, exportLibrary, importLibrary, previewImport, listLexicon, listGrammar, renderLexicon, resolveGrammarCandidate, listLexiconSources, fetchLexiconSource, setGrammarMastery, mergeGrammarEntries, readConjugation, fetchConjugation, synthesizeSentenceAudio, listSentenceAudio, selectSentenceAudio, readSentenceAudioAsset, synthesizeInflectionAudio, listInflectionAudio, selectInflectionAudio, readInflectionAudioAsset, readSentenceAnalysis, readAnalysisCoverage, previewAnalysisContext, analyseSentence, analyseParagraph, cancelAnalysis, publishAnalysis, createSelection, getSegmentation, listAnalysis, saveTranslation, addBranch, listBackends, listBackendModels, previewAsk, readContext, ask, streamAsk, listDiscussion, createBranch, setBranchState, onClose, lookupMot, createLexiconEntry, recordConclusion, archivePassage, restorePassage}) {
       const [items, setItems] = useState([])
       const [archivedItems, setArchivedItems] = useState([])
       const [showArchived, setShowArchived] = useState(false)
@@ -3593,8 +4716,10 @@ window.__ModuleLoader__.load({
           const name = `french-close-reading-${new Date().toISOString().slice(0, 10)}.json`
           downloadJson(value, name)
           setStatus(format(t, 'exportDone', { count: hostLibrary.records.length }))
+          setLibraryNotice({ kind: 'ok', text: format(t, 'exportDone', { count: hostLibrary.records.length }), file: name })
         } catch (cause) {
           setError(`${t('backupFailed')} ${String(cause?.message ?? cause)}`)
+          setLibraryNotice({ kind: 'error', text: `${t('backupFailed')} ${String(cause?.message ?? cause)}` })
         } finally {
           setExporting(false)
         }
@@ -3641,11 +4766,22 @@ window.__ModuleLoader__.load({
             setNextPassages((current) => mergeContinuationLinks(current, browserLibrary.continuations))
           }
           await refreshList(0)
-          setStatus(format(t, 'backupImportDone', {
+          const summary = format(t, 'backupImportDone', {
             imported: result.imported, skipped: result.skipped, conflicts: result.conflicts.length,
-          }))
+          })
+          setStatus(summary)
+          setLibraryNotice({
+            kind: result.conflicts.length === 0 ? 'ok' : 'warn',
+            text: summary,
+            // The reader can check the numbers, and the refused keys are named
+            // rather than summed away.
+            detail: result.conflicts.slice(0, 5).map((conflict) => `${conflict.key} · ${conflict.reason}`),
+            more: Math.max(0, result.conflicts.length - 5),
+            counts: { imported: result.imported, skipped: result.skipped, conflicts: result.conflicts.length },
+          })
         } catch (cause) {
           setError(`${t('backupFailed')} ${String(cause?.message ?? cause)}`)
+          setLibraryNotice({ kind: 'error', text: `${t('backupFailed')} ${String(cause?.message ?? cause)}` })
         } finally {
           setExporting(false)
         }
@@ -3720,6 +4856,7 @@ window.__ModuleLoader__.load({
           const name = `french-close-reading-sources-${new Date().toISOString().slice(0, 10)}.json`
           downloadJson(value, name)
           setStatus(t('exportSourcesDone'))
+          setLibraryNotice({ kind: 'ok', text: t('exportSourcesDone'), file: name })
         } catch (cause) {
           setError(`${t('backupFailed')} ${String(cause?.message ?? cause)}`)
         } finally {
@@ -3743,10 +4880,29 @@ window.__ModuleLoader__.load({
       const [models, setModels] = useState([])
       const [model, setModel] = useState('')
       const [discussion, setDiscussion] = useState(null)
-      const [askDraft, setAskDraft] = useState('')
+      // Drafts and receipts are kept per branch: switching branches must never
+      // carry another branch's question draft or its cancel receipt into the
+      // composer the reader is looking at (R7-B02).
+      const [askDrafts, setAskDrafts] = useState({})
+      const [askReceipts, setAskReceipts] = useState({})
+      const updateAskDraft = (branchId, text) => setAskDrafts((current) => ({ ...current, [branchId]: text }))
+      const clearAskDraft = (branchId) => setAskDrafts((current) => {
+        if (!Object.prototype.hasOwnProperty.call(current, branchId)) return current
+        const next = { ...current }
+        delete next[branchId]
+        return next
+      })
+      const setAskReceipt = (branchId, text) => setAskReceipts((current) => {
+        if (text === '') {
+          if (!Object.prototype.hasOwnProperty.call(current, branchId)) return current
+          const next = { ...current }
+          delete next[branchId]
+          return next
+        }
+        return { ...current, [branchId]: text }
+      })
       const [contextPreview, setContextPreview] = useState(null)
       const [askBusy, setAskBusy] = useState(false)
-      const [askStatus, setAskStatus] = useState('')
       // The answer as it arrives. Cleared when the turn settles, because the stored
       // message then carries the same text and two copies would drift apart.
       const [streamText, setStreamText] = useState('')
@@ -3796,7 +4952,10 @@ window.__ModuleLoader__.load({
       const [branchHint, setBranchHint] = useState('')
       const [lookupInput, setLookupInput] = useState('')
       // `selectedMot`: the word 查词 will act on, captured from the detail pane.
-      const [selectedWord, setSelectedWord] = useState('')
+      // A selection belongs to the sentence it was made in: it is stored with
+      // that anchor and cleared when the focus moves, so the toolbar can never
+      // act on a phrase from a sentence the reader has left (R7-B03).
+      const [selectedWord, setSelectedWord] = useState(null)
       const [actionDialog, setActionDialog] = useState(null)
       // `shortReadingLayout`: below 500px of height the prototype scrolls the whole detail
       // pane instead of the inner column, and moves the offset across when it switches.
@@ -3845,6 +5004,10 @@ window.__ModuleLoader__.load({
       // *before* a normal answer. 600s bounds a hung stream while leaving a
       // normal slow run room to finish; cancel remains the reader's early exit.
       const ANALYSIS_TIMEOUT_MS = 600000
+      // Cancellation verification: how long the panel keeps re-reading the record
+      // for the aborted turn's terminal cancelled message, and how often.
+      const CANCEL_VERIFY_ATTEMPTS = 15
+      const CANCEL_VERIFY_INTERVAL_MS = 2000
       const [continuationParent, setContinuationParent] = useState(null)
       const parkedContinuation = useRef(null)
       const [nextPassages, setNextPassages] = useState(readContinuationLinks())
@@ -3860,6 +5023,14 @@ window.__ModuleLoader__.load({
       const [historyContext, setHistoryContext] = useState(null)
       const [knowledgeFocusConjugationEntryId, setKnowledgeFocusConjugationEntryId] = useState(null)
       const [resumeMessage, setResumeMessage] = useState('')
+      // The library list's own view state, kept at the end of the state list so no
+      // historical index shifts: this is what lets an entry be opened and closed
+      // without losing the tab, the search or the mastery filter (R7-B04).
+      const [knowledgeList, setKnowledgeList] = useState({ tab: 'vocab', query: '', mastery: 'all' })
+      // Backup results are shown where the buttons are, and they stay there: the
+      // composer's `status` line lives inside the dialog and was invisible after
+      // an import from the shelf (R7-B05/U07).
+      const [libraryNotice, setLibraryNotice] = useState(null)
       // Discard reads from an earlier selection, including A -> B -> A.
       const passageRequest = useRef(0)
       const displayedPassage = useRef(activePassage?.id ?? null)
@@ -3871,6 +5042,7 @@ window.__ModuleLoader__.load({
       const focusedAnchor = useRef(anchorId)
       const askAbortRef = useRef(null)
       const askRunSeq = useRef(0)
+      const cancelVerifySeq = useRef(0)
       const branchCreateLock = useRef(false)
       const historyContextRequest = useRef(0)
       const pendingResumeRef = useRef(null)
@@ -3888,6 +5060,28 @@ window.__ModuleLoader__.load({
       const pendingAnswerRevealRef = useRef(null)
       const answerRevealAutoScrollRef = useRef(false)
       const wordBranchOperationsRef = useRef(new Map())
+      // R7-U04: leaving the sentence cancels the run, so the reader is told before
+      // it happens instead of discovering it afterwards.
+      const [pendingNavigation, setPendingNavigation] = useState(null)
+      const bypassCancelGuard = useRef(false)
+      function guardedNavigation(action) {
+        // A discussion turn is cancelled by the same navigation that cancels an
+        // analysis (the ask effect fences itself off the branch), so it is
+        // guarded the same way: found while walking the acceptance flow, where a
+        // sent question disappeared without a word.
+        // A *turn* is worth asking about; compiling a preview is not (it spends
+        // no model call and cancelling it loses nothing).
+        const running = analysisBusyRef.current || askRun !== null
+        if (!running || bypassCancelGuard.current) { action(); return }
+        setPendingNavigation({ next: action })
+      }
+      function runPendingNavigation() {
+        const pending = pendingNavigation
+        setPendingNavigation(null)
+        if (pending === null) return
+        bypassCancelGuard.current = true
+        try { pending.next() } finally { bypassCancelGuard.current = false }
+      }
       focusedAnchor.current = anchorId
       function currentRead(passageId, request) {
         return passageRequest.current === request && displayedPassage.current === passageId
@@ -3941,6 +5135,10 @@ window.__ModuleLoader__.load({
         }
       }
       function showBookshelf() {
+        if (analysisBusyRef.current && !bypassCancelGuard.current) {
+          setPendingNavigation({ next: () => showBookshelf() })
+          return
+        }
         saveReadingPositionNow({}, true)
         invalidateContextPreview()
         historyContextRequest.current += 1
@@ -4138,13 +5336,20 @@ window.__ModuleLoader__.load({
         }).sort((a, b) => (shelf.placements[a.id]?.number ?? 0) - (shelf.placements[b.id]?.number ?? 0))
           .map((item) => h('div', { key: item.id, className: `shelfRow${activePassage?.id === item.id ? ' current' : ''}` },
             h('button', { type: 'button', className: 'shelfPassage', 'aria-current': activePassage?.id === item.id ? 'page' : null,
-              onClick: () => { void openPassage(item.id); if (directorySize.current) setDirectoryOpen(false); setKnowledgeOpen(false) } },
+              onClick: () => guardedNavigation(() => { void openPassage(item.id); if (directorySize.current) setDirectoryOpen(false); setKnowledgeOpen(false) }) },
               h('span', { className: 'shelfNumber' }, shelf.placements[item.id] ? String(shelf.placements[item.id].number).padStart(2, '0') : '—'),
               h('span', { className: 'shelfPassageText' }, h('span', null, item.title || t('untitled')), h('small', null, item.excerpt ?? ''))),
             h('button', { className: 'shelfOrganize', type: 'button', title: t('organizePassage'), 'aria-label': `${t('organizePassage')} · ${item.title}`,
               onClick: () => { setError(''); setLocationDialog({ passageId: item.id, ...(shelf.placements[item.id] ?? { book: '', chapter: '', number: 1 }) }) } }, '···')))
         const canResume = lastReadingPoint !== null && items.some((item) => item.id === lastReadingPoint.passageId)
-        return h('aside', { className: `bookDirectory${directoryOpen ? '' : ' hiddenDirectory'}`, 'aria-label': t('shelfTitle'), id: 'book-directory' },
+        // In a narrow panel the directory floats over the page: it needs its own
+        // backdrop and a stacking order above the reading surface, so the list is
+        // never painted under a host layer or behind the welcome page (R7-B06).
+        const overlay = directorySize.current === true
+        const directory = h('aside', {
+          className: `bookDirectory${directoryOpen ? '' : ' hiddenDirectory'}${overlay ? ' directoryOverlay' : ''}`,
+          'aria-label': t('shelfTitle'), id: 'book-directory',
+        },
           h('div', { className: 'directoryHead' }, h('strong', null, t('shelfTitle')),
             h('button', { className: 'small', type: 'button', onClick: () => { setError(''); setLocationDialog({ book: '', chapter: '', number: 1 }) } }, t('newBook'))),
           lastReadingPoint === null ? null : h('div', { className: 'directoryResume' },
@@ -4166,6 +5371,19 @@ window.__ModuleLoader__.load({
               h('summary', null, t('unfiled')), rows(null, null)) : null,
             shelf.books.length === 0 && items.length === 0 ? h('p', { className: 'hint' }, t('shelfEmpty')) : null),
           h('div', { className: 'directoryFoot' }, h('small', null, shelfError || t('shelfLocal')),
+            libraryNotice === null ? null : h('div', {
+              className: `libraryNotice ${libraryNotice.kind}`,
+              role: libraryNotice.kind === 'error' ? 'alert' : 'status',
+            },
+              h('p', null, libraryNotice.text),
+              libraryNotice.file === undefined ? null : h('small', null, format(t, 'backupFileName', { file: libraryNotice.file })),
+              (libraryNotice.detail ?? []).length === 0 ? null : h('ul', null,
+                libraryNotice.detail.map((line) => h('li', { key: line }, line)),
+                libraryNotice.more > 0 ? h('li', null, format(t, 'backupMoreConflicts', { count: libraryNotice.more })) : null),
+              h('button', {
+                className: 'small quiet', type: 'button',
+                onClick: () => setLibraryNotice(null),
+              }, t('dismissNotice'))),
             h('input', {
               ref: backupInput, type: 'file', accept: 'application/json,.json', style: { display: 'none' },
               onChange: importBackupFile,
@@ -4174,6 +5392,12 @@ window.__ModuleLoader__.load({
             h('button', { type: 'button', className: 'small quiet', disabled: exporting, onClick: exportBackup }, t('exportAll')),
             h('button', { type: 'button', className: 'small quiet', disabled: exporting, onClick: () => backupInput.current?.click?.() }, t('importBackup')),
             h('button', { type: 'button', className: 'small quiet', onClick: () => { setShowArchived(false); setSwitcherMode('list'); setSwitcherOpen(true) } }, t('libraryActions'))))
+        return overlay && directoryOpen
+          ? [h('button', {
+            key: 'directory-backdrop', className: 'directoryBackdrop', type: 'button',
+            'aria-label': t('closeDirectory'), onClick: () => setDirectoryOpen(false),
+          }), directory]
+          : directory
       }
       function readingSource() {
         if (knowledgeOpen) return null
@@ -4607,7 +5831,7 @@ window.__ModuleLoader__.load({
         setSelectedNode(null)
         setBranchDialog(null)
         setLookupOpen(false)
-        setSelectedWord('')
+        setSelectedWord(null)
         setActionDialog(null)
         setAnchorId('passage')
         setDrafts({})
@@ -4624,9 +5848,9 @@ window.__ModuleLoader__.load({
         if (activePassage === null) return
         loadReading(activePassage)
         loadDiscussion(activePassage.id)
-        setAskDraft('')
+        setAskDrafts({})
         invalidateContextPreview()
-        setAskStatus('')
+        setAskReceipts({})
         // An in-flight turn from the previous passage keeps running on the Host,
         // but it no longer owns this panel's ask state: its late frames and its
         // finally are refused there, so the busy flag is reset here instead.
@@ -4681,7 +5905,10 @@ window.__ModuleLoader__.load({
           ? -1
           : branch.messages.findIndex((message) => message.messageId === pending.previousMessageId)
         const fresh = branch.messages.slice(previousIndex + 1).reverse().find((message) =>
-          message.author === 'model' && message.status !== 'failed' && message.text !== '')
+          // A failed or cancelled placeholder is not a new answer: pinning a jump
+          // to it promises content the record does not have (R6-B03).
+          message.author === 'model' && message.status !== 'failed' && message.status !== 'cancelled'
+          && message.text !== '')
         if (fresh === undefined) return
         const scrollTop = detailScrollRef.current?.scrollTop ?? pending.scrollTop
         answerRevealAutoScrollRef.current = pending.nearBottom && Math.abs(scrollTop - pending.scrollTop) < 24
@@ -4798,11 +6025,18 @@ window.__ModuleLoader__.load({
             })
             .catch(() => { controller.abort() })
         }, timeoutMs)
-        setAnalysisRun({ runId, startedAt: Date.now(), timeoutSeconds: Math.round(timeoutMs / 1000), ...identity })
+        setAnalysisRun({ runId, startedAt: Date.now(), timeoutSeconds: Math.round(timeoutMs / 1000), stage: 'analysisStageRequesting', ...identity })
         return {
           runId,
           controller,
           timeoutSeconds: Math.round(timeoutMs / 1000),
+          // Which part of the run the reader is waiting on. A generation call is
+          // opaque for tens of seconds; naming the stage is the difference between
+          // "working" and "stuck" (R7-U03).
+          stage: (next) => {
+            if (analysisRunSeq.current !== runId) return
+            setAnalysisRun((current) => current?.runId === runId ? { ...current, stage: next } : current)
+          },
           // Two different questions, two different answers:
           // - isCurrent(): may this run commit a result? A cancelled run may
           //   not — even if the provider still answered, the reply is late,
@@ -4946,10 +6180,14 @@ window.__ModuleLoader__.load({
             kind: 'paragraph', passageId, anchorId: paragraphId, operationId,
           })
           setAnalysisBusy(true)
-          const value = unwrap(await analyseParagraph({
+          run.stage('analysisStageRequesting')
+          const pendingCall = analyseParagraph({
             passageId, paragraphId, backend, model,
             reasoningEffort: null, operationId,
-          }, run.controller.signal), t)
+          }, run.controller.signal)
+          run.stage('analysisStageReceiving')
+          const value = unwrap(await pendingCall, t)
+          run.stage('analysisStageValidating')
           if (!run.isCurrent()) {
             // Cancelled or superseded mid-flight: no result is committed, but a
             // run this panel still shows gets its receipt.
@@ -5071,12 +6309,16 @@ window.__ModuleLoader__.load({
             kind: 'sentence', passageId, anchorId, operationId,
           })
           setAnalysisBusy(true)
-          const value = unwrap(await analyseSentence({
+          run.stage('analysisStageRequesting')
+          const pendingCall = analyseSentence({
             passageId, anchorId, backend, model,
             reasoningEffort: null, operationId,
             paragraphIds: confirmedContext.includedParagraphIds,
             expectedFingerprint: confirmedContext.fingerprint,
-          }, run.controller.signal), t)
+          }, run.controller.signal)
+          run.stage('analysisStageReceiving')
+          const value = unwrap(await pendingCall, t)
+          run.stage('analysisStageValidating')
           if (!run.isCurrent()) {
             // Cancelled or superseded mid-flight: a late success is not shown,
             // the current analysis is not replaced, and a run this panel still
@@ -5214,6 +6456,27 @@ window.__ModuleLoader__.load({
        * the prototype's own dialog vocabulary (`modalBackdrop`, `modal`, `modalFoot`, plus the
        * knowledge list's `kbRows` / `kbRow`), so it reads as part of the same panel.
        */
+      /**
+       * R7-U04: the reader is told that leaving cancels the run, and chooses.
+       * Staying is the default — the run is real work.
+       */
+      function navigationGuardView() {
+        if (pendingNavigation === null) return null
+        return h('div', { className: 'modalBackdrop' },
+          h('div', {
+            className: 'modal actionDialog', role: 'dialog', 'aria-modal': 'true',
+            'aria-labelledby': 'navGuardTitle', 'aria-describedby': 'navGuardBody',
+            onKeyDown: (event) => modalKeys(event, () => setPendingNavigation(null)),
+          },
+            h('h2', { id: 'navGuardTitle' }, t('navGuardTitle')),
+            h('p', { id: 'navGuardBody', className: 'hint' }, t('navGuardBody')),
+            h('div', { className: 'modalFoot' },
+              h('button', { type: 'button', className: 'primary', onClick: () => setPendingNavigation(null) }, t('navGuardStay')),
+              h('button', { type: 'button', onClick: runPendingNavigation }, t('navGuardConfirm'))),
+          ),
+        )
+      }
+
       function passageSwitcher() {
         return h('div', { className: 'modalBackdrop' },
           h('div', {
@@ -5342,7 +6605,7 @@ window.__ModuleLoader__.load({
           },
             h('button', {
               className: 'kbRow', type: 'button', style: { flex: '1 1 auto' },
-              onClick: () => { setSwitcherOpen(false); void openPassage(item.id) },
+              onClick: () => guardedNavigation(() => { setSwitcherOpen(false); void openPassage(item.id) }),
             },
               h('div', null,
                 h('div', { className: 'name' }, item.title || t('untitled')),
@@ -5459,11 +6722,18 @@ window.__ModuleLoader__.load({
         return branches.find((entry) => entry.anchorId === target && entry.kind === 'discussion')?.branchId ?? null
       }
 
-      async function previewTurn(target) {
+      /**
+       * Compile what a turn would send.
+       *
+       * `override` names the branch and question explicitly: the word-lookup path
+       * creates its branch and then compiles immediately, and the render-scoped
+       * `selectedNode`/`askDrafts` it would otherwise read are one tick stale.
+       */
+      async function previewTurn(target, override = null) {
         if (activePassage === null || backend === '' || model === '') return
-        const question = askDraft.trim()
+        const branchId = override?.branchId ?? branchFor(target)
+        const question = (override?.question ?? (askDrafts[branchId] ?? '')).trim()
         if (question === '') { setError(t('questionRequired')); return }
-        const branchId = branchFor(target)
         if (branchId === null) { setError(t('branchFirst')); return }
         // A preview belongs to the exact question, branch, backend, model and
         // passage revision context that produced it. A newer request or edit
@@ -5504,7 +6774,7 @@ window.__ModuleLoader__.load({
         const controller = askAbortRef.current
         if (run === null || controller === null || controller.signal.aborted || run.cancelPending === true) return
         setAskRun((current) => current?.runId === run.runId ? { ...current, cancelPending: true } : current)
-        setAskStatus(t('askCancelRequesting'))
+        setAskReceipt(run.branchId, t('askCancelRequesting'))
         // Ask cancellation is out-of-band on the Remote call. Until its terminal
         // frame arrives, the UI says "requesting" and does not claim no answer was saved.
         controller.abort()
@@ -5512,9 +6782,9 @@ window.__ModuleLoader__.load({
 
       async function sendTurn(target) {
         if (activePassage === null || backend === '' || model === '' || askBusy) return
-        const question = askDraft.trim()
-        if (question === '') return
         const branchId = branchFor(target)
+        const question = (askDrafts[branchId] ?? '').trim()
+        if (question === '') return
         if (branchId === null) { setError(t('branchFirst')); return }
         const passageId = activePassage.id
         const requestId = passageRequest.current
@@ -5534,7 +6804,7 @@ window.__ModuleLoader__.load({
         setAskRun({ runId, startedAt: Date.now(), model, question, passageId, anchorId: target, branchId })
         setAskTick(0)
         setError('')
-        setAskStatus('')
+        setAskReceipt(branchId, '')
         setStreamText('')
         const priorBranch = (discussion?.branches ?? []).find((entry) => entry.branchId === branchId)
         const priorModelMessage = [...(priorBranch?.messages ?? [])].reverse().find((entry) => entry.author === 'model')
@@ -5566,9 +6836,9 @@ window.__ModuleLoader__.load({
             invalidateContextPreview()
             setError(format(t, 'askFailed', { reason: value.reason, failure: value.failure ?? '' }))
           } else {
-            setAskDraft('')
+            clearAskDraft(branchId)
             invalidateContextPreview()
-            setAskStatus(value.finish === 'stop'
+            setAskReceipt(branchId, value.finish === 'stop'
               ? format(t, 'answerDone', { model: value.resolvedModel ?? value.model })
               : value.finish === 'cancelled'
                 ? t('answerCancelled')
@@ -5579,17 +6849,41 @@ window.__ModuleLoader__.load({
           if (!mine()) return
           invalidateContextPreview()
           if (controller.signal.aborted) {
-            // The record just re-read is authoritative: when the Host persisted this
-            // turn's message as cancelled, cancellation is confirmed instead of the
-            // panel claiming an unconfirmed state forever.
-            const latest = await loadDiscussion(passageId)
-            const messages = latest === null
-              ? []
-              : ((latest.branches ?? []).find((entry) => entry.branchId === branchId)?.messages ?? [])
-            const lastMessage = messages.length === 0 ? null : messages[messages.length - 1]
-            setAskStatus(lastMessage?.status === 'cancelled'
-              ? t('askCancelledConfirmed')
-              : t('askCancelUnconfirmed'))
+            // A cancelled turn saves no answer reveal: the placeholder the Host
+            // writes must not surface as a "new answer" on a later refresh (R6-B03).
+            pendingAnswerRevealRef.current = null
+            // The first read can race the Host's own write of the terminal state:
+            // abort lands client-side before the cancelled message exists. So the
+            // panel verifies instead of judging one snapshot — it keeps reading
+            // until the record shows this run's cancelled message (matched by its
+            // timestamp, so an older cancelled message from another turn can never
+            // confirm this one) or the attempts run out (R6-B02).
+            const startedAtMs = Date.now()
+            const verifySeq = ++cancelVerifySeq.current
+            const stillMine = () => currentRead(passageId, requestId)
+              && askRunSeq.current === runId && cancelVerifySeq.current === verifySeq
+            const readTerminal = async () => {
+              const latest = await loadDiscussion(passageId)
+              if (latest === null) return null
+              const branchNow = (latest.branches ?? []).find((entry) => entry.branchId === branchId)
+              if (branchNow === undefined) return null
+              return (branchNow.messages ?? []).find((message) => message.author === 'model'
+                && message.status === 'cancelled' && typeof message.createdAt === 'string'
+                && new Date(message.createdAt).getTime() >= startedAtMs - 1000) ?? null
+            }
+            setAskReceipt(branchId, t('askCancelVerifying'))
+            void (async () => {
+              for (let attempt = 0; attempt < CANCEL_VERIFY_ATTEMPTS; attempt += 1) {
+                if (!stillMine()) return
+                const terminal = await readTerminal()
+                if (!stillMine()) return
+                if (terminal !== null) { setAskReceipt(branchId, t('askCancelledConfirmed')); return }
+                if (attempt < CANCEL_VERIFY_ATTEMPTS - 1) {
+                  await new Promise((resolve) => setTimeout(resolve, CANCEL_VERIFY_INTERVAL_MS))
+                }
+              }
+              if (stillMine()) setAskReceipt(branchId, t('askCancelUnconfirmed'))
+            })()
           } else {
             pendingAnswerRevealRef.current = null
             setError(format(t, 'generationUnavailable', { reason: String(cause?.message ?? cause) }))
@@ -5923,14 +7217,29 @@ window.__ModuleLoader__.load({
         if (!quote.contains(range.endContainer)) return
         const value = selection.toString().trim()
         if (value === '' || value.length > 100) return
-        setSelectedWord(value)
+        setSelectedWord({ text: value, anchorId })
+      }
+
+      /** The stored word and the DOM selection both belong to one sentence. */
+      function clearReadingSelection() {
+        setSelectedWord(null)
+        if (typeof window !== 'undefined' && typeof window.getSelection === 'function') {
+          window.getSelection()?.removeAllRanges?.()
+        }
       }
 
       function pickNode(node) {
-        invalidateContextPreview()
-        setAnchorId(node.anchorId)
-        setSelectedNode(node)
-        saveReadingPositionNow({ anchorId: node.anchorId, selectedNode: node })
+        guardedNavigation(() => {
+          invalidateContextPreview()
+          setAnchorId(node.anchorId)
+          setSelectedNode(node)
+          clearReadingSelection()
+          // In the compact layout the route is a drawer over the detail pane: keeping
+          // it open hid the very detail the reader just asked to see (R7-U08). In the
+          // wide layout both are visible, so nothing changes there.
+          if (compact) setNavOpen(false)
+          saveReadingPositionNow({ anchorId: node.anchorId, selectedNode: node })
+        })
       }
 
       /**
@@ -5938,13 +7247,17 @@ window.__ModuleLoader__.load({
        * that sentence has been analysed — nothing otherwise.
        */
       function selectSentence(sentenceId) {
-        invalidateContextPreview()
-        const nextNode = (coverage?.covered ?? []).includes(sentenceId)
-          ? { id: `a-${sentenceId}`, anchorId: sentenceId, parentId: null, kind: 'analysis', title: t('analysisTitle'), status: '' }
-          : null
-        setAnchorId(sentenceId)
-        setSelectedNode(nextNode)
-        saveReadingPositionNow({ anchorId: sentenceId, selectedNode: nextNode })
+        guardedNavigation(() => {
+          invalidateContextPreview()
+          const nextNode = (coverage?.covered ?? []).includes(sentenceId)
+            ? { id: `a-${sentenceId}`, anchorId: sentenceId, parentId: null, kind: 'analysis', title: t('analysisTitle'), status: '' }
+            : null
+          setAnchorId(sentenceId)
+          setSelectedNode(nextNode)
+          clearReadingSelection()
+          if (compact) setNavOpen(false)
+          saveReadingPositionNow({ anchorId: sentenceId, selectedNode: nextNode })
+        })
       }
 
       /** One sentence row: ordinal, text (constituent-coloured when it is the anchor), audio row. */
@@ -5999,7 +7312,7 @@ window.__ModuleLoader__.load({
           h('div', { className: 'paragraphHeading' },
             h('button', {
               type: 'button', title: paragraph.id,
-              onClick: () => setAnchorId(paragraph.id),
+              onClick: () => guardedNavigation(() => { setAnchorId(paragraph.id); setSelectedNode(null); clearReadingSelection() }),
             }, format(t, 'paragraphLabel', { index: index + 1 })),
           ),
           paragraph.sentences.map((sentence, rowIndex) => navSentenceRow(paragraph, sentence, rowIndex)),
@@ -6239,9 +7552,9 @@ window.__ModuleLoader__.load({
           invalidateContextPreview()
           setAnchorId(targetAnchor)
           setSelectedNode({ id: value.branchId, anchorId: targetAnchor, kind: 'discussion', title })
-          setAskDraft(initialQuestion ?? '')
-          setAskStatus(initialQuestion === null ? t('branchOpened') : t(kind === 'vocabulary' ? 'wordQuestionReady' : 'discussionQuestionReady'))
-          return true
+          if (initialQuestion !== null) updateAskDraft(value.branchId, initialQuestion)
+          setAskReceipt(value.branchId, initialQuestion === null ? t('branchOpened') : t(kind === 'vocabulary' ? 'wordQuestionReady' : 'discussionQuestionReady'))
+          return value.branchId
         } catch (cause) {
           if (currentRead(targetPassageId, passageRead)) {
             setOperationError(setError, failureMessage, t('createDiscussionOperation'), cause)
@@ -6323,14 +7636,23 @@ window.__ModuleLoader__.load({
         const operations = wordBranchOperationsRef.current
         const operationId = operations.get(retryKey) ?? createUuid()
         operations.set(retryKey, operationId)
-        void createBranchWith({
-          // Keep the exact queried Mot as the branch title so a later vocabulary
-          // action never has to guess it back out of an assistant's prose.
-          title: mot, kind: 'vocabulary',
-          parentId: null, cut: null, anchorId: node.anchorId,
-          initialQuestion: format(t, 'wordDiscussionPrompt', { mot }), operationId, retryKey,
-          failureMessage: t('wordDiscussionSaveFailed'), expectedFocusedAnchor: node.anchorId,
-        })
+        const question = format(t, 'wordDiscussionPrompt', { mot })
+        void (async () => {
+          const branchId = await createBranchWith({
+            // Keep the exact queried Mot as the branch title so a later vocabulary
+            // action never has to guess it back out of an assistant's prose.
+            title: mot, kind: 'vocabulary',
+            parentId: null, cut: null, anchorId: node.anchorId,
+            initialQuestion: question, operationId, retryKey,
+            failureMessage: t('wordDiscussionSaveFailed'), expectedFocusedAnchor: node.anchorId,
+          })
+          // A miss used to cost four steps (create · preview · send · save). The
+          // branch and its question are now ready to send, so the reader reviews
+          // the compiled material and presses send — the preview guarantee is kept,
+          // the two mechanical steps in front of it are not (R7-U01).
+          if (branchId === false || branchId === null || branchId === undefined) return
+          await previewTurn(node.anchorId, { branchId, question })
+        })()
       }
 
       function openLexiconEntryForm(node) {
@@ -6909,8 +8231,10 @@ window.__ModuleLoader__.load({
           // `kbUI.mode`: the library lists, then an entry opens on top of it.
           if (knowledgeEntryId === null) {
             return h(KnowledgeLibrary, {
-              t, listLexicon, listGrammar, resolveGrammarCandidate,
+              t, listLexicon, listGrammar, resolveGrammarCandidate, mergeGrammarEntries,
               onReturn: returnToAnalysis,
+              view: knowledgeList,
+              onView: (next) => setKnowledgeList((current) => ({ ...current, ...next })),
               onOpenEntry: (id, tab) => { setKnowledgeEntryId(id); setKnowledgeTab(tab) },
             })
           }
@@ -6923,7 +8247,12 @@ window.__ModuleLoader__.load({
               h('div', { className: 'kbBar' },
                 h('button', {
                   className: 'kbReturn', type: 'button',
-                  onClick: () => setKnowledgeEntryId(null),
+                  // Back to the list the entry was opened from: the view state is
+                  // the page's, so the tab, search and filter are still there.
+                  onClick: () => {
+                    setKnowledgeList((current) => ({ ...current, tab: knowledgeTab === 'grammar' ? 'grammar' : 'vocab' }))
+                    setKnowledgeEntryId(null)
+                  },
                 }, t('backToEntryList')),
                 h('button', {
                   className: 'kbReturn', type: 'button', onClick: returnToAnalysis,
@@ -6949,7 +8278,17 @@ window.__ModuleLoader__.load({
                   ? null
                   : entry.lemma ?? entry.mot ?? null)
                 if (lemma === null) return null
-                return h(ConjugationView, { key: 'conjugation', t, lemma, readConjugation, fetchConjugation })
+                return h(ConjugationView, {
+                  key: 'conjugation', t, lemma, readConjugation, fetchConjugation,
+                  // The form surface's own four calls: separate state from the
+                  // sentence's, as the contract requires.
+                  audioCalls: {
+                    list: listInflectionAudio,
+                    synthesize: synthesizeInflectionAudio,
+                    select: selectInflectionAudio,
+                    readAsset: readInflectionAudioAsset,
+                  },
+                })
               },
               }),
             ),
@@ -7061,7 +8400,16 @@ window.__ModuleLoader__.load({
         const branch = (discussion?.branches ?? []).find((entry) => entry.branchId === node.id)
         return h('div', null,
           h('div', { className: 'composeTarget' }, branch?.title ?? node.title),
-          h('details', { className: 'context' },
+          // The preview and the send control belong to one state: once the material
+          // is compiled the reviewer is shown it and the send button together,
+          // instead of having to find two controls in two places (R7-U02). The key
+          // remounts the fold so it opens itself when a preview arrives; the reader
+          // can still collapse it afterwards.
+          h('details', {
+            className: 'context',
+            key: contextPreview === null ? 'context-closed' : 'context-open',
+            open: contextPreview !== null,
+          },
             h('summary', null, t('contextTitle')),
             h('div', null, contextPreview === null
               ? t('contextNotCompiled')
@@ -7089,23 +8437,31 @@ window.__ModuleLoader__.load({
               ))),
           h('textarea', {
             className: 'draft',
-            value: askDraft, disabled: askBusy,
+            value: askDrafts[node.id] ?? '', disabled: askBusy,
             placeholder: t('askPlaceholder'),
             'aria-label': t('askPlaceholder'),
             onChange: (event) => {
-              setAskDraft(event.target.value)
+              updateAskDraft(node.id, event.target.value)
               invalidateContextPreview()
               setError('')
             },
           }),
           h('div', { className: 'composerFoot' },
             h('span', { className: 'hint' }, model === '' ? t('modelNotConnected') : `${backend} · ${model}`),
+            contextPreview === null
+              ? null
+              : h('span', { className: 'hint contextReady' }, format(t, 'contextSize', {
+                characters: contextPreview.characters,
+                count: (contextPreview.materials ?? []).length,
+              })),
             h('button', {
               className: 'small', type: 'button',
-              disabled: askBusy || askDraft.trim() === '',
+              disabled: askBusy || (askDrafts[node.id] ?? '').trim() === '',
               onClick: () => (contextPreview === null ? previewTurn(node.anchorId) : sendTurn(node.anchorId)),
             }, contextPreview === null ? t('previewContext') : t('sendTurn')),
           ),
+          contextPreview === null || (askReceipts[node.id] ?? '') !== '' ? null
+            : h('p', { className: 'hint contextReady' }, t('contextReadyHint')),
           askRun === null ? null : h('div', { className: 'askRunStatus', role: 'status' },
             h('span', null, format(t, 'askWaiting', { model: askRun.model, seconds: askTick })),
             h('p', { className: 'askQuestion' }, format(t, 'askSent', { question: askRun.question })),
@@ -7117,16 +8473,33 @@ window.__ModuleLoader__.load({
           streamText === ''
             ? null
             : h('pre', { className: 'streamText', role: 'status', 'aria-live': 'polite' }, streamText),
-          askStatus === '' ? null : h('p', { className: 'status', role: 'status' }, askStatus),
+          (askReceipts[node.id] ?? '') === '' ? null : h('p', { className: 'status', role: 'status' }, askReceipts[node.id]),
         )
       }
 
       function revealNewAnswer() {
         if (newAnswerMessageId === null || typeof document === 'undefined') return
         const target = document.getElementById(`discussion-message-${newAnswerMessageId}`)
-        if (target === null) return
-        target.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' })
-        setNewAnswerMessageId(null)
+        if (target !== null) {
+          target.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' })
+          setNewAnswerMessageId(null)
+          return
+        }
+        // The message is not on the current page: it belongs to another branch
+        // (the pinned id survives branch switches). Select that branch and look
+        // again after it renders, instead of silently doing nothing (R6-B03).
+        const owner = (discussion?.branches ?? []).find((branch) =>
+          (branch.messages ?? []).some((message) => message.messageId === newAnswerMessageId))
+        if (owner === undefined) { setNewAnswerMessageId(null); return }
+        pickNode(branchNode(owner))
+        const id = newAnswerMessageId
+        const reveal = () => {
+          const element = document.getElementById(`discussion-message-${id}`)
+          element?.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' })
+          setNewAnswerMessageId((current) => (current === id ? null : current))
+        }
+        if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => requestAnimationFrame(reveal))
+        else reveal()
       }
 
       /** A discussion branch: where it came from, its messages, and its own actions. */
@@ -7276,6 +8649,16 @@ window.__ModuleLoader__.load({
         const breadcrumb = selectedPlacement
           ? `${selectedPlacement.book} / ${selectedPlacement.chapter} / ${format(t, 'paragraphLabel', { index: selectedPlacement.number })}`
           : t('unfiled')
+        // The toolbar's audio source: the focused sentence at the revisions it is
+        // really read from. A paragraph anchor has no such source, so the control
+        // is absent there rather than pointing at the paragraph's own text — the
+        // one thing the contract refuses to synthesize.
+        const focusedSentence = isSentenceAnchorId(anchorId)
+          ? sentenceList().find((sentence) => sentence.id === anchorId) ?? null
+          : null
+        const sentenceAudio = focusedSentence === null || segmentation === null
+          ? null
+          : sentenceSpeechSource(passage, segmentation, focusedSentence)
         return h('div', { className: 'fr-root bookLayout', ref: rootRef, 'data-directory': directoryOpen ? 'open' : 'closed' },
           h('header', { className: 'top compactTop' },
             h('div', { className: 'topLeft' },
@@ -7316,6 +8699,7 @@ window.__ModuleLoader__.load({
           analysisContextDialog === null ? null : analysisContextDialogView(),
           switcherOpen ? passageSwitcher() : null,
           branchDialog === null ? null : branchDialogView(),
+          navigationGuardView(),
           lookupOpen ? lookupDialogView() : null,
           lexiconEntryDraft === null ? null : lexiconEntryDialogView(),
           historyContext === null ? null : sentContextDialogView(),
@@ -7372,6 +8756,12 @@ window.__ModuleLoader__.load({
               ),
               h('div', { className: 'navFoot' },
                 h('span', null, t('navHint')),
+                // Keyboard panning (arrows) and zooming change the camera silently;
+                // this readout is what makes the change observable, including to
+                // assistive tech (R7 keyboard-pan verification).
+                h('span', {
+                  className: 'navPosition', role: 'status', 'aria-live': 'polite',
+                }, format(t, 'navPosition', { x: Math.round(nav.x), y: Math.round(nav.y) })),
                 h('button', { className: 'quiet', type: 'button', onClick: fitNavigation }, t('navFit')),
               ),
             ),
@@ -7394,7 +8784,7 @@ window.__ModuleLoader__.load({
                 nextPassages[passage.id] ? h('button', {
                   className: 'primary small', type: 'button', disabled: busy || loadingPassage,
                   title: nextPassages[passage.id].title,
-                  onClick: () => { void openPassage(nextPassages[passage.id].id) },
+                  onClick: () => guardedNavigation(() => { void openPassage(nextPassages[passage.id].id) }),
                 }, t('startNextPassage')) : h('button', {
                   className: 'small', type: 'button', disabled: busy,
                   onClick: () => { void composeNextPassage() },
@@ -7440,13 +8830,22 @@ window.__ModuleLoader__.load({
                   disabled: analysisBusy || backend === '' || model === '' || !isSentenceAnchorId(anchorId),
                   onClick: () => { void analyseCurrent() },
                 }, analysisBusy ? t('analyzing') : sentenceAnalysis?.kind === 'found' ? t('reanalyseSentence') : t('analyseTop')),
-                h('span', { className: 'selectedWord' }, selectedWord),
+                h('span', {
+                  className: 'selectedWord',
+                  title: selectedWord !== null && selectedWord.anchorId !== anchorId
+                    ? format(t, 'selectedWordFrom', { index: sentenceOrdinal(selectedWord.anchorId) })
+                    : undefined,
+                }, selectedWord !== null && selectedWord.anchorId === anchorId ? selectedWord.text : ''),
                 h('button', {
                   className: 'small', type: 'button',
                   // `openLookup()`: a selected word is looked up straight away; only an
-                  // empty selection opens the dialog.
+                  // empty selection opens the dialog. A word from another sentence is
+                  // never acted on: the selection is cleared when the focus moves.
                   onClick: () => {
-                    if (selectedWord !== '') { void lookupWord(selectedWord); return }
+                    if (selectedWord !== null && selectedWord.anchorId === anchorId) {
+                      void lookupWord(selectedWord.text)
+                      return
+                    }
                     setLookupInput('')
                     setLookupOpen(true)
                   },
@@ -7491,6 +8890,19 @@ window.__ModuleLoader__.load({
                       : models.map((entry) => h('option', { key: entry.id, value: entry.id }, entry.name))),
                   ),
                 ),
+                // 发音 belongs to the sentence the toolbar is about: the same
+                // source key the Host fingerprints, so switching sentences shows
+                // that sentence's takes and never the previous one's.
+                sentenceAudio === null ? null : h(AudioControls, {
+                  key: `sentence-audio-${sentenceAudio.sentenceId}`,
+                  t, kind: 'sentence', source: sentenceAudio,
+                  calls: {
+                    list: listSentenceAudio,
+                    synthesize: synthesizeSentenceAudio,
+                    select: selectSentenceAudio,
+                    readAsset: readSentenceAudioAsset,
+                  },
+                }),
               ),
               h('div', { className: 'branchStrip', id: 'branchStrip' },
                 (discussion?.branches ?? [])
@@ -7511,7 +8923,7 @@ window.__ModuleLoader__.load({
                 ),
                 analysisRun === null ? null : h('div', { className: 'runStatus', role: 'status' },
                   h('span', null, format(t, 'analysisStageElapsed', {
-                    stage: t('analysisStage'),
+                    stage: t(analysisRun.stage ?? 'analysisStage'),
                     seconds: Math.floor((Date.now() - analysisRun.startedAt) / 1000),
                   })),
                   h('button', {
@@ -7552,6 +8964,10 @@ window.__ModuleLoader__.load({
             h('div', { className: 'topLeft' }, h('div', { className: 'brand' }, h('div', { className: 'logo' }, 'f.'), h('span', { className: 'title' }, t('panel'))),
               h('button', { type: 'button', onClick: toggleDirectory, 'aria-expanded': directoryOpen, 'aria-controls': 'book-directory' }, t('shelfToggle'))),
             h('div', { className: 'topActions' }, h('button', { type: 'button', onClick: () => beginChapterPassage() }, t('newPassage')), closeButton())),
+          h('div', {
+            className: `toast${toast === '' ? ' hidden' : ''}`,
+            role: 'status', 'aria-live': 'polite',
+          }, toast),
           bookDirectory(),
           h('main', { className: 'frontDoor shelfWelcome' },
             h('div', { className: 'frontDoorInner' }, h('div', { className: 'eyebrow' }, t('brandSub')),
@@ -7563,6 +8979,7 @@ window.__ModuleLoader__.load({
               h('p', { className: 'hint' }, format(t, 'count', { count: total })))),
           switcherOpen ? passageSwitcher() : null,
           locationDialog ? locationDialogView() : null,
+          navigationGuardView(),
           error && !switcherOpen && !locationDialog ? h('p', { className: 'error', role: 'alert' }, error) : null)
       }
 
@@ -7611,7 +9028,29 @@ window.__ModuleLoader__.load({
           publishAnalysis: (request) => api.publishAnalysis(request),
           listLexiconSources: (request) => api.listLexiconSources(request),
           fetchLexiconSource: (request) => api.fetchLexiconSource(request),
+          // Without these two the verb card mounted ConjugationView with
+          // undefined calls, whose effect threw and unmounted the whole panel
+          // (R7-B01): every reopen of the entry re-threw, blanking the panel
+          // until the plugin itself was reloaded.
+          readConjugation: (request) => api.readConjugation(request),
+          fetchConjugation: (request) => api.fetchConjugation(request),
+          // The audio surface. Synthesis is the reader's own press, so it takes the
+          // caller's AbortSignal the way the other cancellable calls do: aborting it
+          // is the only cancel there is — the Host declares no cancel endpoint.
+          synthesizeSentenceAudio: (request, signal) => (signal === undefined
+            ? api.synthesizeSentenceAudio(request)
+            : api.synthesizeSentenceAudio(request, signal)),
+          listSentenceAudio: (request) => api.listSentenceAudio(request),
+          selectSentenceAudio: (request) => api.selectSentenceAudio(request),
+          readSentenceAudioAsset: (request) => api.readSentenceAudioAsset(request),
+          synthesizeInflectionAudio: (request, signal) => (signal === undefined
+            ? api.synthesizeInflectionAudio(request)
+            : api.synthesizeInflectionAudio(request, signal)),
+          listInflectionAudio: (request) => api.listInflectionAudio(request),
+          selectInflectionAudio: (request) => api.selectInflectionAudio(request),
+          readInflectionAudioAsset: (request) => api.readInflectionAudioAsset(request),
           setGrammarMastery: (request) => api.setGrammarMastery(request),
+          mergeGrammarEntries: (request) => api.mergeGrammarEntries(request),
           listBackends: (request) => api.listBackends(request),
           listBackendModels: (request) => api.listBackendModels(request),
           previewAsk: (request) => api.previewAsk(request),
@@ -7633,7 +9072,7 @@ window.__ModuleLoader__.load({
         }
         ctx.slots.inject('main', () => ctx.slots.register({
           name: 'main', key: 'french-close-reading', locale: NS, inject: () => face,
-        }, PassagePage))
+        }, PanelWithBoundary))
         ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({
           name: 'sidebar.panellist', id: 'french-close-reading', order: 40,
           locale: NS, label: () => t('panel'),

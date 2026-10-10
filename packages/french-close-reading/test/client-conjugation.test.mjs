@@ -75,6 +75,7 @@ test('the panel declares both conjugation calls against the Host contract', () =
       useEffect: () => {},
       useRef: (value) => ({ current: value }),
       useState: (value) => [value, () => {}],
+    Component: class { constructor(props) { this.props = props; this.state = {} } },
     }
   }
   registration.factory(require)

@@ -99,8 +99,8 @@ export declare const TranslationSchema: z.ZodObject<{
         excerpt: z.ZodString;
     }, z.core.$strict>>>;
     source: z.ZodDefault<z.ZodEnum<{
-        ai: "ai";
         user: "user";
+        ai: "ai";
     }>>;
     note: z.ZodDefault<z.ZodString>;
     language: z.ZodString;
@@ -122,11 +122,11 @@ export declare const BranchSchema: z.ZodObject<{
         excerpt: z.ZodString;
     }, z.core.$strict>>>;
     kind: z.ZodEnum<{
+        note: "note";
         constituents: "constituents";
         grammar: "grammar";
         vocabulary: "vocabulary";
         translation: "translation";
-        note: "note";
     }>;
     title: z.ZodString;
     body: z.ZodString;
@@ -173,8 +173,8 @@ export declare const AnalysisSchema: z.ZodObject<{
             excerpt: z.ZodString;
         }, z.core.$strict>>>;
         source: z.ZodDefault<z.ZodEnum<{
-            ai: "ai";
             user: "user";
+            ai: "ai";
         }>>;
         note: z.ZodDefault<z.ZodString>;
         language: z.ZodString;
@@ -195,11 +195,11 @@ export declare const AnalysisSchema: z.ZodObject<{
             excerpt: z.ZodString;
         }, z.core.$strict>>>;
         kind: z.ZodEnum<{
+            note: "note";
             constituents: "constituents";
             grammar: "grammar";
             vocabulary: "vocabulary";
             translation: "translation";
-            note: "note";
         }>;
         title: z.ZodString;
         body: z.ZodString;
@@ -228,8 +228,8 @@ export declare const RunIntentSchema: z.ZodObject<{
     module: z.ZodDefault<z.ZodNullable<z.ZodString>>;
     pitfall: z.ZodDefault<z.ZodString>;
     status: z.ZodEnum<{
-        pending: "pending";
         failed: "failed";
+        pending: "pending";
         applied: "applied";
     }>;
     appliedId: z.ZodNullable<z.ZodString>;
@@ -278,8 +278,8 @@ export declare const RunSchema: z.ZodObject<{
         module: z.ZodDefault<z.ZodNullable<z.ZodString>>;
         pitfall: z.ZodDefault<z.ZodString>;
         status: z.ZodEnum<{
-            pending: "pending";
             failed: "failed";
+            pending: "pending";
             applied: "applied";
         }>;
         appliedId: z.ZodNullable<z.ZodString>;
@@ -321,8 +321,8 @@ export declare const RunsSchema: z.ZodObject<{
             module: z.ZodDefault<z.ZodNullable<z.ZodString>>;
             pitfall: z.ZodDefault<z.ZodString>;
             status: z.ZodEnum<{
-                pending: "pending";
                 failed: "failed";
+                pending: "pending";
                 applied: "applied";
             }>;
             appliedId: z.ZodNullable<z.ZodString>;
@@ -408,8 +408,8 @@ export declare const LexiconEntrySchema: z.ZodObject<{
         createdAt: z.ZodString;
     }, z.core.$strict>>;
     provenance: z.ZodEnum<{
-        ai: "ai";
         user: "user";
+        ai: "ai";
         mixed: "mixed";
     }>;
     status: z.ZodEnum<{
@@ -501,8 +501,8 @@ export declare const GrammarEntrySchema: z.ZodObject<{
     }>;
     contentStatus: z.ZodEnum<{
         user: "user";
-        "ai-unverified": "ai-unverified";
         mixed: "mixed";
+        "ai-unverified": "ai-unverified";
     }>;
     askCount: z.ZodNumber;
     lastAskedAt: z.ZodNullable<z.ZodString>;
@@ -528,8 +528,8 @@ export declare const GrammarPendingSchema: z.ZodObject<{
     questionId: z.ZodDefault<z.ZodString>;
     createdAt: z.ZodString;
     resolution: z.ZodDefault<z.ZodNullable<z.ZodEnum<{
-        created: "created";
         attached: "attached";
+        created: "created";
         discarded: "discarded";
     }>>>;
     resolvedEntryId: z.ZodDefault<z.ZodNullable<z.ZodString>>;
@@ -554,8 +554,8 @@ export declare const GrammarStoreSchema: z.ZodObject<{
         questionId: z.ZodDefault<z.ZodString>;
         createdAt: z.ZodString;
         resolution: z.ZodDefault<z.ZodNullable<z.ZodEnum<{
-            created: "created";
             attached: "attached";
+            created: "created";
             discarded: "discarded";
         }>>>;
         resolvedEntryId: z.ZodDefault<z.ZodNullable<z.ZodString>>;
@@ -614,10 +614,10 @@ export declare const ConjugationDatasetRecordSchema: z.ZodObject<{
     source: z.ZodString;
     sourceVersion: z.ZodString;
     fetchStatus: z.ZodEnum<{
-        failed: "failed";
         ok: "ok";
         partial: "partial";
         "rate-limited": "rate-limited";
+        failed: "failed";
         "no-forms": "no-forms";
     }>;
     failure: z.ZodDefault<z.ZodNullable<z.ZodString>>;
@@ -666,6 +666,236 @@ export declare const ConjugationDatasetRecordSchema: z.ZodObject<{
 }, z.core.$strict>;
 export type StoredConjugationRecord = z.infer<typeof ConjugationDatasetRecordSchema>;
 /**
+ * The one immutable source a sentence's audio belongs to.
+ *
+ * A take is addressed by this whole tuple, never by the sentence id alone and
+ * never by whatever the panel currently has selected: `sourceRevision` and
+ * `sentenceRevision` are part of the identity, so audio made from an earlier
+ * text can never be played as if it belonged to the current one. Renaming a
+ * chapter or a paragraph changes none of these fields.
+ */
+export declare const SentenceSpeechSourceSchema: z.ZodObject<{
+    passageId: z.ZodString;
+    sentenceId: z.ZodString;
+    sourceRevision: z.ZodNumber;
+    sentenceRevision: z.ZodNumber;
+    text: z.ZodString;
+    language: z.ZodString;
+}, z.core.$strict>;
+export type StoredSentenceSpeechSource = z.infer<typeof SentenceSpeechSourceSchema>;
+/**
+ * The one form a conjugation row's audio belongs to.
+ *
+ * `utterance` is real French — never IPA and never slash-separated
+ * alternatives — because it is what the provider is asked to say. The written
+ * form, lemma, tense and person travel with it so a take can be audited against
+ * the row it was made for instead of trusting a row index.
+ */
+export declare const InflectionSpeechSourceSchema: z.ZodObject<{
+    kind: z.ZodLiteral<"inflection">;
+    formId: z.ZodString;
+    inflectionRevision: z.ZodNumber;
+    lemma: z.ZodString;
+    tense: z.ZodString;
+    formKind: z.ZodEnum<{
+        finite: "finite";
+        "compound-infinitive": "compound-infinitive";
+        participle: "participle";
+    }>;
+    person: z.ZodUnion<readonly [z.ZodLiteral<1>, z.ZodLiteral<2>, z.ZodLiteral<3>, z.ZodLiteral<4>, z.ZodLiteral<5>, z.ZodLiteral<6>, z.ZodNull]>;
+    form: z.ZodString;
+    utterance: z.ZodString;
+    language: z.ZodString;
+}, z.core.$strict>;
+export type StoredInflectionSpeechSource = z.infer<typeof InflectionSpeechSourceSchema>;
+/** The voice a take was made with. It is part of the take's identity. */
+export declare const AudioVoiceSchema: z.ZodObject<{
+    voiceId: z.ZodNullable<z.ZodString>;
+    rate: z.ZodNumber;
+}, z.core.$strict>;
+export type StoredAudioVoice = z.infer<typeof AudioVoiceSchema>;
+/** Which adapter produced a take, recorded so audio is never attributed to another model. */
+export declare const SpeechBackendSchema: z.ZodObject<{
+    kind: z.ZodEnum<{
+        live: "live";
+        tts: "tts";
+    }>;
+    providerId: z.ZodString;
+    modelId: z.ZodString;
+}, z.core.$strict>;
+export type StoredSpeechBackend = z.infer<typeof SpeechBackendSchema>;
+/**
+ * One immutable audio version of one sentence.
+ *
+ * Every regeneration appends a take; nothing here is ever overwritten in place.
+ * The audio travels inside the record as base64 — the contract stores bytes,
+ * not a pointer to a file that may be gone — with the mime type, the measured
+ * duration and the byte count recorded next to it, so a duration is a
+ * measurement rather than a guess.
+ */
+export declare const SentenceAudioTakeSchema: z.ZodObject<{
+    takeId: z.ZodString;
+    requestId: z.ZodString;
+    source: z.ZodObject<{
+        passageId: z.ZodString;
+        sentenceId: z.ZodString;
+        sourceRevision: z.ZodNumber;
+        sentenceRevision: z.ZodNumber;
+        text: z.ZodString;
+        language: z.ZodString;
+    }, z.core.$strict>;
+    backend: z.ZodObject<{
+        kind: z.ZodEnum<{
+            live: "live";
+            tts: "tts";
+        }>;
+        providerId: z.ZodString;
+        modelId: z.ZodString;
+    }, z.core.$strict>;
+    voice: z.ZodObject<{
+        voiceId: z.ZodNullable<z.ZodString>;
+        rate: z.ZodNumber;
+    }, z.core.$strict>;
+    previousTakeId: z.ZodDefault<z.ZodNullable<z.ZodString>>;
+    audioAssetId: z.ZodString;
+    mimeType: z.ZodString;
+    durationMs: z.ZodNumber;
+    bytes: z.ZodNumber;
+    audioBase64: z.ZodString;
+    createdAt: z.ZodString;
+}, z.core.$strict>;
+export type StoredSentenceAudioTake = z.infer<typeof SentenceAudioTakeSchema>;
+export declare const InflectionAudioTakeSchema: z.ZodObject<{
+    takeId: z.ZodString;
+    requestId: z.ZodString;
+    backend: z.ZodObject<{
+        kind: z.ZodEnum<{
+            live: "live";
+            tts: "tts";
+        }>;
+        providerId: z.ZodString;
+        modelId: z.ZodString;
+    }, z.core.$strict>;
+    voice: z.ZodObject<{
+        voiceId: z.ZodNullable<z.ZodString>;
+        rate: z.ZodNumber;
+    }, z.core.$strict>;
+    previousTakeId: z.ZodDefault<z.ZodNullable<z.ZodString>>;
+    audioAssetId: z.ZodString;
+    mimeType: z.ZodString;
+    durationMs: z.ZodNumber;
+    bytes: z.ZodNumber;
+    audioBase64: z.ZodString;
+    createdAt: z.ZodString;
+    source: z.ZodObject<{
+        kind: z.ZodLiteral<"inflection">;
+        formId: z.ZodString;
+        inflectionRevision: z.ZodNumber;
+        lemma: z.ZodString;
+        tense: z.ZodString;
+        formKind: z.ZodEnum<{
+            finite: "finite";
+            "compound-infinitive": "compound-infinitive";
+            participle: "participle";
+        }>;
+        person: z.ZodUnion<readonly [z.ZodLiteral<1>, z.ZodLiteral<2>, z.ZodLiteral<3>, z.ZodLiteral<4>, z.ZodLiteral<5>, z.ZodLiteral<6>, z.ZodNull]>;
+        form: z.ZodString;
+        utterance: z.ZodString;
+        language: z.ZodString;
+    }, z.core.$strict>;
+}, z.core.$strict>;
+export type StoredInflectionAudioTake = z.infer<typeof InflectionAudioTakeSchema>;
+/**
+ * Every take of one source fingerprint, plus which one is current.
+ *
+ * The record is keyed by the fingerprint, so takes of an older revision are a
+ * different record and are simply not in this list: "the audio you have is
+ * stale" is answered by absence, not by a flag someone could forget to set.
+ */
+export declare const SentenceAudioStoreSchema: z.ZodObject<{
+    fingerprint: z.ZodString;
+    takes: z.ZodArray<z.ZodObject<{
+        takeId: z.ZodString;
+        requestId: z.ZodString;
+        source: z.ZodObject<{
+            passageId: z.ZodString;
+            sentenceId: z.ZodString;
+            sourceRevision: z.ZodNumber;
+            sentenceRevision: z.ZodNumber;
+            text: z.ZodString;
+            language: z.ZodString;
+        }, z.core.$strict>;
+        backend: z.ZodObject<{
+            kind: z.ZodEnum<{
+                live: "live";
+                tts: "tts";
+            }>;
+            providerId: z.ZodString;
+            modelId: z.ZodString;
+        }, z.core.$strict>;
+        voice: z.ZodObject<{
+            voiceId: z.ZodNullable<z.ZodString>;
+            rate: z.ZodNumber;
+        }, z.core.$strict>;
+        previousTakeId: z.ZodDefault<z.ZodNullable<z.ZodString>>;
+        audioAssetId: z.ZodString;
+        mimeType: z.ZodString;
+        durationMs: z.ZodNumber;
+        bytes: z.ZodNumber;
+        audioBase64: z.ZodString;
+        createdAt: z.ZodString;
+    }, z.core.$strict>>;
+    selectedTakeId: z.ZodDefault<z.ZodNullable<z.ZodString>>;
+    updatedAt: z.ZodString;
+}, z.core.$strict>;
+export type StoredSentenceAudioStore = z.infer<typeof SentenceAudioStoreSchema>;
+/** The same, for one form: `formId|inflectionRevision`. */
+export declare const InflectionAudioStoreSchema: z.ZodObject<{
+    fingerprint: z.ZodString;
+    takes: z.ZodArray<z.ZodObject<{
+        takeId: z.ZodString;
+        requestId: z.ZodString;
+        backend: z.ZodObject<{
+            kind: z.ZodEnum<{
+                live: "live";
+                tts: "tts";
+            }>;
+            providerId: z.ZodString;
+            modelId: z.ZodString;
+        }, z.core.$strict>;
+        voice: z.ZodObject<{
+            voiceId: z.ZodNullable<z.ZodString>;
+            rate: z.ZodNumber;
+        }, z.core.$strict>;
+        previousTakeId: z.ZodDefault<z.ZodNullable<z.ZodString>>;
+        audioAssetId: z.ZodString;
+        mimeType: z.ZodString;
+        durationMs: z.ZodNumber;
+        bytes: z.ZodNumber;
+        audioBase64: z.ZodString;
+        createdAt: z.ZodString;
+        source: z.ZodObject<{
+            kind: z.ZodLiteral<"inflection">;
+            formId: z.ZodString;
+            inflectionRevision: z.ZodNumber;
+            lemma: z.ZodString;
+            tense: z.ZodString;
+            formKind: z.ZodEnum<{
+                finite: "finite";
+                "compound-infinitive": "compound-infinitive";
+                participle: "participle";
+            }>;
+            person: z.ZodUnion<readonly [z.ZodLiteral<1>, z.ZodLiteral<2>, z.ZodLiteral<3>, z.ZodLiteral<4>, z.ZodLiteral<5>, z.ZodLiteral<6>, z.ZodNull]>;
+            form: z.ZodString;
+            utterance: z.ZodString;
+            language: z.ZodString;
+        }, z.core.$strict>;
+    }, z.core.$strict>>;
+    selectedTakeId: z.ZodDefault<z.ZodNullable<z.ZodString>>;
+    updatedAt: z.ZodString;
+}, z.core.$strict>;
+export type StoredInflectionAudioStore = z.infer<typeof InflectionAudioStoreSchema>;
+/**
  * One generation the Host owes the reader: created before the model is called,
  * updated as the answer arrives, and left behind with its outcome.
  *
@@ -699,10 +929,10 @@ export declare const GenerationJobSchema: z.ZodObject<{
     firstTextDeltaMs: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
     partialText: z.ZodDefault<z.ZodString>;
     finish: z.ZodDefault<z.ZodNullable<z.ZodEnum<{
-        error: "error";
         stop: "stop";
         "max-tokens": "max-tokens";
         cancelled: "cancelled";
+        error: "error";
     }>>>;
     failure: z.ZodDefault<z.ZodNullable<z.ZodString>>;
     resolvedModel: z.ZodDefault<z.ZodNullable<z.ZodString>>;
@@ -771,8 +1001,8 @@ declare const PassageRecordSchema: z.ZodDiscriminatedUnion<[z.ZodObject<{
                 excerpt: z.ZodString;
             }, z.core.$strict>>>;
             source: z.ZodDefault<z.ZodEnum<{
-                ai: "ai";
                 user: "user";
+                ai: "ai";
             }>>;
             note: z.ZodDefault<z.ZodString>;
             language: z.ZodString;
@@ -793,11 +1023,11 @@ declare const PassageRecordSchema: z.ZodDiscriminatedUnion<[z.ZodObject<{
                 excerpt: z.ZodString;
             }, z.core.$strict>>>;
             kind: z.ZodEnum<{
+                note: "note";
                 constituents: "constituents";
                 grammar: "grammar";
                 vocabulary: "vocabulary";
                 translation: "translation";
-                note: "note";
             }>;
             title: z.ZodString;
             body: z.ZodString;
@@ -832,8 +1062,8 @@ declare const PassageRecordSchema: z.ZodDiscriminatedUnion<[z.ZodObject<{
                 module: z.ZodDefault<z.ZodNullable<z.ZodString>>;
                 pitfall: z.ZodDefault<z.ZodString>;
                 status: z.ZodEnum<{
-                    pending: "pending";
                     failed: "failed";
+                    pending: "pending";
                     applied: "applied";
                 }>;
                 appliedId: z.ZodNullable<z.ZodString>;
@@ -904,8 +1134,8 @@ declare const PassageRecordSchema: z.ZodDiscriminatedUnion<[z.ZodObject<{
             createdAt: z.ZodString;
         }, z.core.$strict>>;
         provenance: z.ZodEnum<{
-            ai: "ai";
             user: "user";
+            ai: "ai";
             mixed: "mixed";
         }>;
         status: z.ZodEnum<{
@@ -985,8 +1215,8 @@ declare const PassageRecordSchema: z.ZodDiscriminatedUnion<[z.ZodObject<{
         }>;
         contentStatus: z.ZodEnum<{
             user: "user";
-            "ai-unverified": "ai-unverified";
             mixed: "mixed";
+            "ai-unverified": "ai-unverified";
         }>;
         askCount: z.ZodNumber;
         lastAskedAt: z.ZodNullable<z.ZodString>;
@@ -1015,8 +1245,8 @@ declare const PassageRecordSchema: z.ZodDiscriminatedUnion<[z.ZodObject<{
             questionId: z.ZodDefault<z.ZodString>;
             createdAt: z.ZodString;
             resolution: z.ZodDefault<z.ZodNullable<z.ZodEnum<{
-                created: "created";
                 attached: "attached";
+                created: "created";
                 discarded: "discarded";
             }>>>;
             resolvedEntryId: z.ZodDefault<z.ZodNullable<z.ZodString>>;
@@ -1050,11 +1280,11 @@ declare const PassageRecordSchema: z.ZodDiscriminatedUnion<[z.ZodObject<{
             passageId: z.ZodString;
             anchorId: z.ZodString;
             kind: z.ZodEnum<{
+                note: "note";
                 constituents: "constituents";
                 grammar: "grammar";
                 vocabulary: "vocabulary";
                 translation: "translation";
-                note: "note";
                 discussion: "discussion";
             }>;
             title: z.ZodString;
@@ -1064,11 +1294,11 @@ declare const PassageRecordSchema: z.ZodDiscriminatedUnion<[z.ZodObject<{
                 messageId: z.ZodString;
             }, z.core.$strict>>>;
             status: z.ZodDefault<z.ZodEnum<{
-                archived: "archived";
-                unresolved: "unresolved";
                 open: "open";
                 understood: "understood";
+                unresolved: "unresolved";
                 disputed: "disputed";
+                archived: "archived";
             }>>;
             messages: z.ZodArray<z.ZodObject<{
                 id: z.ZodString;
@@ -1084,10 +1314,10 @@ declare const PassageRecordSchema: z.ZodDiscriminatedUnion<[z.ZodObject<{
                     resolvedModel: z.ZodDefault<z.ZodNullable<z.ZodString>>;
                     attempt: z.ZodDefault<z.ZodNumber>;
                     status: z.ZodEnum<{
-                        draft: "draft";
+                        partial: "partial";
                         failed: "failed";
                         cancelled: "cancelled";
-                        partial: "partial";
+                        draft: "draft";
                         complete: "complete";
                     }>;
                     failure: z.ZodDefault<z.ZodNullable<z.ZodString>>;
@@ -1130,8 +1360,8 @@ declare const PassageRecordSchema: z.ZodDiscriminatedUnion<[z.ZodObject<{
             model: z.ZodString;
             materials: z.ZodArray<z.ZodObject<{
                 kind: z.ZodEnum<{
-                    note: "note";
                     message: "message";
+                    note: "note";
                     passage: "passage";
                     analysis: "analysis";
                     selection: "selection";
@@ -1167,8 +1397,8 @@ declare const PassageRecordSchema: z.ZodDiscriminatedUnion<[z.ZodObject<{
         model: z.ZodString;
         materials: z.ZodArray<z.ZodObject<{
             kind: z.ZodEnum<{
-                note: "note";
                 message: "message";
+                note: "note";
                 passage: "passage";
                 analysis: "analysis";
                 selection: "selection";
@@ -1230,10 +1460,10 @@ declare const PassageRecordSchema: z.ZodDiscriminatedUnion<[z.ZodObject<{
         firstTextDeltaMs: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
         partialText: z.ZodDefault<z.ZodString>;
         finish: z.ZodDefault<z.ZodNullable<z.ZodEnum<{
-            error: "error";
             stop: "stop";
             "max-tokens": "max-tokens";
             cancelled: "cancelled";
+            error: "error";
         }>>>;
         failure: z.ZodDefault<z.ZodNullable<z.ZodString>>;
         resolvedModel: z.ZodDefault<z.ZodNullable<z.ZodString>>;
@@ -1256,10 +1486,10 @@ declare const PassageRecordSchema: z.ZodDiscriminatedUnion<[z.ZodObject<{
         source: z.ZodString;
         sourceVersion: z.ZodString;
         fetchStatus: z.ZodEnum<{
-            failed: "failed";
             ok: "ok";
             partial: "partial";
             "rate-limited": "rate-limited";
+            failed: "failed";
             "no-forms": "no-forms";
         }>;
         failure: z.ZodDefault<z.ZodNullable<z.ZodString>>;
@@ -1307,6 +1537,92 @@ declare const PassageRecordSchema: z.ZodDiscriminatedUnion<[z.ZodObject<{
         updatedAt: z.ZodString;
     }, z.core.$strict>;
 }, z.core.$strict>, z.ZodObject<{
+    kind: z.ZodLiteral<"sentenceAudioTake">;
+    recordVersion: z.ZodLiteral<1>;
+    payload: z.ZodObject<{
+        fingerprint: z.ZodString;
+        takes: z.ZodArray<z.ZodObject<{
+            takeId: z.ZodString;
+            requestId: z.ZodString;
+            source: z.ZodObject<{
+                passageId: z.ZodString;
+                sentenceId: z.ZodString;
+                sourceRevision: z.ZodNumber;
+                sentenceRevision: z.ZodNumber;
+                text: z.ZodString;
+                language: z.ZodString;
+            }, z.core.$strict>;
+            backend: z.ZodObject<{
+                kind: z.ZodEnum<{
+                    live: "live";
+                    tts: "tts";
+                }>;
+                providerId: z.ZodString;
+                modelId: z.ZodString;
+            }, z.core.$strict>;
+            voice: z.ZodObject<{
+                voiceId: z.ZodNullable<z.ZodString>;
+                rate: z.ZodNumber;
+            }, z.core.$strict>;
+            previousTakeId: z.ZodDefault<z.ZodNullable<z.ZodString>>;
+            audioAssetId: z.ZodString;
+            mimeType: z.ZodString;
+            durationMs: z.ZodNumber;
+            bytes: z.ZodNumber;
+            audioBase64: z.ZodString;
+            createdAt: z.ZodString;
+        }, z.core.$strict>>;
+        selectedTakeId: z.ZodDefault<z.ZodNullable<z.ZodString>>;
+        updatedAt: z.ZodString;
+    }, z.core.$strict>;
+}, z.core.$strict>, z.ZodObject<{
+    kind: z.ZodLiteral<"inflectionAudioTake">;
+    recordVersion: z.ZodLiteral<1>;
+    payload: z.ZodObject<{
+        fingerprint: z.ZodString;
+        takes: z.ZodArray<z.ZodObject<{
+            takeId: z.ZodString;
+            requestId: z.ZodString;
+            backend: z.ZodObject<{
+                kind: z.ZodEnum<{
+                    live: "live";
+                    tts: "tts";
+                }>;
+                providerId: z.ZodString;
+                modelId: z.ZodString;
+            }, z.core.$strict>;
+            voice: z.ZodObject<{
+                voiceId: z.ZodNullable<z.ZodString>;
+                rate: z.ZodNumber;
+            }, z.core.$strict>;
+            previousTakeId: z.ZodDefault<z.ZodNullable<z.ZodString>>;
+            audioAssetId: z.ZodString;
+            mimeType: z.ZodString;
+            durationMs: z.ZodNumber;
+            bytes: z.ZodNumber;
+            audioBase64: z.ZodString;
+            createdAt: z.ZodString;
+            source: z.ZodObject<{
+                kind: z.ZodLiteral<"inflection">;
+                formId: z.ZodString;
+                inflectionRevision: z.ZodNumber;
+                lemma: z.ZodString;
+                tense: z.ZodString;
+                formKind: z.ZodEnum<{
+                    finite: "finite";
+                    "compound-infinitive": "compound-infinitive";
+                    participle: "participle";
+                }>;
+                person: z.ZodUnion<readonly [z.ZodLiteral<1>, z.ZodLiteral<2>, z.ZodLiteral<3>, z.ZodLiteral<4>, z.ZodLiteral<5>, z.ZodLiteral<6>, z.ZodNull]>;
+                form: z.ZodString;
+                utterance: z.ZodString;
+                language: z.ZodString;
+            }, z.core.$strict>;
+        }, z.core.$strict>>;
+        selectedTakeId: z.ZodDefault<z.ZodNullable<z.ZodString>>;
+        updatedAt: z.ZodString;
+    }, z.core.$strict>;
+}, z.core.$strict>, z.ZodObject<{
     kind: z.ZodLiteral<"conclusions">;
     recordVersion: z.ZodLiteral<1>;
     payload: z.ZodObject<{
@@ -1344,8 +1660,8 @@ declare const PassageRecordSchema: z.ZodDiscriminatedUnion<[z.ZodObject<{
         field: z.ZodString;
         text: z.ZodString;
         author: z.ZodEnum<{
-            ai: "ai";
             user: "user";
+            ai: "ai";
             mixed: "mixed";
         }>;
         reason: z.ZodDefault<z.ZodNullable<z.ZodString>>;
@@ -1410,8 +1726,8 @@ declare const PassageRecordSchema: z.ZodDiscriminatedUnion<[z.ZodObject<{
                 end: z.ZodDefault<z.ZodNullable<z.ZodNumber>>;
             }, z.core.$strict>>;
             provenance: z.ZodEnum<{
-                ai: "ai";
                 user: "user";
+                ai: "ai";
                 mixed: "mixed";
             }>;
             status: z.ZodEnum<{
@@ -1513,7 +1829,7 @@ export declare const FRENCH_READER_DOMAIN: {
                         end: number;
                         excerpt: string;
                     } | null;
-                    source: "ai" | "user";
+                    source: "user" | "ai";
                     note: string;
                     language: string;
                     text: string;
@@ -1532,7 +1848,7 @@ export declare const FRENCH_READER_DOMAIN: {
                         end: number;
                         excerpt: string;
                     } | null;
-                    kind: "constituents" | "grammar" | "vocabulary" | "translation" | "note";
+                    kind: "note" | "constituents" | "grammar" | "vocabulary" | "translation";
                     title: string;
                     body: string;
                     createdAt: string;
@@ -1561,7 +1877,7 @@ export declare const FRENCH_READER_DOMAIN: {
                         level: string | null;
                         module: string | null;
                         pitfall: string;
-                        status: "pending" | "failed" | "applied";
+                        status: "failed" | "pending" | "applied";
                         appliedId: string | null;
                         detail: string | null;
                     }[];
@@ -1624,7 +1940,7 @@ export declare const FRENCH_READER_DOMAIN: {
                     operationId: string;
                     createdAt: string;
                 }[];
-                provenance: "ai" | "user" | "mixed";
+                provenance: "user" | "ai" | "mixed";
                 status: "draft" | "reviewed";
                 revision: number;
                 operationId: string;
@@ -1690,7 +2006,7 @@ export declare const FRENCH_READER_DOMAIN: {
                     createdAt: string;
                 }[];
                 mastery: "learning" | "reviewing" | "known";
-                contentStatus: "user" | "ai-unverified" | "mixed";
+                contentStatus: "user" | "mixed" | "ai-unverified";
                 askCount: number;
                 lastAskedAt: string | null;
                 revision: number;
@@ -1717,7 +2033,7 @@ export declare const FRENCH_READER_DOMAIN: {
                     intentId: string;
                     questionId: string;
                     createdAt: string;
-                    resolution: "created" | "attached" | "discarded" | null;
+                    resolution: "attached" | "created" | "discarded" | null;
                     resolvedEntryId: string | null;
                     resolvedAt: string | null;
                     resolutionOperationId: string | null;
@@ -1748,14 +2064,14 @@ export declare const FRENCH_READER_DOMAIN: {
                     id: string;
                     passageId: string;
                     anchorId: string;
-                    kind: "constituents" | "grammar" | "vocabulary" | "translation" | "note" | "discussion";
+                    kind: "note" | "constituents" | "grammar" | "vocabulary" | "translation" | "discussion";
                     title: string;
                     parentId: string | null;
                     forkedFrom: {
                         branchId: string;
                         messageId: string;
                     } | null;
-                    status: "archived" | "unresolved" | "open" | "understood" | "disputed";
+                    status: "open" | "understood" | "unresolved" | "disputed" | "archived";
                     messages: {
                         id: string;
                         author: "user" | "model";
@@ -1766,7 +2082,7 @@ export declare const FRENCH_READER_DOMAIN: {
                             model: string;
                             resolvedModel: string | null;
                             attempt: number;
-                            status: "draft" | "failed" | "cancelled" | "partial" | "complete";
+                            status: "partial" | "failed" | "cancelled" | "draft" | "complete";
                             failure: string | null;
                             usage: {
                                 inputTokens: number | null;
@@ -1801,7 +2117,7 @@ export declare const FRENCH_READER_DOMAIN: {
                     backend: string;
                     model: string;
                     materials: {
-                        kind: "note" | "message" | "passage" | "analysis" | "selection" | "paragraph" | "sentence" | "branch-history" | "knowledge" | "conclusion";
+                        kind: "message" | "note" | "passage" | "analysis" | "selection" | "paragraph" | "sentence" | "branch-history" | "knowledge" | "conclusion";
                         refId: string;
                         reason: string;
                         sourceRevision: number | null;
@@ -1827,7 +2143,7 @@ export declare const FRENCH_READER_DOMAIN: {
                 backend: string;
                 model: string;
                 materials: {
-                    kind: "note" | "message" | "passage" | "analysis" | "selection" | "paragraph" | "sentence" | "branch-history" | "knowledge" | "conclusion";
+                    kind: "message" | "note" | "passage" | "analysis" | "selection" | "paragraph" | "sentence" | "branch-history" | "knowledge" | "conclusion";
                     refId: string;
                     reason: string;
                     sourceRevision: number | null;
@@ -1867,7 +2183,7 @@ export declare const FRENCH_READER_DOMAIN: {
                 status: "failed" | "cancelled" | "running" | "succeeded" | "interrupted";
                 attempt: number;
                 partialText: string;
-                finish: "error" | "stop" | "max-tokens" | "cancelled" | null;
+                finish: "stop" | "max-tokens" | "cancelled" | "error" | null;
                 failure: string | null;
                 resolvedModel: string | null;
                 usage: {
@@ -1891,7 +2207,7 @@ export declare const FRENCH_READER_DOMAIN: {
                 lemma: string;
                 source: string;
                 sourceVersion: string;
-                fetchStatus: "failed" | "ok" | "partial" | "rate-limited" | "no-forms";
+                fetchStatus: "ok" | "partial" | "rate-limited" | "failed" | "no-forms";
                 failure: string | null;
                 missingForms: string[];
                 dataset: {
@@ -1923,6 +2239,82 @@ export declare const FRENCH_READER_DOMAIN: {
                 updatedAt: string;
             };
         } | {
+            kind: "sentenceAudioTake";
+            recordVersion: 1;
+            payload: {
+                fingerprint: string;
+                takes: {
+                    takeId: string;
+                    requestId: string;
+                    source: {
+                        passageId: string;
+                        sentenceId: string;
+                        sourceRevision: number;
+                        sentenceRevision: number;
+                        text: string;
+                        language: string;
+                    };
+                    backend: {
+                        kind: "live" | "tts";
+                        providerId: string;
+                        modelId: string;
+                    };
+                    voice: {
+                        voiceId: string | null;
+                        rate: number;
+                    };
+                    previousTakeId: string | null;
+                    audioAssetId: string;
+                    mimeType: string;
+                    durationMs: number;
+                    bytes: number;
+                    audioBase64: string;
+                    createdAt: string;
+                }[];
+                selectedTakeId: string | null;
+                updatedAt: string;
+            };
+        } | {
+            kind: "inflectionAudioTake";
+            recordVersion: 1;
+            payload: {
+                fingerprint: string;
+                takes: {
+                    takeId: string;
+                    requestId: string;
+                    backend: {
+                        kind: "live" | "tts";
+                        providerId: string;
+                        modelId: string;
+                    };
+                    voice: {
+                        voiceId: string | null;
+                        rate: number;
+                    };
+                    previousTakeId: string | null;
+                    audioAssetId: string;
+                    mimeType: string;
+                    durationMs: number;
+                    bytes: number;
+                    audioBase64: string;
+                    createdAt: string;
+                    source: {
+                        kind: "inflection";
+                        formId: string;
+                        inflectionRevision: number;
+                        lemma: string;
+                        tense: string;
+                        formKind: "finite" | "compound-infinitive" | "participle";
+                        person: 1 | 2 | 6 | 5 | 3 | 4 | null;
+                        form: string;
+                        utterance: string;
+                        language: string;
+                    };
+                }[];
+                selectedTakeId: string | null;
+                updatedAt: string;
+            };
+        } | {
             kind: "conclusions";
             recordVersion: 1;
             payload: {
@@ -1950,7 +2342,7 @@ export declare const FRENCH_READER_DOMAIN: {
                 targetId: string;
                 field: string;
                 text: string;
-                author: "ai" | "user" | "mixed";
+                author: "user" | "ai" | "mixed";
                 reason: string | null;
                 replacesId: string | null;
                 createdAt: string;
@@ -2007,7 +2399,7 @@ export declare const FRENCH_READER_DOMAIN: {
                         start: number | null;
                         end: number | null;
                     }[];
-                    provenance: "ai" | "user" | "mixed";
+                    provenance: "user" | "ai" | "mixed";
                     status: "draft" | "reviewed";
                     revision: number;
                     createdAt: string;

@@ -336,6 +336,35 @@ export type SetGrammarMasteryValue =
   | { kind: 'unchanged'; revision: number }
   | { kind: 'conflict'; reason: 'entry-unknown' | 'revision-conflict'; revision: number }
 
+/**
+ * Merge same-named grammar entries into one.
+ *
+ * Duplicate topics are real: the automatic path keys an entry by its topic, and
+ * two answers that phrase the same rule differently legitimately produce two
+ * entries. Merging is the reader's decision — this call is the only thing that
+ * may delete one.
+ */
+export interface MergeGrammarEntriesRequest {
+  /** The entry that survives, with its rule text and mastery. */
+  keepEntryId: string
+  /** The same-named entries whose examples and pitfalls move into it. */
+  mergeEntryIds: string[]
+  operationId: string
+}
+
+export type MergeGrammarEntriesValue =
+  | {
+    kind: 'merged'
+    entryId: string
+    revision: number
+    /** How many examples and pitfalls were actually moved in. */
+    examples: number
+    pitfalls: number
+    mastery: 'learning' | 'reviewing' | 'known'
+  }
+  | { kind: 'already-merged'; entryId: string }
+  | { kind: 'conflict'; reason: 'entry-unknown' | 'nothing-to-merge' | 'revision-conflict' }
+
 /** One sentence's stored analysis, as the panel renders it. */
 export interface ReadSentenceAnalysisRequest {
   passageId: string
@@ -517,4 +546,241 @@ export interface AnalyseParagraphResult {
   failedCount?: number
   stale?: number
   note?: string
+}
+
+/* --------------------------------------------------------------- reading --- */
+
+/**
+ * Reading one sentence, or one conjugated form, aloud.
+ *
+ * Exactly one immutable source per request. The source is named in full —
+ * passage, sentence, both revisions and the sentence's own text — so a result is
+ * routed by `sentenceId + revision + requestId` and never by whatever the panel
+ * currently has selected. A paragraph title, a paragraph body, a translation or
+ * a discussion has no field to travel in, which is what keeps them out of the
+ * synthesis input.
+ */
+
+/** The one immutable source a sentence's audio belongs to. */
+export interface SentenceSpeechSourceView {
+  passageId: string
+  sentenceId: string
+  /** The passage source revision the sentence was read from. */
+  sourceRevision: number
+  /** The segmentation revision the sentence came from (`getSegmentation`). */
+  sentenceRevision: number
+  /** Exactly one sentence. This is the only text that is ever synthesized. */
+  text: string
+  language: string
+}
+
+/** The one form a conjugation row's audio belongs to. */
+export interface InflectionSpeechSourceView {
+  kind: 'inflection'
+  formId: string
+  inflectionRevision: number
+  lemma: string
+  tense: string
+  formKind: 'finite' | 'compound-infinitive' | 'participle'
+  person: 1 | 2 | 3 | 4 | 5 | 6 | null
+  form: string
+  /** Real French, never IPA and never slash-separated alternatives. */
+  utterance: string
+  language: string
+}
+
+export interface AudioVoiceView {
+  /** null means the voice the Host is configured with. */
+  voiceId: string | null
+  /** Playback speed; it is part of a take's identity. */
+  rate: number
+}
+
+export interface SpeechBackendView {
+  kind: 'live' | 'tts'
+  providerId: string
+  modelId: string
+}
+
+/** One stored audio version. The bytes stay in the Host; readAsset returns them. */
+export interface SentenceAudioTakeView {
+  takeId: string
+  requestId: string
+  source: SentenceSpeechSourceView
+  backend: SpeechBackendView
+  voice: AudioVoiceView
+  previousTakeId: string | null
+  audioAssetId: string
+  mimeType: string
+  durationMs: number
+  bytes: number
+  createdAt: string
+  /** True for the take the Host currently plays for this exact source. */
+  selected: boolean
+}
+
+export interface InflectionAudioTakeView {
+  takeId: string
+  requestId: string
+  source: InflectionSpeechSourceView
+  backend: SpeechBackendView
+  voice: AudioVoiceView
+  previousTakeId: string | null
+  audioAssetId: string
+  mimeType: string
+  durationMs: number
+  bytes: number
+  createdAt: string
+  selected: boolean
+}
+
+export interface SynthesizeSentenceAudioRequest {
+  /** The caller's request id. Retrying the same one never queues a second synthesis. */
+  requestId: string
+  /** `generate` reuses a cached take when one matches; `regenerate` always appends. */
+  action: 'generate' | 'regenerate'
+  source: SentenceSpeechSourceView
+  /** The take this one follows, when the reader regenerated an existing sentence. */
+  previousTakeId: string | null
+  /** A regeneration appends; a request that asks to overwrite anything is refused. */
+  versionPolicy: 'append'
+  /** null means the configured voice. */
+  voice: AudioVoiceView | null
+}
+
+/** Why the text or the source was refused before any request existed. */
+export type AudioInputRejectionView =
+  | 'blank'
+  | 'multi-sentence'
+  | 'too-long'
+  | 'not-french'
+  | 'source-unknown'
+  | 'source-mismatch'
+  | 'revision-mismatch'
+  | 'voice-invalid'
+
+/** Why a synthesis the reader asked for produced no audio. */
+export type AudioFailureView =
+  | 'unconfigured'
+  | 'unauthorized'
+  | 'rate-limited'
+  | 'timeout'
+  | 'cancelled'
+  | 'provider-error'
+
+export type AudioConfigurationView = {
+  /** Audio cannot be requested at all until this says otherwise. */
+  configured: boolean
+  reason: 'disabled' | 'no-api-key' | 'invalid-config' | 'transport-unavailable' | null
+  message: string | null
+  backend: SpeechBackendView | null
+  streaming: boolean
+  cancellation: boolean
+  maxCharacters: number
+}
+
+export type SynthesizeSentenceAudioValue =
+  /** A new take was synthesized and appended. */
+  | { kind: 'ready'; take: SentenceAudioTakeView }
+  /** A take already existed for this source, backend and voice: nothing was requested. */
+  | { kind: 'cached'; take: SentenceAudioTakeView }
+  /** This requestId already produced a take: the same request, answered once. */
+  | { kind: 'replayed'; take: SentenceAudioTakeView }
+  /** The same requestId is already being synthesized; no second job was started. */
+  | { kind: 'generating'; requestId: string }
+  | { kind: 'unconfigured'; reason: 'disabled' | 'no-api-key' | 'invalid-config' | 'transport-unavailable'; message: string }
+  | { kind: 'rejected'; reason: AudioInputRejectionView; message: string }
+  | { kind: 'cancelled'; requestId: string }
+  | { kind: 'failed'; reason: AudioFailureView; message: string }
+
+export interface ListSentenceAudioRequest {
+  source: SentenceSpeechSourceView
+}
+
+export interface SentenceAudioListValue {
+  sourceKey: string
+  takes: SentenceAudioTakeView[]
+  selectedTakeId: string | null
+  configuration: AudioConfigurationView
+}
+
+export interface SelectSentenceAudioRequest {
+  source: SentenceSpeechSourceView
+  takeId: string
+}
+
+export type SelectSentenceAudioValue =
+  | { kind: 'selected'; takeId: string }
+  | { kind: 'already-selected'; takeId: string }
+  | { kind: 'conflict'; reason: 'unknown-source' | 'unknown-take' | 'revision-mismatch' }
+
+export interface ReadSentenceAudioAssetRequest {
+  source: SentenceSpeechSourceView
+  takeId: string
+}
+
+export interface ReadSentenceAudioAssetValue {
+  kind: 'found' | 'missing'
+  takeId: string
+  mimeType: string | null
+  /** The WAV bytes, base64. Empty when the take is missing. */
+  base64: string
+  bytes: number
+  durationMs: number
+  createdAt: string | null
+}
+
+export interface SynthesizeInflectionAudioRequest {
+  requestId: string
+  action: 'generate' | 'regenerate'
+  source: InflectionSpeechSourceView
+  previousTakeId: string | null
+  versionPolicy: 'append'
+  voice: AudioVoiceView | null
+}
+
+export type SynthesizeInflectionAudioValue =
+  | { kind: 'ready'; take: InflectionAudioTakeView }
+  | { kind: 'cached'; take: InflectionAudioTakeView }
+  | { kind: 'replayed'; take: InflectionAudioTakeView }
+  | { kind: 'generating'; requestId: string }
+  | { kind: 'unconfigured'; reason: 'disabled' | 'no-api-key' | 'invalid-config' | 'transport-unavailable'; message: string }
+  | { kind: 'rejected'; reason: AudioInputRejectionView; message: string }
+  | { kind: 'cancelled'; requestId: string }
+  | { kind: 'failed'; reason: AudioFailureView; message: string }
+
+export interface ListInflectionAudioRequest {
+  source: InflectionSpeechSourceView
+}
+
+export interface InflectionAudioListValue {
+  sourceKey: string
+  takes: InflectionAudioTakeView[]
+  selectedTakeId: string | null
+  configuration: AudioConfigurationView
+}
+
+export interface SelectInflectionAudioRequest {
+  source: InflectionSpeechSourceView
+  takeId: string
+}
+
+export type SelectInflectionAudioValue =
+  | { kind: 'selected'; takeId: string }
+  | { kind: 'already-selected'; takeId: string }
+  | { kind: 'conflict'; reason: 'unknown-source' | 'unknown-take' | 'revision-mismatch' }
+
+export interface ReadInflectionAudioAssetRequest {
+  source: InflectionSpeechSourceView
+  takeId: string
+}
+
+export interface ReadInflectionAudioAssetValue {
+  kind: 'found' | 'missing'
+  takeId: string
+  mimeType: string | null
+  base64: string
+  bytes: number
+  durationMs: number
+  createdAt: string | null
 }

@@ -5,6 +5,7 @@ import { createBacking, ids, openController, passageRequest, signal } from './su
 import { FRENCH_READER_DOMAIN } from '../lib/domain.js'
 import { contextManifestKey, contextsKey } from '../lib/discussion-store.js'
 import { writeConjugationDataset } from '../lib/conjugation-store.js'
+import { fetchStub, jsonResponse, noSocket, ttsPayload } from './support/audio-fakes.mjs'
 
 /**
  * Every record kind the plugin can write, checked against the real record schema.
@@ -51,10 +52,34 @@ function stubBackend() {
 /** Exercise one path per record kind, so every kind is present in the store. */
 async function buildEveryKind() {
   const backing = createBacking()
-  const opened = await openController(backing, FRENCH_READER_DOMAIN, { backends: [stubBackend()] })
+  const audio = fetchStub(() => jsonResponse(ttsPayload()))
+  const opened = await openController(backing, FRENCH_READER_DOMAIN, {
+    backends: [stubBackend()],
+    // The audio path is given offline transports: a record kind is only audited
+    // if it can be written here without reaching a provider.
+    audio: { config: { apiKey: 'test-key', backend: 'tts' }, fetch: audio.impl, webSocket: noSocket, env: {} },
+  })
   const c = opened.controller
   await c.createPassage({ ...passageRequest, sourceText: SENTENCE }, signal())
   await c.getSegmentation({ passageId: ids.passage }, signal())
+  // Both audio kinds, written as themselves before the source is corrected below.
+  await c.synthesizeSentenceAudioRemote({
+    requestId: uuid(), action: 'generate',
+    source: {
+      passageId: ids.passage, sentenceId: 'p1.s1', sourceRevision: 1, sentenceRevision: 1,
+      text: SENTENCE, language: 'fr',
+    },
+    previousTakeId: null, versionPolicy: 'append', voice: null,
+  }, signal())
+  await c.synthesizeInflectionAudioRemote({
+    requestId: uuid(), action: 'generate',
+    source: {
+      kind: 'inflection', formId: 'cultiver#ind.pre.1p', inflectionRevision: 1,
+      lemma: 'cultiver', tense: 'ind.pre', formKind: 'finite', person: 4,
+      form: 'cultivons', utterance: 'nous cultivons', language: 'fr',
+    },
+    previousTakeId: null, versionPolicy: 'append', voice: null,
+  }, signal())
   const variant = await c.saveTranslation({
     passageId: ids.passage, operationId: uuid(), anchorId: 'p1.s1',
     source: 'user', note: '', language: 'zh-Hans', text: '译文',
@@ -164,9 +189,9 @@ test('every record kind the plugin writes satisfies the real record schema', asy
   // The audit is only meaningful if it really reaches every kind.
   const expected = [
     'adoptions', 'analysis', 'analysisVersions', 'conclusions', 'conjugationDataset', 'contentVersion',
-    'contextManifest', 'contexts', 'discussion', 'generationJob', 'grammar', 'grammarStore', 'lexicon',
-    'lexiconIndex', 'passage', 'runs', 'segments', 'selection', 'sentenceAnalyses', 'source',
-    'storageMigration',
+    'contextManifest', 'contexts', 'discussion', 'generationJob', 'grammar', 'grammarStore',
+    'inflectionAudioTake', 'lexicon', 'lexiconIndex', 'passage', 'runs', 'segments', 'selection',
+    'sentenceAnalyses', 'sentenceAudioTake', 'source', 'storageMigration',
   ]
   const missing = expected.filter((kind) => !byKind.has(kind))
   assert.deepEqual(missing, [], 'every record kind is exercised by this audit')

@@ -212,6 +212,29 @@ export declare function setGrammarMastery(table: RecordTable, input: {
     revision?: number;
     previous?: string;
 }>;
+/**
+ * Merge same-named grammar entries into one, on the reader's explicit decision.
+ *
+ * The kept entry supplies the rule text and the mastery state (the strongest
+ * claim among the merged entries wins, because a merge must not silently say the
+ * reader knows less). Examples and pitfalls move in, de-duplicated by their text,
+ * and the question count is summed so the merged entry keeps the real usage
+ * history. The other records are deleted: one topic, one entry.
+ */
+export declare function mergeGrammarEntries(table: RecordTable, input: {
+    keepEntryId: string;
+    mergeEntryIds: readonly string[];
+    operationId: string;
+}): Promise<{
+    merged: boolean;
+    alreadyMerged?: boolean;
+    reason?: string;
+    entryId?: string;
+    revision?: number;
+    examples?: number;
+    pitfalls?: number;
+    mastery?: 'learning' | 'reviewing' | 'known';
+}>;
 /** Every stored conclusion of one passage, newest last. */
 export declare function listConclusions(table: RecordTable, passageId: string): StoredConclusion[];
 /** The record kinds this module owns, for the import gate. */

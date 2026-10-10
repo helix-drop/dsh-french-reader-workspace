@@ -415,6 +415,114 @@ export async function setGrammarMastery(table, input) {
     });
     return { updated: true, revision: updated.revision, previous: found.mastery };
 }
+/** Which mastery state is the stronger claim; a merge never weakens one. */
+const MASTERY_RANK = { learning: 0, reviewing: 1, known: 2 };
+/**
+ * Merge same-named grammar entries into one, on the reader's explicit decision.
+ *
+ * The kept entry supplies the rule text and the mastery state (the strongest
+ * claim among the merged entries wins, because a merge must not silently say the
+ * reader knows less). Examples and pitfalls move in, de-duplicated by their text,
+ * and the question count is summed so the merged entry keeps the real usage
+ * history. The other records are deleted: one topic, one entry.
+ */
+export async function mergeGrammarEntries(table, input) {
+    const entries = readGrammarEntries(table);
+    const keep = entries.find((entry) => entry.id === input.keepEntryId);
+    if (keep === undefined)
+        return { merged: false, reason: 'entry-unknown' };
+    // A retried merge lands on the same outcome instead of merging twice. This is
+    // checked before the candidate list: the first attempt deleted them, and a
+    // retry must still read as the same success, not as "nothing to merge".
+    const existing = table.get(contentVersionKey(input.operationId));
+    if (existing?.kind === 'contentVersion') {
+        return { merged: true, alreadyMerged: true, entryId: keep.id, revision: keep.revision };
+    }
+    const wanted = new Set(input.mergeEntryIds.filter((id) => id !== input.keepEntryId));
+    const others = entries.filter((entry) => wanted.has(entry.id));
+    if (others.length === 0)
+        return { merged: false, reason: 'nothing-to-merge' };
+    const exampleTexts = keep.examples.map((example) => example.text);
+    const examples = [...keep.examples];
+    const pitfalls = [...keep.pitfalls];
+    for (const other of others) {
+        for (const example of other.examples) {
+            if (exampleTexts.includes(example.text))
+                continue;
+            exampleTexts.push(example.text);
+            examples.push(example);
+        }
+        for (const pitfall of other.pitfalls) {
+            if (pitfalls.some((entry) => entry.text === pitfall.text))
+                continue;
+            pitfalls.push(pitfall);
+        }
+    }
+    const firstFilled = (pick) => {
+        const own = pick(keep).trim();
+        if (own !== '')
+            return pick(keep);
+        const found = others.find((entry) => pick(entry).trim() !== '');
+        return found === undefined ? '' : pick(found);
+    };
+    const lastAskedAt = [keep, ...others]
+        .map((entry) => entry.lastAskedAt)
+        .filter((value) => typeof value === 'string')
+        .sort()
+        .pop() ?? null;
+    const mastery = [keep, ...others].reduce((best, entry) => (MASTERY_RANK[entry.mastery] > MASTERY_RANK[best] ? entry.mastery : best), keep.mastery);
+    const contentStatus = keep.contentStatus === 'user' && others.some((entry) => entry.contentStatus !== 'user')
+        ? 'mixed'
+        : keep.contentStatus === 'ai-unverified' && others.some((entry) => entry.contentStatus === 'user')
+            ? 'mixed'
+            : keep.contentStatus;
+    const now = new Date().toISOString();
+    const merged = {
+        ...keep,
+        level: keep.level ?? others.find((entry) => entry.level !== null)?.level ?? null,
+        module: keep.module ?? others.find((entry) => entry.module !== null)?.module ?? null,
+        keyPoints: firstFilled((entry) => entry.keyPoints),
+        notes: firstFilled((entry) => entry.notes),
+        examples,
+        pitfalls,
+        mastery,
+        contentStatus,
+        askCount: [keep, ...others].reduce((total, entry) => total + entry.askCount, 0),
+        lastAskedAt,
+        revision: keep.revision + 1,
+        operationId: input.operationId,
+        updatedAt: now,
+    };
+    await writeGrammarEntry(table, merged);
+    // Delete by the key each record actually lives at, not by the key its topic
+    // derives: a duplicate that arrived through an imported backup carries a
+    // foreign key, and that is exactly the duplicate this feature exists for.
+    const doomed = new Set(others.map((entry) => entry.id));
+    const keys = [];
+    for (const [key, record] of table.entries()) {
+        if (record.kind === 'grammar' && doomed.has(record.payload.id))
+            keys.push(key);
+    }
+    for (const key of keys)
+        await table.delete(key);
+    await appendContentVersion(table, {
+        target: 'grammar-rule',
+        targetId: keep.id,
+        field: 'merge',
+        text: String(others.length),
+        author: 'user',
+        reason: `merged ${others.map((entry) => entry.id).join(',')}`,
+        operationId: input.operationId,
+    });
+    return {
+        merged: true,
+        entryId: merged.id,
+        revision: merged.revision,
+        examples: examples.length - keep.examples.length,
+        pitfalls: pitfalls.length - keep.pitfalls.length,
+        mastery: merged.mastery,
+    };
+}
 /** Every stored conclusion of one passage, newest last. */
 export function listConclusions(table, passageId) {
     return readConclusions(table, passageId).conclusions;

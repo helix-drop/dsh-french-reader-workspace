@@ -33,6 +33,7 @@ import {
   readDiscussion,
   setBranchStatus,
   setGrammarMastery,
+  mergeGrammarEntries,
 } from './discussion-store.ts'
 import {
   ANALYSIS_CONTEXT_CHARACTER_LIMIT,
@@ -129,8 +130,10 @@ import {
   type StoredGrammarEntry,
   type StoredGrammarPending,
   type StoredGrammarStore,
+  type StoredInflectionAudioTake,
   type StoredLexiconEntry,
   type StoredLexiconIndex,
+  type StoredSentenceAudioTake,
   type StoredSourceRevision,
   type StoredTranslation,
 } from './domain.ts'
@@ -148,16 +151,22 @@ import type {
   AskRequest,
   AskFrame,
   AskResult,
+  AudioConfigurationView,
+  AudioVoiceView,
   BackendModelView,
   BackendStatus,
   CreateBranchRequest,
   CreateBranchValue,
   DiscussionView,
+  InflectionAudioTakeView,
+  InflectionSpeechSourceView,
   ListBackendModelsRequest,
   ListBackendModelsValue,
   ListBackendsRequest,
   ListBackendsValue,
   ListDiscussionRequest,
+  ListInflectionAudioRequest,
+  ListSentenceAudioRequest,
   PreviewAskRequest,
   PreviewAskValue,
   FetchLexiconSourceRequest,
@@ -166,6 +175,10 @@ import type {
   ListLexiconSourcesValue,
   ReadContextRequest,
   ReadContextValue,
+  ReadInflectionAudioAssetRequest,
+  ReadInflectionAudioAssetValue,
+  ReadSentenceAudioAssetRequest,
+  ReadSentenceAudioAssetValue,
   AnalyseParagraphRequest,
   AnalyseParagraphResult,
   AnalyseSentenceRequest,
@@ -182,13 +195,56 @@ import type {
   PutSentenceAnalysisValue,
   ReadSentenceAnalysisRequest,
   ReadSentenceAnalysisValue,
+  SelectInflectionAudioRequest,
+  SelectInflectionAudioValue,
+  SelectSentenceAudioRequest,
+  SelectSentenceAudioValue,
+  SentenceAudioListValue,
+  SentenceAudioTakeView,
+  SentenceSpeechSourceView,
   SetGrammarMasteryRequest,
   SetGrammarMasteryValue,
+  MergeGrammarEntriesRequest,
+  MergeGrammarEntriesValue,
+  SynthesizeInflectionAudioRequest,
+  SynthesizeInflectionAudioValue,
+  SynthesizeSentenceAudioRequest,
+  SynthesizeSentenceAudioValue,
+  AudioFailureView,
+  AudioInputRejectionView,
+  InflectionAudioListValue,
   RecordConclusionRequest,
   RecordConclusionValue,
   SetBranchStateRequest,
   SetBranchStateValue,
 } from './generation-types.ts'
+import {
+  AudioSynthesisError,
+  DEFAULT_MAX_CHARACTERS,
+  audioCapabilities,
+  bytesToBase64,
+  isInputRejection,
+  resolveAudioConfiguration,
+  synthesizeSpeech,
+  type AudioConfiguration,
+  type AudioTransports,
+  type SentenceAudioConfig,
+  type WebSocketFactory,
+} from './audio.ts'
+import {
+  appendInflectionAudioTake,
+  appendSentenceAudioTake,
+  inflectionAudioSourceKey,
+  listInflectionAudioTakes,
+  listSentenceAudioTakes,
+  newestInflectionAudioTake,
+  newestSentenceAudioTake,
+  readInflectionAudioAsset,
+  readSentenceAudioAsset,
+  selectInflectionAudioTake,
+  selectSentenceAudioTake,
+  sentenceAudioSourceKey,
+} from './audio-store.ts'
 import type {
   AddBranchRequest,
   AnchorStatus,
@@ -431,6 +487,12 @@ const setGrammarMasteryRequestSchema = z.object({
   operationId: z.string().uuid(),
 }).strict()
 
+const mergeGrammarEntriesRequestSchema = z.object({
+  keepEntryId: z.string().uuid(),
+  mergeEntryIds: z.array(z.string().uuid()).min(1),
+  operationId: z.string().uuid(),
+}).strict()
+
 const sentenceAnalysisRequestSchema = z.object({
   passageId: z.string().uuid(),
   anchorId: anchorIdSchema,
@@ -527,6 +589,82 @@ const addBranchRequestSchema = z.object({
   body: z.string().max(MAX_BRANCH_BODY_CHARACTERS),
 }).strict()
 
+/* ----------------------------------------------------------------- audio --- */
+
+/**
+ * Exactly one sentence, or exactly one form, with the revisions that identify it.
+ *
+ * The shape is the gate: a paragraph title, a paragraph body, a translation or a
+ * discussion has no field here, so none of them can become synthesis input even
+ * by mistake.
+ */
+const sentenceSpeechSourceSchema = z.object({
+  passageId: z.string().uuid(),
+  /** The sentence anchor id from `getSegmentation`, e.g. `p1.s2`. */
+  sentenceId: z.string().min(1).max(40),
+  sourceRevision: z.number().int().min(1),
+  /** The segmentation revision the sentence was read from. */
+  sentenceRevision: z.number().int().min(1),
+  text: z.string().min(1).max(MAX_SOURCE_CHARACTERS),
+  language: z.string().min(2).max(35),
+}).strict()
+
+const inflectionSpeechSourceSchema = z.object({
+  kind: z.literal('inflection'),
+  formId: z.string().min(1).max(160),
+  inflectionRevision: z.number().int().min(1),
+  lemma: z.string().min(1).max(80),
+  tense: z.string().min(1).max(60),
+  formKind: z.enum(['finite', 'compound-infinitive', 'participle']),
+  /** 1–3 are the singular persons, 4–6 the plural; null for a non-finite form. */
+  person: z.union([
+    z.literal(1), z.literal(2), z.literal(3), z.literal(4), z.literal(5), z.literal(6), z.null(),
+  ]),
+  form: z.string().min(1).max(120),
+  /** Real French. The provider is asked to say this exact string. */
+  utterance: z.string().min(1).max(200),
+  language: z.string().min(2).max(35),
+}).strict()
+
+const audioVoiceRequestSchema = z.object({
+  voiceId: z.string().max(80).nullable(),
+  rate: z.number().min(0.25).max(4),
+}).strict()
+
+/** The literal policy is part of the request: a regeneration appends, never replaces. */
+const versionPolicySchema = z.literal('append')
+
+const synthesizeSentenceAudioRequestSchema = z.object({
+  requestId: z.string().min(1).max(120),
+  action: z.enum(['generate', 'regenerate']),
+  source: sentenceSpeechSourceSchema,
+  previousTakeId: z.string().max(120).nullable(),
+  versionPolicy: versionPolicySchema,
+  voice: audioVoiceRequestSchema.nullable(),
+}).strict()
+
+const synthesizeInflectionAudioRequestSchema = z.object({
+  requestId: z.string().min(1).max(120),
+  action: z.enum(['generate', 'regenerate']),
+  source: inflectionSpeechSourceSchema,
+  previousTakeId: z.string().max(120).nullable(),
+  versionPolicy: versionPolicySchema,
+  voice: audioVoiceRequestSchema.nullable(),
+}).strict()
+
+const listSentenceAudioRequestSchema = z.object({ source: sentenceSpeechSourceSchema }).strict()
+const listInflectionAudioRequestSchema = z.object({ source: inflectionSpeechSourceSchema }).strict()
+const selectSentenceAudioRequestSchema = z.object({
+  source: sentenceSpeechSourceSchema,
+  takeId: z.string().min(1).max(120),
+}).strict()
+const selectInflectionAudioRequestSchema = z.object({
+  source: inflectionSpeechSourceSchema,
+  takeId: z.string().min(1).max(120),
+}).strict()
+const readSentenceAudioAssetRequestSchema = selectSentenceAudioRequestSchema
+const readInflectionAudioAssetRequestSchema = selectInflectionAudioRequestSchema
+
 /**
  * Where a controller keeps the context and the injected backend list.
  *
@@ -564,6 +702,40 @@ interface ActiveAnalysisOperation {
   phase: 'generating' | 'committing'
 }
 
+/**
+ * What the audio surface needs from outside itself.
+ *
+ * `config` is the plugin's own `audio` section, exactly as cordis delivered it:
+ * the controller validates it through the schema in `audio.ts` rather than
+ * trusting it. The transports are the test seam — production reads the global
+ * `fetch` and `WebSocket` — and the environment is read here only, so a key can
+ * come from `config.audio.apiKey` or from `GEMINI_API_KEY` and from nowhere else.
+ */
+export interface AudioRuntimeOptions {
+  config?: unknown
+  fetch?: typeof globalThis.fetch
+  webSocket?: WebSocketFactory
+  env?: Record<string, string | undefined>
+}
+
+/** One synthesis in flight, so a retried request id finds work instead of starting it. */
+interface AudioInFlight {
+  requestId: string
+  sourceKey: string
+  controller: AbortController
+}
+
+/**
+ * The in-flight key: the request id *within its own surface*.
+ *
+ * Sentence audio and form audio are separate contract surfaces, so one id may
+ * legitimately name one request on each; keying them apart keeps the two from
+ * reporting each other as already running.
+ */
+function audioRequestKey(kind: 'sentence' | 'inflection', requestId: string): string {
+  return `${kind}\u0000${requestId}`
+}
+
 interface PreparedAnalysisOperation {
   active: ActiveAnalysisOperation
   signal: AbortSignal
@@ -595,6 +767,19 @@ export class FrenchReaderController extends TypertRemoteService {
   private writeTail: Promise<void> = Promise.resolve()
   private readonly activeAnalyses = new Map<string, ActiveAnalysisOperation>()
   private readonly queuedAnalysisCancellations = new Map<string, { passageId: string; expiresAt: number }>()
+  /** Every synthesis currently in flight, keyed by the caller's request id. */
+  private readonly audioInFlight = new Map<string, AudioInFlight>()
+  /**
+   * The newest request started for each source fingerprint.
+   *
+   * It is deliberately not cleared when a request finishes: a take that lands
+   * after a newer request has begun is appended to the versions, but it must not
+   * become the current one behind the newer request's back. One short key per
+   * source that has ever been synthesized is the whole cost.
+   */
+  private readonly audioNewestRequest = new Map<string, string>()
+  /** The audio config section and the transports it is reached through. */
+  private readonly audioRuntime: AudioRuntimeOptions
 
   /** The one storage table this plugin owns; the store modules take it as data. */
   private table(): RecordTable {
@@ -605,8 +790,10 @@ export class FrenchReaderController extends TypertRemoteService {
     ctx: Context,
     private readonly domain: Domain<typeof FRENCH_READER_DOMAIN>,
     backends: GenerationBackend[] | null = null,
+    audio: AudioRuntimeOptions | null = null,
   ) {
     super(ctx, 'frenchReader')
+    this.audioRuntime = audio ?? {}
     // These are held beside the instance rather than on it. Two reasons, both
     // learned the hard way: the base class owns the public `ctx` member, so
     // declaring one here would clash with it; and a **private class field does
@@ -975,6 +1162,36 @@ export class FrenchReaderController extends TypertRemoteService {
       return { kind: 'conflict', reason: 'revision-conflict', revision: value.revision ?? 0 }
     }
     return { kind: 'unchanged', revision: value.revision ?? 0 }
+  }
+
+  /**
+   * Merge same-named grammar entries, on the reader's explicit decision.
+   *
+   * This is the only path that deletes a grammar entry: the automatic extraction
+   * never merges, which is exactly why duplicates accumulate and why closing them
+   * is the reader's call.
+   */
+  @Remote('mergeGrammarEntries')
+  async mergeGrammarEntriesRemote(request: MergeGrammarEntriesRequest, signal: AbortSignal): Promise<MergeGrammarEntriesValue> {
+    const parsed = mergeGrammarEntriesRequestSchema.safeParse(request)
+    if (!parsed.success) throw badRequest('Invalid grammar-merge request', parsed.error.issues)
+    signal.throwIfAborted()
+    const value = await mergeGrammarEntries(this.table(), parsed.data)
+    if (value.merged !== true) {
+      const reason = value.reason === 'nothing-to-merge' ? 'nothing-to-merge' as const : 'entry-unknown' as const
+      return { kind: 'conflict', reason }
+    }
+    if (value.alreadyMerged === true) {
+      return { kind: 'already-merged', entryId: value.entryId ?? '' }
+    }
+    return {
+      kind: 'merged',
+      entryId: value.entryId ?? '',
+      revision: value.revision ?? 1,
+      examples: value.examples ?? 0,
+      pitfalls: value.pitfalls ?? 0,
+      mastery: value.mastery ?? 'learning',
+    }
   }
 
   /** The exact text one stored answer was sent with, so a claim can be audited. */
@@ -2903,6 +3120,448 @@ export class FrenchReaderController extends TypertRemoteService {
     return rows.sort((left, right) => right.fetchedAt.localeCompare(left.fetchedAt))
   }
 
+  // --- audio surface: reading one sentence, or one form, aloud --------------
+
+  /**
+   * Synthesize one sentence, and append the take it produces.
+   *
+   * The gates run in the contract's order, and each one answers as itself:
+   *
+   * 1. **unconfigured** — before anything else, because a control that cannot
+   *    request audio must never be told a take is queued, generating or ready;
+   * 2. **the source** — the passage and the sentence it really is, at the
+   *    revisions it really has (a paragraph's own text is refused here);
+   * 3. **the request id** — a retry finds its take, or the work already running;
+   * 4. **the cache** — a stored take is played, and `generate` never synthesizes
+   *    again; `regenerate` is the separate action that appends a new version;
+   * 5. **the provider** — and a late success appends without preempting a newer
+   *    request.
+   */
+  @Remote('synthesizeSentenceAudio')
+  async synthesizeSentenceAudioRemote(
+    request: SynthesizeSentenceAudioRequest,
+    signal: AbortSignal,
+  ): Promise<SynthesizeSentenceAudioValue> {
+    const parsed = synthesizeSentenceAudioRequestSchema.safeParse(request)
+    if (!parsed.success) throw badRequest('Invalid sentence-audio request', parsed.error.issues)
+    signal.throwIfAborted()
+    return this.synthesizeSentenceAudio(parsed.data, signal)
+  }
+
+  async synthesizeSentenceAudio(
+    input: SynthesizeSentenceAudioRequest,
+    signal: AbortSignal,
+  ): Promise<SynthesizeSentenceAudioValue> {
+    const configuration = this.audioConfiguration()
+    if (configuration.state === 'unconfigured') {
+      return { kind: 'unconfigured', reason: configuration.reason, message: configuration.detail }
+    }
+    const refusal = this.sentenceSourceRefusal(input.source)
+    if (refusal !== null) return { kind: 'rejected', reason: refusal.reason, message: refusal.message }
+
+    const voice = resolveAudioVoice(input.voice, configuration.config)
+    const sourceKey = sentenceAudioSourceKey(input.source)
+    const stored = await listSentenceAudioTakes(this.table(), input.source)
+
+    const replayed = stored.takes.find((take) => take.requestId === input.requestId)
+    if (replayed !== undefined) {
+      return { kind: 'replayed', take: toSentenceAudioTakeView(replayed, replayed.takeId === stored.selectedTakeId) }
+    }
+    // The same request id, already running: report it instead of queueing it twice.
+    if (this.audioInFlight.has(audioRequestKey('sentence', input.requestId))) {
+      return { kind: 'generating', requestId: input.requestId }
+    }
+
+    if (input.action === 'generate') {
+      // A cache hit means the *same* reading, not merely the same identifiers:
+      // a stored take whose text differs is a different sentence's audio.
+      const cached = newestSentenceAudioTake(
+        stored,
+        { backend: configuration.backend, voice },
+        (take) => take.source.text === input.source.text && take.source.language === input.source.language,
+      )
+      if (cached !== null) {
+        return { kind: 'cached', take: toSentenceAudioTakeView(cached, cached.takeId === stored.selectedTakeId) }
+      }
+    }
+    return this.runSentenceSynthesis(input, configuration, voice, sourceKey, signal)
+  }
+
+  @Remote('listSentenceAudio')
+  async listSentenceAudioRemote(
+    request: ListSentenceAudioRequest,
+    signal: AbortSignal,
+  ): Promise<SentenceAudioListValue> {
+    const parsed = listSentenceAudioRequestSchema.safeParse(request)
+    if (!parsed.success) throw badRequest('Invalid sentence-audio list request', parsed.error.issues)
+    signal.throwIfAborted()
+    return this.listSentenceAudio(parsed.data, signal)
+  }
+
+  async listSentenceAudio(
+    input: ListSentenceAudioRequest,
+    signal: AbortSignal,
+  ): Promise<SentenceAudioListValue> {
+    signal.throwIfAborted()
+    const stored = await listSentenceAudioTakes(this.table(), input.source)
+    return {
+      sourceKey: stored.sourceKey,
+      takes: stored.takes.map((take) => toSentenceAudioTakeView(take, take.takeId === stored.selectedTakeId)),
+      selectedTakeId: stored.selectedTakeId,
+      configuration: this.audioConfigurationView(),
+    }
+  }
+
+  @Remote('selectSentenceAudio')
+  async selectSentenceAudioRemote(
+    request: SelectSentenceAudioRequest,
+    signal: AbortSignal,
+  ): Promise<SelectSentenceAudioValue> {
+    const parsed = selectSentenceAudioRequestSchema.safeParse(request)
+    if (!parsed.success) throw badRequest('Invalid sentence-audio selection', parsed.error.issues)
+    signal.throwIfAborted()
+    const outcome = await this.serialize(() =>
+      selectSentenceAudioTake(this.table(), parsed.data.source, parsed.data.takeId))
+    if (outcome.kind === 'selected') return { kind: 'selected', takeId: outcome.takeId }
+    if (outcome.kind === 'already-selected') return { kind: 'already-selected', takeId: outcome.takeId }
+    return { kind: 'conflict', reason: outcome.kind }
+  }
+
+  @Remote('readSentenceAudioAsset')
+  async readSentenceAudioAssetRemote(
+    request: ReadSentenceAudioAssetRequest,
+    signal: AbortSignal,
+  ): Promise<ReadSentenceAudioAssetValue> {
+    const parsed = readSentenceAudioAssetRequestSchema.safeParse(request)
+    if (!parsed.success) throw badRequest('Invalid sentence-audio asset request', parsed.error.issues)
+    signal.throwIfAborted()
+    const asset = await readSentenceAudioAsset(this.table(), parsed.data.source, parsed.data.takeId)
+    return asset === null
+      ? { kind: 'missing', takeId: parsed.data.takeId, mimeType: null, base64: '', bytes: 0, durationMs: 0, createdAt: null }
+      : {
+        kind: 'found',
+        takeId: asset.takeId,
+        mimeType: asset.mimeType,
+        base64: asset.base64,
+        bytes: asset.bytes,
+        durationMs: asset.durationMs,
+        createdAt: asset.createdAt,
+      }
+  }
+
+  /**
+   * Synthesize one conjugated form.
+   *
+   * Deliberately separate state from the sentence surface, as the contract
+   * requires: changing which sentence is selected cannot reroute a form's audio,
+   * and the two share no asset key.
+   */
+  @Remote('synthesizeInflectionAudio')
+  async synthesizeInflectionAudioRemote(
+    request: SynthesizeInflectionAudioRequest,
+    signal: AbortSignal,
+  ): Promise<SynthesizeInflectionAudioValue> {
+    const parsed = synthesizeInflectionAudioRequestSchema.safeParse(request)
+    if (!parsed.success) throw badRequest('Invalid inflection-audio request', parsed.error.issues)
+    signal.throwIfAborted()
+    return this.synthesizeInflectionAudio(parsed.data, signal)
+  }
+
+  async synthesizeInflectionAudio(
+    input: SynthesizeInflectionAudioRequest,
+    signal: AbortSignal,
+  ): Promise<SynthesizeInflectionAudioValue> {
+    const configuration = this.audioConfiguration()
+    if (configuration.state === 'unconfigured') {
+      return { kind: 'unconfigured', reason: configuration.reason, message: configuration.detail }
+    }
+    const refusal = inflectionSourceRefusal(input.source)
+    if (refusal !== null) return { kind: 'rejected', reason: refusal.reason, message: refusal.message }
+
+    const voice = resolveAudioVoice(input.voice, configuration.config)
+    const sourceKey = inflectionAudioSourceKey(input.source)
+    const stored = await listInflectionAudioTakes(this.table(), input.source)
+
+    const replayed = stored.takes.find((take) => take.requestId === input.requestId)
+    if (replayed !== undefined) {
+      return { kind: 'replayed', take: toInflectionAudioTakeView(replayed, replayed.takeId === stored.selectedTakeId) }
+    }
+    if (this.audioInFlight.has(audioRequestKey('inflection', input.requestId))) {
+      return { kind: 'generating', requestId: input.requestId }
+    }
+
+    if (input.action === 'generate') {
+      // The fingerprint is `formId|inflectionRevision`, so two readings of one
+      // form id share a record: only the one that really is this reading is a hit.
+      const cached = newestInflectionAudioTake(
+        stored,
+        { backend: configuration.backend, voice },
+        (take) => take.source.form === input.source.form
+          && take.source.utterance === input.source.utterance
+          && take.source.lemma === input.source.lemma
+          && take.source.tense === input.source.tense
+          && take.source.person === input.source.person,
+      )
+      if (cached !== null) {
+        return { kind: 'cached', take: toInflectionAudioTakeView(cached, cached.takeId === stored.selectedTakeId) }
+      }
+    }
+    return this.runInflectionSynthesis(input, configuration, voice, sourceKey, signal)
+  }
+
+  @Remote('listInflectionAudio')
+  async listInflectionAudioRemote(
+    request: ListInflectionAudioRequest,
+    signal: AbortSignal,
+  ): Promise<InflectionAudioListValue> {
+    const parsed = listInflectionAudioRequestSchema.safeParse(request)
+    if (!parsed.success) throw badRequest('Invalid inflection-audio list request', parsed.error.issues)
+    signal.throwIfAborted()
+    const stored = await listInflectionAudioTakes(this.table(), parsed.data.source)
+    return {
+      sourceKey: stored.sourceKey,
+      takes: stored.takes.map((take) => toInflectionAudioTakeView(take, take.takeId === stored.selectedTakeId)),
+      selectedTakeId: stored.selectedTakeId,
+      configuration: this.audioConfigurationView(),
+    }
+  }
+
+  @Remote('selectInflectionAudio')
+  async selectInflectionAudioRemote(
+    request: SelectInflectionAudioRequest,
+    signal: AbortSignal,
+  ): Promise<SelectInflectionAudioValue> {
+    const parsed = selectInflectionAudioRequestSchema.safeParse(request)
+    if (!parsed.success) throw badRequest('Invalid inflection-audio selection', parsed.error.issues)
+    signal.throwIfAborted()
+    const outcome = await this.serialize(() =>
+      selectInflectionAudioTake(this.table(), parsed.data.source, parsed.data.takeId))
+    if (outcome.kind === 'selected') return { kind: 'selected', takeId: outcome.takeId }
+    if (outcome.kind === 'already-selected') return { kind: 'already-selected', takeId: outcome.takeId }
+    return { kind: 'conflict', reason: outcome.kind }
+  }
+
+  @Remote('readInflectionAudioAsset')
+  async readInflectionAudioAssetRemote(
+    request: ReadInflectionAudioAssetRequest,
+    signal: AbortSignal,
+  ): Promise<ReadInflectionAudioAssetValue> {
+    const parsed = readInflectionAudioAssetRequestSchema.safeParse(request)
+    if (!parsed.success) throw badRequest('Invalid inflection-audio asset request', parsed.error.issues)
+    signal.throwIfAborted()
+    const asset = await readInflectionAudioAsset(this.table(), parsed.data.source, parsed.data.takeId)
+    return asset === null
+      ? { kind: 'missing', takeId: parsed.data.takeId, mimeType: null, base64: '', bytes: 0, durationMs: 0, createdAt: null }
+      : {
+        kind: 'found',
+        takeId: asset.takeId,
+        mimeType: asset.mimeType,
+        base64: asset.base64,
+        bytes: asset.bytes,
+        durationMs: asset.durationMs,
+        createdAt: asset.createdAt,
+      }
+  }
+
+  /** One sentence's audio, produced once and appended as a new version. */
+  private async runSentenceSynthesis(
+    input: SynthesizeSentenceAudioRequest,
+    configuration: Extract<AudioConfiguration, { state: 'configured' }>,
+    voice: { voiceId: string | null, rate: number },
+    sourceKey: string,
+    signal: AbortSignal,
+  ): Promise<SynthesizeSentenceAudioValue> {
+    const controller = new AbortController()
+    const forward = (): void => controller.abort()
+    if (signal.aborted) forward()
+    else signal.addEventListener('abort', forward, { once: true })
+    const flightKey = audioRequestKey('sentence', input.requestId)
+    this.audioInFlight.set(flightKey, { requestId: input.requestId, sourceKey, controller })
+    this.audioNewestRequest.set(sourceKey, input.requestId)
+    try {
+      const result = await synthesizeSpeech(
+        { kind: 'sentence', text: input.source.text, language: input.source.language },
+        configuration,
+        controller.signal,
+        this.audioTransport(),
+      )
+      const take = buildSentenceAudioTake(input, configuration, voice, result)
+      const appended = await this.serialize(() => appendSentenceAudioTake(this.table(), take))
+      const current = this.audioNewestRequest.get(sourceKey) === input.requestId
+      if (current) {
+        await this.serialize(() => selectSentenceAudioTake(this.table(), input.source, appended.take.takeId))
+      }
+      return { kind: 'ready', take: toSentenceAudioTakeView(appended.take, current) }
+    } catch (error) {
+      return this.audioFailure(error, input.requestId)
+    } finally {
+      signal.removeEventListener('abort', forward)
+      this.audioInFlight.delete(flightKey)
+    }
+  }
+
+  /** The same, for one form: separate keys, separate selection, separate state. */
+  private async runInflectionSynthesis(
+    input: SynthesizeInflectionAudioRequest,
+    configuration: Extract<AudioConfiguration, { state: 'configured' }>,
+    voice: { voiceId: string | null, rate: number },
+    sourceKey: string,
+    signal: AbortSignal,
+  ): Promise<SynthesizeInflectionAudioValue> {
+    const controller = new AbortController()
+    const forward = (): void => controller.abort()
+    if (signal.aborted) forward()
+    else signal.addEventListener('abort', forward, { once: true })
+    const flightKey = audioRequestKey('inflection', input.requestId)
+    this.audioInFlight.set(flightKey, { requestId: input.requestId, sourceKey, controller })
+    this.audioNewestRequest.set(sourceKey, input.requestId)
+    try {
+      const result = await synthesizeSpeech(
+        { kind: 'inflection', text: input.source.utterance, language: input.source.language },
+        configuration,
+        controller.signal,
+        this.audioTransport(),
+      )
+      const take = buildInflectionAudioTake(input, configuration, voice, result)
+      const appended = await this.serialize(() => appendInflectionAudioTake(this.table(), take))
+      const current = this.audioNewestRequest.get(sourceKey) === input.requestId
+      if (current) {
+        await this.serialize(() => selectInflectionAudioTake(this.table(), input.source, appended.take.takeId))
+      }
+      return { kind: 'ready', take: toInflectionAudioTakeView(appended.take, current) }
+    } catch (error) {
+      return this.audioFailure(error, input.requestId)
+    } finally {
+      signal.removeEventListener('abort', forward)
+      this.audioInFlight.delete(flightKey)
+    }
+  }
+
+  /** The audio configuration, secrets included, for the synthesis path only. */
+  private audioConfiguration(): AudioConfiguration {
+    const options = this.audioRuntime
+    return resolveAudioConfiguration(options.config, {
+      env: options.env,
+      // An injected socket counts: the test seam must not be reported as a
+      // missing transport just because this process has no global WebSocket.
+      webSocketAvailable: options.webSocket !== undefined
+        || (globalThis as { WebSocket?: unknown }).WebSocket !== undefined,
+    })
+  }
+
+  /** The same, said without the key, for anything that crosses the wire. */
+  private audioConfigurationView(): AudioConfigurationView {
+    const resolution = this.audioConfiguration()
+    if (resolution.state === 'unconfigured') {
+      return {
+        configured: false,
+        reason: resolution.reason,
+        message: resolution.detail,
+        backend: null,
+        streaming: false,
+        cancellation: false,
+        maxCharacters: DEFAULT_MAX_CHARACTERS,
+      }
+    }
+    const capabilities = audioCapabilities(resolution.backend)
+    return {
+      configured: true,
+      reason: null,
+      message: null,
+      backend: {
+        kind: resolution.backend.kind,
+        providerId: resolution.backend.providerId,
+        modelId: resolution.backend.modelId,
+      },
+      streaming: capabilities.streaming,
+      cancellation: capabilities.cancellation,
+      maxCharacters: resolution.config.maxCharacters,
+    }
+  }
+
+  private audioTransport(): AudioTransports {
+    const options = this.audioRuntime
+    return { fetch: options.fetch, webSocket: options.webSocket, env: options.env }
+  }
+
+  /**
+   * A synthesis failure, classified, always as a value.
+   *
+   * A Remote call that throws leaves the panel with an unclassified error and
+   * nothing to show; every ending this module can produce is therefore reported
+   * as its own kind, and an unexpected throw is still a `provider-error` with
+   * its own text rather than a lost answer.
+   */
+  private audioFailure(
+    error: unknown,
+    requestId: string,
+  ):
+    | { kind: 'cancelled'; requestId: string }
+    | { kind: 'unconfigured'; reason: 'transport-unavailable'; message: string }
+    | { kind: 'rejected'; reason: AudioInputRejectionView; message: string }
+    | { kind: 'failed'; reason: AudioFailureView; message: string } {
+    if (error instanceof AudioSynthesisError) {
+      if (error.reason === 'cancelled') return { kind: 'cancelled', requestId }
+      if (error.reason === 'unconfigured') {
+        return { kind: 'unconfigured', reason: 'transport-unavailable', message: error.message }
+      }
+      if (isInputRejection(error.reason)) return { kind: 'rejected', reason: error.reason, message: error.message }
+      return { kind: 'failed', reason: error.reason, message: error.message }
+    }
+    return { kind: 'failed', reason: 'provider-error', message: String(error).slice(0, 300) }
+  }
+
+  /**
+   * Whether the sentence this request names really is the sentence it claims.
+   *
+   * The checks only speak when there is evidence: a stored segmentation whose
+   * revision disagrees with the request is refused, and a sentence whose stored
+   * text disagrees with the submitted text is refused — which is what keeps a
+   * paragraph body, a title, a translation or a discussion out of the synthesis
+   * input even if a client sends one. With nothing stored there is no evidence,
+   * and the text checks in `audio.ts` are what remain.
+   */
+  private sentenceSourceRefusal(
+    source: SentenceSpeechSourceView,
+  ): { reason: AudioInputRejectionView, message: string } | null {
+    const row = this.table().get(source.passageId)
+    if (row?.kind !== 'passage') {
+      return { reason: 'source-unknown', message: '没有这个段落，未发送合成请求' }
+    }
+    const segmentation = this.segmentationForRevision(source.passageId, source.sourceRevision)
+    if (segmentation === undefined) return null
+    if (segmentation.revision !== source.sentenceRevision) {
+      return {
+        reason: 'revision-mismatch',
+        message: `分段版本已变为 ${String(segmentation.revision)}，请按当前分段重新请求`,
+      }
+    }
+    for (const paragraph of segmentation.paragraphs) {
+      const sentence = paragraph.sentences.find((entry) => entry.id === source.sentenceId)
+      if (sentence === undefined) continue
+      if (sentence.text !== source.text) {
+        return { reason: 'source-mismatch', message: '提交的文本不是这一句的原文，未发送合成请求' }
+      }
+      return null
+    }
+    return { reason: 'source-unknown', message: '这一句不在该分段中，未发送合成请求' }
+  }
+
+  /** The segmentation of one source revision, when one was ever derived and stored. */
+  private segmentationForRevision(passageId: string, sourceRevision: number): StoredSegmentation | undefined {
+    const table = this.table()
+    const candidates = [segmentsKeyFor(passageId, sourceRevision)]
+    // Records written before segmentations were keyed per revision.
+    if (sourceRevision === 1) candidates.push(segmentsKey(passageId))
+    for (const key of candidates) {
+      const record = table.get(key)
+      if (record?.kind !== 'segments') continue
+      if (record.payload.sourceRevision !== sourceRevision) continue
+      return record.payload
+    }
+    return undefined
+  }
+
   /**
    * Move one grammar entry's mastery, as the reader's own act.
    *
@@ -4606,6 +5265,165 @@ function anchorAt(
 
 /** Whether a stored anchor id names a sentence rather than a paragraph. */
 const isSentenceAnchor = (anchorId: string): boolean => anchorId.includes('.s')
+
+/* ----------------------------------------------------------------- audio --- */
+
+/** A requested voice, or the configured one: never a half-specified take. */
+function resolveAudioVoice(
+  requested: AudioVoiceView | null,
+  config: SentenceAudioConfig,
+): { voiceId: string | null, rate: number } {
+  if (requested === null) return { voiceId: config.voice, rate: config.rate }
+  const voiceId = requested.voiceId === null || requested.voiceId.trim() === ''
+    ? config.voice
+    : requested.voiceId.trim()
+  return { voiceId, rate: requested.rate }
+}
+
+/** One sentence's take: the audio, its measurements, and where it came from. */
+function buildSentenceAudioTake(
+  input: SynthesizeSentenceAudioRequest,
+  configuration: Extract<AudioConfiguration, { state: 'configured' }>,
+  voice: { voiceId: string | null, rate: number },
+  audio: { mimeType: string, bytes: Uint8Array, durationMs: number },
+): StoredSentenceAudioTake {
+  const takeId = globalThis.crypto.randomUUID()
+  return {
+    takeId,
+    requestId: input.requestId,
+    source: { ...input.source },
+    backend: configuration.backend,
+    voice,
+    previousTakeId: input.previousTakeId === '' ? null : input.previousTakeId,
+    audioAssetId: `audio_${takeId}`,
+    mimeType: audio.mimeType,
+    durationMs: audio.durationMs,
+    bytes: audio.bytes.length,
+    audioBase64: bytesToBase64(audio.bytes),
+    createdAt: new Date().toISOString(),
+  }
+}
+
+function buildInflectionAudioTake(
+  input: SynthesizeInflectionAudioRequest,
+  configuration: Extract<AudioConfiguration, { state: 'configured' }>,
+  voice: { voiceId: string | null, rate: number },
+  audio: { mimeType: string, bytes: Uint8Array, durationMs: number },
+): StoredInflectionAudioTake {
+  const takeId = globalThis.crypto.randomUUID()
+  return {
+    takeId,
+    requestId: input.requestId,
+    source: { ...input.source },
+    backend: configuration.backend,
+    voice,
+    previousTakeId: input.previousTakeId === '' ? null : input.previousTakeId,
+    audioAssetId: `audio_${takeId}`,
+    mimeType: audio.mimeType,
+    durationMs: audio.durationMs,
+    bytes: audio.bytes.length,
+    audioBase64: bytesToBase64(audio.bytes),
+    createdAt: new Date().toISOString(),
+  }
+}
+
+/** One stored take as the panel reads it: no bytes, but everything that names them. */
+function toSentenceAudioTakeView(take: StoredSentenceAudioTake, selected: boolean): SentenceAudioTakeView {
+  return {
+    takeId: take.takeId,
+    requestId: take.requestId,
+    source: {
+      passageId: take.source.passageId,
+      sentenceId: take.source.sentenceId,
+      sourceRevision: take.source.sourceRevision,
+      sentenceRevision: take.source.sentenceRevision,
+      text: take.source.text,
+      language: take.source.language,
+    },
+    backend: {
+      kind: take.backend.kind,
+      providerId: take.backend.providerId,
+      modelId: take.backend.modelId,
+    },
+    voice: { voiceId: take.voice.voiceId, rate: take.voice.rate },
+    previousTakeId: take.previousTakeId,
+    audioAssetId: take.audioAssetId,
+    mimeType: take.mimeType,
+    durationMs: take.durationMs,
+    bytes: take.bytes,
+    createdAt: take.createdAt,
+    selected,
+  }
+}
+
+function toInflectionAudioTakeView(take: StoredInflectionAudioTake, selected: boolean): InflectionAudioTakeView {
+  return {
+    takeId: take.takeId,
+    requestId: take.requestId,
+    source: {
+      kind: 'inflection',
+      formId: take.source.formId,
+      inflectionRevision: take.source.inflectionRevision,
+      lemma: take.source.lemma,
+      tense: take.source.tense,
+      formKind: take.source.formKind,
+      person: take.source.person,
+      form: take.source.form,
+      utterance: take.source.utterance,
+      language: take.source.language,
+    },
+    backend: {
+      kind: take.backend.kind,
+      providerId: take.backend.providerId,
+      modelId: take.backend.modelId,
+    },
+    voice: { voiceId: take.voice.voiceId, rate: take.voice.rate },
+    previousTakeId: take.previousTakeId,
+    audioAssetId: take.audioAssetId,
+    mimeType: take.mimeType,
+    durationMs: take.durationMs,
+    bytes: take.bytes,
+    createdAt: take.createdAt,
+    selected,
+  }
+}
+
+/** Singular and plural subject pronouns, as a word rather than a prefix. */
+const SINGULAR_SUBJECT = /^(?:je|tu|il|elle|on)(?![\p{L}])|^(?:j')/u
+const PLURAL_SUBJECT = /^(?:nous|vous|ils|elles)(?![\p{L}])/u
+
+/**
+ * Whether the utterance really is this form, said in French.
+ *
+ * The contract asks for the utterance to be checked against the written form and
+ * the person rather than inferred from spelling, so two things are refused: a
+ * reading text that does not contain the form at all (an IPA transcription or a
+ * slash-separated alternative looks exactly like this), and a pronoun whose
+ * number contradicts the person the row claims. A pronoun is never *required* —
+ * an imperative has none — so this only refuses a contradiction.
+ */
+function inflectionSourceRefusal(
+  source: InflectionSpeechSourceView,
+): { reason: AudioInputRejectionView, message: string } | null {
+  const normalise = (value: string): string => value.normalize('NFC').toLowerCase().replace(/[’]/gu, "'")
+  const utterance = normalise(source.utterance).trim()
+  const written = normalise(source.form).trim()
+  if (written !== '' && !utterance.includes(written)) {
+    return {
+      reason: 'source-mismatch',
+      message: `朗读文本里没有这个形式（${source.form}），未发送合成请求`,
+    }
+  }
+  if (source.person === null) return null
+  const singular = source.person <= 3
+  if (singular && PLURAL_SUBJECT.test(utterance)) {
+    return { reason: 'source-mismatch', message: `第 ${String(source.person)} 人称是单数，朗读文本却用了复数主语` }
+  }
+  if (!singular && SINGULAR_SUBJECT.test(utterance)) {
+    return { reason: 'source-mismatch', message: `第 ${String(source.person)} 人称是复数，朗读文本却用了单数主语` }
+  }
+  return null
+}
 
 function badRequest(message: string, issues: readonly object[]): RemoteError<'gateway/bad-request'> {
   return new RemoteError('gateway/bad-request', message, { issues })
