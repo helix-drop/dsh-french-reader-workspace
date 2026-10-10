@@ -9,6 +9,21 @@ window.__ModuleLoader__.load({
     // effect still works through the passive one.
     const useMeasuredEffect = React.useLayoutEffect ?? React.useEffect
     const NS = 'french-close-reading'
+
+    /**
+     * Whether this panel is rendered inside the Desktop app's own window.
+     *
+     * The Desktop shell draws its traffic lights over the top-left of a panel's
+     * own window, so the reader's first row needs to start below them; the exact
+     * same panel served by the browser half has no such chrome, and a blank strip
+     * there would be a defect of its own. Electron identifies itself in the user
+     * agent, and `process.versions.electron` is the belt to that braces.
+     */
+    function insideDesktopWindow() {
+      const agent = globalThis.navigator?.userAgent ?? ''
+      if (agent.includes('Electron')) return true
+      return typeof globalThis.process?.versions?.electron === 'string'
+    }
     // The generated Remote contract is inlined instead of imported: a browser
     // half may require only baseline modules, and the shell's static table
     // (react, react/jsx-runtime, react-dom, react-dom/client, cordis,
@@ -577,7 +592,7 @@ window.__ModuleLoader__.load({
       kind: S.oneOf(S.lit('found'), S.lit('missing')), takeId: S.str, mimeType: S.nilable(S.str),
       base64: S.str, bytes: S.num, durationMs: S.num, createdAt: S.nilable(S.str),
     })
-    const internals = { measureSelection, paragraphOffsetBefore, tokenForRole, renderConstituents, renderMarkdown, contextPreviewIdentity, conjugationPersonLabel, mergeShelf, mergeContinuationLinks, ConjugationView, KnowledgeEntry, GrammarDetail, LexiconCard, KnowledgeLibrary, duplicateTopicKey, AudioControls, audioSourceKey, sentenceSpeechSource, inflectionSpeechSource, inflectionUtterance }
+    const internals = { readingSelection, selectionLookup, measureSelection, paragraphOffsetBefore, tokenForRole, renderConstituents, renderMarkdown, contextPreviewIdentity, conjugationPersonLabel, mergeShelf, mergeContinuationLinks, ConjugationView, KnowledgeEntry, GrammarDetail, LexiconCard, KnowledgeLibrary, duplicateTopicKey, AudioControls, audioSourceKey, sentenceSpeechSource, inflectionSpeechSource, inflectionUtterance }
 
     const TYPES = '@local/french-close-reading/types#'
     const remoteContribution = {
@@ -1796,6 +1811,7 @@ window.__ModuleLoader__.load({
       saveNextPassage: '保存，继续当前段', nextPassageSaved: '下一段已保存，准备好后即可开始。', resumeReading: '返回当前段',
       navStageLabel: '可缩放导航；加减号缩放，方向键平移', navHint: '双指滑动平移 · 捏合缩放', navFit: '全览', navPosition: '位移 x {x} · y {y}',
       progressSentences: '{covered} / {total} 句', paragraphAnchor: '段落后重新解析',
+      closeDiscussion: '关闭讨论，回到主分支',
       audioGenerate: '▷ 发音', audioRegenerate: '↻ 重新生成',
       audioNotWired: '逐句发音，接口尚未接入', switchPassage: '切换段落',
       audioRegenerateShort: '↻ 重生成', audioReserved: '接口预留',
@@ -2089,6 +2105,7 @@ window.__ModuleLoader__.load({
       navStageLabel: 'Zoomable navigation; minus and plus zoom, arrow keys pan',
       navHint: 'Two-finger swipe to pan · pinch to zoom', navFit: 'Fit', navPosition: 'offset x {x} · y {y}',
       progressSentences: '{covered} / {total} sentences', paragraphAnchor: 'Paragraph anchor',
+      closeDiscussion: 'Close the discussion and return to the main branch',
       audioGenerate: '▷ Speak', audioRegenerate: '↻ Regenerate',
       audioNotWired: 'Per-sentence audio is not connected yet', switchPassage: 'Switch passage',
       audioRegenerateShort: '↻ Regenerate', audioReserved: 'not wired',
@@ -2380,6 +2397,7 @@ window.__ModuleLoader__.load({
 .fr-root .storageStatus{flex:0 0 auto;padding:5px 20px;font-size:11px;line-height:1.55;background:var(--fr-c200);color:var(--fr-c201);border-bottom:1px solid var(--fr-c202)}.fr-root .receiptStorage{font-size:10px;color:var(--fr-c203);margin-top:4px}.fr-root .actionDialog textarea{min-height:130px;max-height:38dvh}.fr-root .actionDialog .danger{background:var(--fr-c204)!important;border-color:var(--fr-c204)!important;color:white}.fr-root .actionDialog .kbField{margin:14px 0}.fr-root .actionDialog .hint{line-height:1.8}.fr-root .actionDialog .modalFoot{flex-shrink:0}
 @container (max-width:560px) {.fr-root .storageStatus{padding:4px 12px;font-size:10px}.fr-root .actionDialog textarea{min-height:100px}}
 @media(max-height:500px){
+
  .fr-root .top.compactTop{height:40px;min-height:40px;max-height:40px;flex-basis:40px}
  .fr-root .workspace[data-view="focus"]>.detailPane{display:block!important;overflow-y:auto!important;overflow-x:hidden!important;overscroll-behavior:contain;scrollbar-gutter:stable}
  .fr-root .detailPane>.paneHead{height:28px;min-height:28px;padding:0 20px}.fr-root .detailPane>.crumb{min-height:22px;padding:3px 20px;line-height:1.6}.fr-root .detailPane>.branchStrip{padding:3px 20px;max-height:34px;overflow-x:auto;flex-wrap:nowrap}.fr-root .detailPane>.readingActions{min-height:28px;padding:3px 20px}
@@ -2665,6 +2683,19 @@ window.__ModuleLoader__.load({
          something to explain. */
       .fr-root .audioDiagnostic{flex:1 1 100%;min-width:0;margin-top:4px;padding:6px 8px;border-left:2px solid var(--dsw-alias-state-error-primary);background:var(--dsw-alias-bg-layer-1);border-radius:4px;display:flex;flex-direction:column;gap:2px}
       .fr-root .audioDiagnostic span{font:10px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--dsw-alias-label-secondary);overflow-wrap:anywhere;word-break:break-all}
+      /* Creating a discussion, as its own control rather than a strip entry: fixed
+         to the panel so it cannot scroll away, round so it cannot be mistaken for
+         one of the branch chips it sits beside. */
+      .fr-root .workspace{position:relative}
+      .fr-root .discussFab{position:absolute;right:22px;bottom:22px;width:46px;height:46px;min-width:46px;padding:0;border-radius:50%;border-color:var(--green);background:var(--green);color:var(--paper);font-size:20px;line-height:1;box-shadow:0 6px 20px var(--fr-c40);z-index:6;display:grid;place-items:center}
+      .fr-root .discussFab:hover:not(:disabled){background:var(--fr-c06);border-color:var(--fr-c06)}
+      .fr-root .discussFab:disabled{opacity:.4}
+      /* The Desktop shell paints its traffic lights over a panel window's top-left
+         corner, which put the brand, 目录 and 书架 underneath them (reported from a
+         real window). The panel reserves that strip for itself only when it really is
+         inside that shell; .fr-root is border-box, so the padding comes out of the
+         layout instead of pushing the workspace past the window. */
+      .fr-root[data-chrome='desktop']{box-sizing:border-box;padding-top:30px}
     `
 
     function format(t, key, values = {}) {
@@ -3113,6 +3144,38 @@ window.__ModuleLoader__.load({
         utterance: inflectionUtterance(code, form.written),
         language: 'fr',
       }
+    }
+
+    /**
+     * The word a selection is worth looking up, or null when it is not one.
+     *
+     * A stray drag is not a word, and a paragraph is not either: the ceiling is 100
+     * characters, and a selection outside the reading pane never reaches here at all.
+     * Kept as a pure rule so the panel's behaviour — select, then look up — is
+     * testable without a DOM.
+     */
+    const READING_SELECTION_MAX = 100
+    function readingSelection(value) {
+      if (typeof value !== 'string') return null
+      const text = value.trim()
+      if (text === '' || text.length > READING_SELECTION_MAX) return null
+      return text
+    }
+
+    /**
+     * The lookup a selection should start, or null when it should start none.
+     *
+     * The decision is pure so it can be pinned without a DOM or a render: the word
+     * must belong to the sentence the toolbar is about, and a selection the panel has
+     * already looked up is not looked up again — one drag fires both `mouseup` and
+     * `keyup`, and both read the same selection.
+     */
+    function selectionLookup(alreadyLookedUp, selectedWord, anchorId) {
+      if (selectedWord === null || selectedWord === undefined) return null
+      if (selectedWord.anchorId !== anchorId) return null
+      const text = readingSelection(selectedWord.text)
+      if (text === null) return null
+      return alreadyLookedUp === `${anchorId}\u0000${text}` ? null : text
     }
 
     /**
@@ -5036,6 +5099,8 @@ window.__ModuleLoader__.load({
       const displayedPassage = useRef(activePassage?.id ?? null)
       const switcherOpener = useRef(null)
       const lookupRequest = useRef(0)
+      /** The selection a lookup already ran for, so one drag is one lookup. */
+      const autoLookupFor = useRef('')
       const contextPreviewRequest = useRef(0)
       const askPreviewPending = useRef(false)
       const modelRequest = useRef(0)
@@ -5576,6 +5641,21 @@ window.__ModuleLoader__.load({
         }
         setKnowledgeOpen(true)
         setKnowledgeEntryId(null)
+      }
+
+      /**
+       * Leave the discussion and land back on the main branch.
+       *
+       * `selectedNode` is what the detail pane renders and what the composer belongs
+       * to, so clearing it *is* the return — the same move the analysis button makes,
+       * and the reason closing a discussion cannot leave the reader in a branch with
+       * no way out.
+       */
+      function closeDiscussion() {
+        invalidateContextPreview()
+        setSelectedNode(null)
+        setBranchDialog(null)
+        saveReadingPositionNow({ selectedNode: null })
       }
 
       function returnToAnalysis() {
@@ -7215,10 +7295,30 @@ window.__ModuleLoader__.load({
         const pane = readingPaneRef.current
         if (quote === null || quote === undefined || pane === null || !pane.contains(quote)) return
         if (!quote.contains(range.endContainer)) return
-        const value = selection.toString().trim()
-        if (value === '' || value.length > 100) return
-        setSelectedWord({ text: value, anchorId })
+        const value = readingSelection(selection.toString())
+        if (value !== null) setSelectedWord({ text: value, anchorId })
       }
+
+
+      /**
+       * Selecting a word is the request to look it up.
+       *
+       * The reader had to select, then travel to the toolbar and press 查词 — two
+       * steps for one intention, and the press was the step people forgot. The
+       * lookup now follows the selection. It is keyed by (sentence, word) so the
+       * `mouseup` and `keyup` that both report one selection cannot look it up
+       * twice, and it is deliberately not cancelled while a turn is streaming: a
+       * lookup writes nothing and replaces the detail pane, which is what the
+       * reader just asked for.
+       */
+      useEffect(() => {
+        const mot = selectionLookup(autoLookupFor.current, selectedWord, anchorId)
+        if (mot === null) return undefined
+        autoLookupFor.current = `${anchorId}\u0000${mot}`
+        void lookupWord(mot)
+        return undefined
+        // `lookupWord` is render-scoped; the pair above is the dependency that matters.
+      }, [selectedWord, anchorId])
 
       /** The stored word and the DOM selection both belong to one sentence. */
       function clearReadingSelection() {
@@ -8659,7 +8759,7 @@ window.__ModuleLoader__.load({
         const sentenceAudio = focusedSentence === null || segmentation === null
           ? null
           : sentenceSpeechSource(passage, segmentation, focusedSentence)
-        return h('div', { className: 'fr-root bookLayout', ref: rootRef, 'data-directory': directoryOpen ? 'open' : 'closed' },
+        return h('div', { className: 'fr-root bookLayout', ref: rootRef, 'data-chrome': insideDesktopWindow() ? 'desktop' : 'web', 'data-directory': directoryOpen ? 'open' : 'closed' },
           h('header', { className: 'top compactTop' },
             h('div', { className: 'topLeft' },
               h('div', { className: 'brand', title: t('panel') },
@@ -8707,6 +8807,16 @@ window.__ModuleLoader__.load({
           h('main', {
             className: 'workspace', 'data-view': 'focus', 'data-navigation': navOpen ? 'open' : 'closed',
           },
+            // Creating a discussion is the panel's own control: a sibling of the
+            // panes rather than a strip entry (the strip switches branches), and
+            // anchored to the workspace so scrolling the reading text cannot carry
+            // it away and the pane's own scroll box cannot clip it.
+            knowledgeOpen ? null : h('button', {
+              className: 'discussFab', type: 'button',
+              disabled: anchorId === '',
+              'aria-label': t('addBranchShort'), title: t('addBranchShort'),
+              onClick: () => openBranchDialog(null, null),
+            }, '＋'),
             h('aside', {
               className: `navigation${navOpen ? '' : ' closed'}`, id: 'reading-route',
               'aria-label': t('navTitle'),
@@ -8816,6 +8926,14 @@ window.__ModuleLoader__.load({
                   }, '→'),
                 ),
                 h('div', { className: 'focusTools' },
+                  // A discussion is something the reader opened, so it is something
+                  // they can close: the ✕ returns to the main branch (the analysis
+                  // view) instead of leaving them inside a branch they cannot leave.
+                  selectedNode?.kind === 'discussion' ? h('button', {
+                    className: 'small quiet', type: 'button',
+                    'aria-label': t('closeDiscussion'), title: t('closeDiscussion'),
+                    onClick: closeDiscussion,
+                  }, '✕') : null,
                   h('button', {
                     className: 'quiet small', type: 'button', onClick: focusNavigation,
                   }, t('locateNavigation')),
@@ -8912,13 +9030,10 @@ window.__ModuleLoader__.load({
                     className: `small${selectedNode?.id === branch.branchId ? ' active' : ''}`,
                     type: 'button',
                     // Clicking a branch selects it: its messages and composer
-                    // appear in the detail pane. Creating branches is the
-                    // ＋讨论 dialog's job — this button must never create one.
+                    // appear in the detail pane. This strip only switches branches;
+                    // creating one belongs to the panel's ＋ control.
                     onClick: () => pickNode(branchNode(branch)),
                   }, branch.title)),
-                anchorId === '' ? null : h('button', {
-                  className: 'small', type: 'button', onClick: () => openBranchDialog(null, null),
-                }, t('addBranchShort')),
               ),
                 ),
                 analysisRun === null ? null : h('div', { className: 'runStatus', role: 'status' },
@@ -8959,7 +9074,7 @@ window.__ModuleLoader__.load({
        */
       function frontDoor() {
         if (activePassage !== null) return readingShell(activePassage)
-        return h('div', { className: 'fr-root bookLayout', ref: rootRef, 'data-directory': directoryOpen ? 'open' : 'closed' },
+        return h('div', { className: 'fr-root bookLayout', ref: rootRef, 'data-chrome': insideDesktopWindow() ? 'desktop' : 'web', 'data-directory': directoryOpen ? 'open' : 'closed' },
           h('header', { className: 'top compactTop' },
             h('div', { className: 'topLeft' }, h('div', { className: 'brand' }, h('div', { className: 'logo' }, 'f.'), h('span', { className: 'title' }, t('panel'))),
               h('button', { type: 'button', onClick: toggleDirectory, 'aria-expanded': directoryOpen, 'aria-controls': 'book-directory' }, t('shelfToggle'))),

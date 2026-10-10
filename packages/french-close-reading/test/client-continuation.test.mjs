@@ -55,8 +55,10 @@ async function panel(services = {}, browser = {}) {
     } },
     remote: { frenchReader: api, $mount: async () => async () => {} },
   }
-  await registration.factory(() => React).apply(ctx)
-  return { render() {
+  // `apply` returns the disposer; `__test__` lives on the plugin object itself.
+  const plugin = registration.factory(() => React)
+  await plugin.apply(ctx)
+  return { plugin, render() {
     stateIndex = 0; refIndex = 0
     // The slot now registers the error boundary; unwrap function elements until
     // the page body runs. The boundary itself uses no hooks, so the historical
@@ -444,7 +446,7 @@ test('selecting A again does not accept the first unfinished read of A', async (
 
 test('the discussion dialog ignores composing Escape and closes on normal Escape', async () => {
   const p = await panel()
-  button(p.render(), '＋ 讨论').props.onClick()
+  button(p.render(), '＋').props.onClick()
   const dialog = all(p.render(), (node) => node.props?.role === 'dialog' && node.props['aria-labelledby'] === 'modalTitle')[0]
   assert.ok(dialog)
   const event = { key: 'Escape', isComposing: true, preventDefault() {}, stopPropagation() {} }
@@ -1121,14 +1123,18 @@ test('clicking a branch in the strip selects it and never creates a branch', asy
   assert.ok(all(tree, (node) => node.props?.className === 'composer').length > 0, 'the composer appears for the selected branch')
   assert.ok(button(tree, '查看本次上下文'), 'the composer offers the context preview')
   const buttons = all(strip(), (node) => node.type === 'button')
-  assert.equal(buttons.length, 2, 'the strip is unchanged: the one branch plus ＋ 讨论')
+  assert.equal(buttons.length, 1, 'the strip switches branches and holds nothing else')
   assert.equal(buttons[0].props.className.includes('active'), true, 'the selected branch reads as active')
+  // Creating one is not the strip's job: it is the panel's own ＋ control, which
+  // lives outside the strip precisely so this list stays a list of branches.
+  assert.equal(button(tree, '＋').props.className.includes('discussFab'), true,
+    'creating a discussion is the floating control, not a strip entry')
 
   // Clicking it again keeps the selection and still creates nothing.
   buttons[0].props.onClick()
   await flush()
   assert.equal(created, 0)
-  assert.equal(all(strip(), (node) => node.type === 'button').length, 2)
+  assert.equal(all(strip(), (node) => node.type === 'button').length, 1)
 })
 
 test('the ＋讨论 entry starts with a first question and an optional editable derived title', async () => {
@@ -1148,8 +1154,7 @@ test('the ＋讨论 entry starts with a first question and an optional editable 
   p.values.set(16, { paragraphs: [{ id: 'p1', text: 'Je lis.', start: 0, end: 7,
     sentences: [{ id: 'p1.s1', text: 'Je lis.', start: 0, end: 7 }] }] })
   p.values.set(30, { branches: [], conclusions: [] })
-  const strip = all(p.render(), (node) => node.props?.id === 'branchStrip')[0]
-  button(strip, '＋ 讨论').props.onClick()
+  button(p.render(), '＋').props.onClick()
   await flush()
   assert.equal(requests.length, 0, 'opening the first-question form is not a creation')
   assert.notEqual(p.values.get(51), null, 'the first-question form opened')
@@ -1997,3 +2002,93 @@ test('a navigation that would cancel a running analysis asks first (R7-U04)', as
 })
 
 
+
+/**
+ * A discussion is something the reader opened, so it is something they can close.
+ *
+ * The report from a real window was blunt: inside a branch there was no way back to
+ * the main branch. The ✕ in the pane head is that way out, and it must land on the
+ * analysis view — not on an empty pane, and not on another branch.
+ */
+test('closing a discussion returns to the main branch', async () => {
+  let created = 0
+  const p = await panel({ createBranch: async () => { created += 1; return ok({ kind: 'created', branchId: 'new' }) } })
+  const branch = discussionBranch('b1')
+  p.values.set(18, 'p1.s1')
+  p.values.set(30, { branches: [branch], conclusions: [] })
+
+  const strip = () => all(p.render(), (node) => node.props?.id === 'branchStrip')[0]
+  const branchButton = all(strip(), (node) => node.type === 'button' && text(node) === branch.title)[0]
+  branchButton.props.onClick()
+  await flush()
+  assert.equal(p.values.get(50)?.id, 'b1', 'the branch is open')
+
+  const closer = button(p.render(), '✕')
+  assert.ok(closer, 'an open discussion offers a way out')
+  assert.equal(closer.props['aria-label'], '关闭讨论，回到主分支', 'and says where it goes')
+  closer.props.onClick()
+  await flush()
+
+  assert.equal(p.values.get(50), null, 'the discussion is closed')
+  const tree = p.render()
+  assert.equal(all(tree, (node) => node.props?.className === 'composer').length, 0,
+    'the composer belongs to a discussion, so it goes with it')
+  // Back on the main branch: the sentence's own analysis view, not a blank pane.
+  assert.ok(all(tree, (node) => node.props?.className === 'sentenceWorkspace').length > 0,
+    'closing lands on the analysis view')
+  assert.equal(all(tree, (node) => node.props?.className === 'discussionNode').length, 0,
+    'the branch body is gone from the pane')
+  assert.equal(created, 0, 'closing never creates a branch')
+  assert.equal(button(tree, '✕'), undefined, 'a closed discussion cannot be closed again')
+})
+
+/**
+ * The strip is a list of branches and nothing else — the report was that one row was
+ * carrying switching, creating and discussing at once.
+ */
+test('the branch strip only switches branches; creation lives on the panel', async () => {
+  const p = await panel()
+  const branch = discussionBranch('b1')
+  const other = discussionBranch('b2')
+  p.values.set(18, 'p1.s1')
+  p.values.set(30, { branches: [branch, other], conclusions: [] })
+  const tree = p.render()
+  const strip = all(tree, (node) => node.props?.id === 'branchStrip')[0]
+  const stripLabels = all(strip, (node) => node.type === 'button').map((node) => text(node))
+  assert.deepEqual(stripLabels, [branch.title, other.title], 'the strip lists exactly the branches')
+  assert.equal(stripLabels.includes('＋ 讨论'), false, 'creating is not a strip entry any more')
+  const fab = button(tree, '＋')
+  assert.equal(fab.props.className.includes('discussFab'), true, 'the panel owns the creating control')
+  assert.equal(fab.props['aria-label'], '＋ 讨论', 'and keeps the reader-facing name')
+})
+
+/**
+ * Selecting a word is the request to look it up.
+ *
+ * Two steps became one: the toolbar press was the step people forgot. The rule that
+ * decides it is pure (`__test__.selectionLookup`), so what is pinned here is the
+ * behaviour itself: a selection in this sentence is looked up once, a selection in
+ * another sentence is not this sentence's business, and a stray drag is not a word.
+ */
+test('selecting a word is one lookup, in this sentence only', async () => {
+  const { readingSelection, selectionLookup } = (await panel()).plugin.__test__
+  assert.equal(typeof selectionLookup, 'function', 'the rule that turns a selection into a lookup is exported')
+
+  const word = (text, anchor = 'p1.s1') => ({ text, anchorId: anchor })
+
+  // The happy path, and the reason the toolbar press is no longer needed.
+  assert.equal(selectionLookup('', word('livre'), 'p1.s1'), 'livre')
+  // One drag reports one selection twice (`mouseup` and `keyup`): the effect stores
+  // this key, so the second report decides on nothing.
+  assert.equal(selectionLookup('p1.s1\u0000livre', word('livre'), 'p1.s1'), null,
+    'a selection already looked up is not looked up again')
+  assert.equal(selectionLookup('p1.s1\u0000livre', word('matin'), 'p1.s1'), 'matin',
+    'a different word is a different lookup')
+  // The toolbar shows one sentence's word, so another sentence's selection is not it.
+  assert.equal(selectionLookup('', word('livre', 'p1.s2'), 'p1.s1'), null)
+  // And the rule refuses what is not a word at all.
+  assert.equal(selectionLookup('', null, 'p1.s1'), null)
+  assert.equal(readingSelection('   '), null, 'a stray drag is not a word')
+  assert.equal(readingSelection('x'.repeat(101)), null, 'a paragraph is not a word')
+  assert.equal(readingSelection('  livre  '), 'livre', 'a word is trimmed, not rejected')
+})

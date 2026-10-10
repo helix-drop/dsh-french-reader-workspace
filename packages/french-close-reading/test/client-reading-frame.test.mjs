@@ -318,3 +318,27 @@ test('archiving a passage is reachable, and takes the revision the reader saw', 
   assert.match(switcher, /void archiveOne\(item\)/u)
   assert.match(source, /archivePassage: \(request\) => api\.archivePassage\(request\)/u, 'the face exposes it')
 })
+
+/**
+ * The Desktop shell's traffic lights sit over a panel window's top-left corner, and
+ * they landed on top of the brand, 目录 and 书架. The panel reserves that strip for
+ * itself — but only inside that shell: the same panel served by the browser half has
+ * no such chrome, and a blank band there would be a defect of its own.
+ */
+test('the reader keeps clear of the desktop window chrome, and only there', () => {
+  // The decision is a runtime one, so it cannot be a plain literal in the markup.
+  assert.match(source, /function insideDesktopWindow\(\)/u)
+  assert.match(source, /agent\.includes\('Electron'\)/u, 'the Desktop shell identifies itself')
+  assert.match(source, /process\?\.versions\?\.electron/u, 'and the process versions are the belt to that braces')
+  assert.match(source, /'data-chrome': insideDesktopWindow\(\) \? 'desktop' : 'web'/u,
+    'the panel states which window it is in')
+  // The rule is scoped to that state, and it comes out of the layout rather than
+  // adding a second scrollbar: `.fr-root` is border-box, so 30px of padding is 30px
+  // less workspace, not 30px more page.
+  assert.match(source, /\.fr-root\[data-chrome='desktop'\]\{box-sizing:border-box;padding-top:30px\}/u)
+  // One CSS rule is keyed on that state, and the two panel roots declare it.
+  assert.equal((source.match(/\.fr-root\[data-chrome='desktop'\]/gu) ?? []).length, 1,
+    'exactly one rule keys on the desktop state')
+  assert.equal((source.match(/'data-chrome': insideDesktopWindow\(\)/gu) ?? []).length, 2,
+    'both panel roots declare which window they are in')
+})
