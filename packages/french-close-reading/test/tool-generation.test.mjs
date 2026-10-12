@@ -16,7 +16,7 @@ const SENTENCE = 'Il faut cultiver notre jardin.'
 const reply = JSON.stringify({
   translation: '我们必须耕种我们的园地。',
   backbone: 'il faut cultiver notre jardin',
-  clauses: [{ role: '主句', start: 0, end: 16, text: SENTENCE.slice(0, 16), parentIndex: null }],
+  clauses: [{ role: '主句', start: 0, end: SENTENCE.length, text: SENTENCE, parentIndex: null }],
   constituents: [
     { role: '形式主语', start: 0, end: 2, text: 'Il', clauseIndex: 0, partOfSpeech: '代词' },
     { role: '谓语', start: 3, end: 16, text: 'faut cultiver', clauseIndex: 0, partOfSpeech: '动词' },
@@ -148,9 +148,7 @@ test('tool call cancellation reaches generation and uses the 10-minute timeout b
   }, { signal: controller.signal })
 
   assert.equal(tool.timeoutMs, 600_000)
-  assert.equal(backend.calls.length, 1, 'the generation backend was reached')
-  assert.equal(backend.calls[0].signal, controller.signal, 'the exact pre-aborted call signal reaches generation')
-  assert.equal(backend.calls[0].signal.aborted, true)
+  assert.equal(backend.calls.length, 0, 'pre-cancelled work never calls the provider')
 })
 
 test('identical ask calls without an operation id use distinct operation ids', async () => {

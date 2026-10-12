@@ -44,6 +44,8 @@ export interface BackendTarget {
 }
 
 export interface GenerateRequest {
+  /** Explicit output allowance for sentence analysis; includes reasoning. */
+  maxTokens?: number
   system: string
   /** The assembled user turn: compiled materials plus the question. */
   prompt: string
@@ -71,6 +73,8 @@ export interface GenerateRequest {
 }
 
 export interface GenerateOutcome {
+  effectiveMaxTokens?: number | null
+  effectiveReasoningEffort?: string | null
   text: string
   /** The model the backend confirmed, when it confirms one. */
   resolvedModel: string | null
@@ -136,7 +140,8 @@ export class DshLlmBackend implements GenerationBackend {
         models.push({
           id: `${provider.id}/${model.id}`,
           name: `${model.name} · ${provider.name}`,
-          reasoningEfforts: [],
+          reasoningEfforts: isEvaluatedAnalysisModel(model.id)
+            ? await this.resolveReasoningEfforts(`${provider.id}/${model.id}`, signal) : [],
           contextWindow: null,
         })
       }
@@ -178,12 +183,19 @@ export class DshLlmBackend implements GenerationBackend {
     let prepared
     request.onPhase?.('preparing')
     try {
+      const info = request.maxTokens === undefined ? null
+        : await llm.resolveModelInfo(route.provider, route.model, request.signal)
+      const efforts: string[] = info?.reasoning?.efforts.map((effort: { id: unknown }) => String(effort.id)) ?? []
+      // Only select a tested analysis preset when the exact adapter supports it.
+      const effort = target.reasoningEffort ?? (request.maxTokens !== undefined
+        && isEvaluatedAnalysisModel(route.model) && efforts.includes('high') ? 'high' : undefined)
       prepared = await llm.prepareCall({
         provider: route.provider,
         model: route.model,
-        ...(target.reasoningEffort === undefined
+        ...(request.maxTokens === undefined ? {} : { maxTokens: analysisOutputBudget(route.model, request.maxTokens) }),
+        ...(effort === undefined
           ? {}
-          : { reasoningEffort: target.reasoningEffort as never }),
+          : { reasoningEffort: effort as never }),
       }, request.signal)
     } catch (error) {
       return {
@@ -275,8 +287,24 @@ export class DshLlmBackend implements GenerationBackend {
 
     // A route that answered is named by the request's own route; the backend does
     // not pretend to know a different one after the fact.
-    return { text, resolvedModel: target.model, usage, finish, failure, modelCallMs, firstTextDeltaMs }
+    return { text, resolvedModel: target.model, usage, finish, failure, modelCallMs, firstTextDeltaMs,
+      effectiveMaxTokens: prepared.config.maxTokens ?? null,
+      effectiveReasoningEffort: prepared.config.reasoningEffort ?? null }
   }
+}
+
+export const ANALYSIS_OUTPUT_TOKENS = 131072
+
+export function isEvaluatedAnalysisModel(model: string): boolean {
+  return /^(deepseek-flash|deepseek-v4\.1.?flash|mimo-v2\.6-flash|gpt-6-luna|gemma-4-31b(?:-it)?)$/iu.test(model)
+}
+
+/** Known published caps, not adapter defaults (which may be much smaller). */
+export function analysisOutputBudget(model: string, requested = ANALYSIS_OUTPUT_TOKENS): number {
+  if (!Number.isSafeInteger(requested) || requested <= 0) throw new Error('analysis-output-budget-invalid')
+  const limit = /^gemma-4-31b(?:-it)?$/iu.test(model) ? 32768
+    : /^gpt-6-luna$/iu.test(model) ? 128000 : requested
+  return Math.min(requested, limit)
 }
 
 /** Split a `provider/model` id, or null when the id is not a route. */

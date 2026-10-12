@@ -1,5 +1,7 @@
 # Verification log
 
+Dated QA rounds, audits, and handoffs now live in [docs/archive](../../docs/archive/README.md). This file stays the package verification log.
+
 Evidence for the four gates in the review plan. Each entry states what was run,
 where, and what was actually observed — never "registered successfully" as a
 substitute for "the user can use it".
@@ -1324,7 +1326,7 @@ rendering is not — the reader's acceptance run is that check.
 ## M5 · Frontend port begins: the two missing endpoints (2026-10-07)
 
 **350 tests green.** The previous handoff wrongly excluded UI work; the corrected plan is
-`/Users/hao/New-Of-DSH/french-frontend-port-handoff-2026-10-07.md` (the app renders the
+`<本机工作区>/archive/french-close-reading/french-frontend-port-handoff-2026-10-07.md` (the app renders the
 plugin's own `client.js`, the redesign lives only in the prototype, and nothing was
 cached — measured).
 
@@ -1392,7 +1394,7 @@ passage; the structure is tested, the pixels are not.
 
 The appearance of the new frame is no longer unverified. Since the running app cannot be
 driven from this session, a **development preview renderer** was built at
-`/Users/hao/New-Of-DSH/.work/panel-preview/` (documented in its own README): it loads the
+`<本机工作区>/.work/panel-preview/` (documented in its own README): it loads the
 real `client.js`, applies the plugin to a fake Host context, captures the component the
 `main` slot registration provides, injects the state `PassagePage` would hold, and
 serializes the result to static HTML for a headless-Chrome screenshot.
@@ -1418,7 +1420,7 @@ frame itself has now been seen.
 
 The reader's rule for this track: **a frontend that does not reproduce the prototype's
 interaction model is not accepted.** So the prototype was extracted into a checklist —
-`/Users/hao/New-Of-DSH/french-frontend-port-spec.md`, 12 sections, element by element
+`<本机工作区>/archive/french-close-reading/french-frontend-port-spec.md`, 12 sections, element by element
 (element → prototype behaviour → plugin data source → status), with §12 recording the
 interaction model as the accept/reject criteria (state, every flow, and eight global
 invariants) and §11 recording every deviation from the prototype.

@@ -19,6 +19,7 @@ export interface PassageSummary {
   title: string
   excerpt: string
   characterCount: number
+  paragraphCount: number
   sourceRevision: number
   createdAt: string
   updatedAt: string
@@ -574,6 +575,7 @@ export interface CreateLexiconEntryRequest {
   passageId: string
   anchorId: string
   occurrenceNote: string
+  attachOccurrence?: boolean
 }
 
 export interface CreateLexiconOccurrenceValue {
@@ -713,3 +715,10 @@ export type {
   MergeGrammarEntriesRequest,
   MergeGrammarEntriesValue,
 } from './generation-types.ts'
+
+/** External dictionary text, separate from a collected lexicon entry. */
+export interface QuickDictionaryValue {
+  status: 'found' | 'not-found' | 'unavailable'
+  sourceUrl: string
+  glosses: { partOfSpeech: string; text: string }[]
+}

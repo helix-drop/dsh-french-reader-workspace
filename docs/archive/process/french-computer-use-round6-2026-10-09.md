@@ -1,3 +1,5 @@
+> **已归档（2026-10-10）。** 这是开发过程记录，不是当前说明。 当前说明见 [插件 README](../../../packages/french-close-reading/README.md)。 本批目录见 [归档索引](../README.md)。
+
 # 法语精读第六轮真实使用复测
 
 2026-10-09。使用 Codex 原生 computer-use 操作 DeepSeek Harness，重启宿主后，从添加书籍、录入新文本开始测试。模型始终为界面中的 DeepSeek-V41-Flash · DeepSeek，任务路由为 deepseek-official/deepseek-flash。本轮没有使用 kimi-webbridge，没有向 DSH 开发会话发送修复指令，也没有修改插件产品代码。

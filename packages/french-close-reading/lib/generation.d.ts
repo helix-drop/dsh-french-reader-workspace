@@ -40,6 +40,8 @@ export interface BackendTarget {
     reasoningEffort?: string | undefined;
 }
 export interface GenerateRequest {
+    /** Explicit output allowance for sentence analysis; includes reasoning. */
+    maxTokens?: number;
     system: string;
     /** The assembled user turn: compiled materials plus the question. */
     prompt: string;
@@ -66,6 +68,8 @@ export interface GenerateRequest {
     onPhase?: (phase: string) => void;
 }
 export interface GenerateOutcome {
+    effectiveMaxTokens?: number | null;
+    effectiveReasoningEffort?: string | null;
     text: string;
     /** The model the backend confirmed, when it confirms one. */
     resolvedModel: string | null;
@@ -115,6 +119,10 @@ export declare class DshLlmBackend implements GenerationBackend {
     resolveReasoningEfforts(model: string, signal?: AbortSignal): Promise<string[]>;
     generate(target: BackendTarget, request: GenerateRequest): Promise<GenerateOutcome>;
 }
+export declare const ANALYSIS_OUTPUT_TOKENS = 131072;
+export declare function isEvaluatedAnalysisModel(model: string): boolean;
+/** Known published caps, not adapter defaults (which may be much smaller). */
+export declare function analysisOutputBudget(model: string, requested?: number): number;
 /** Split a `provider/model` id, or null when the id is not a route. */
 export declare function splitRoute(model: string): {
     provider: string;

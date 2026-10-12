@@ -165,3 +165,27 @@ test('a stream that is abandoned mid-answer cancels the turn', async () => {
   const jobs = controller.listGenerationJobs(ids.passage, signal())
   assert.equal(jobs.length === 0 || jobs[0].status !== undefined, true)
 })
+
+test('explicit discussion cancellation reaches a separate HTTP caller and fences a provider that ignores abort', async () => {
+  let release, started, providerSignal
+  const ready = new Promise((resolve) => { started = resolve })
+  const backend = streamingBackend()
+  backend.generate = async (_target, input) => {
+    providerSignal = input.signal; input.onDelta('部分回答。'); started()
+    await new Promise((resolve) => { release = resolve })
+    return { text: '迟到的完整回答。', resolvedModel: 'stub-model', usage: null, finish: 'stop', failure: null }
+  }
+  const { controller, branchId } = await withBackend(backend)
+  const input = request(branchId)
+  const running = collect(controller.streamAsk(input, signal()))
+  await ready
+  assert.equal((await controller.cancelWorkRemote({ kind: 'ask', requestId: input.operationId }, signal())).accepted, true)
+  assert.equal(providerSignal.aborted, true)
+  release()
+  const frames = await running
+  assert.equal(frames.at(-1).result.finish, 'cancelled')
+  const branch = controller.listDiscussion(ids.passage, signal()).branches[0]
+  assert.equal(branch.messages.at(-1).status, 'cancelled')
+  assert.doesNotMatch(branch.messages.at(-1).text, /迟到/)
+  assert.equal(controller.listGenerationJobs(ids.passage, signal()).at(-1).status, 'cancelled')
+})

@@ -263,3 +263,43 @@ test('models are listed per provider, and the route keeps the provider', async (
   assert.match(models[0].name, /A/u)
   assert.equal(UUID.length, 36)
 })
+
+test('analysis allowance reaches the prepared dispatch and overrides a small adapter default', async () => {
+  const { service, calls } = strictLlm({ chunks: textChunks })
+  service.resolveModelInfo = async () => ({ reasoning: { efforts: [{ id: 'none' }, { id: 'high' }] } })
+  const result = await new DshLlmBackend(contextWith(service)).generate(
+    { backend: 'dsh', model: 'deepseek/deepseek-flash' },
+    { system: 's', prompt: 'p', signal: new AbortController().signal, maxTokens: 131072 },
+  )
+  assert.equal(result.finish, 'stop')
+  assert.equal(calls.find(x => x.kind === 'prepare').config.maxTokens, 131072)
+  assert.equal(calls.find(x => x.kind === 'stream').options.maxTokens, 131072)
+  assert.equal(result.effectiveMaxTokens, 131072)
+  assert.equal(result.effectiveReasoningEffort, 'high')
+})
+
+test('analysis respects known output caps and an explicit supported thinking choice', async () => {
+  for (const [model, cap] of [['gpt-6-luna', 128000], ['gemma-4-31b-it', 32768], ['mimo-v2.6-flash', 131072]]) {
+    const { service, calls } = strictLlm({ chunks: textChunks })
+    service.resolveModelInfo = async () => ({ reasoning: { efforts: [{ id: 'none' }, { id: 'high' }] } })
+    const result = await new DshLlmBackend(contextWith(service)).generate(
+      { backend: 'dsh', model: `prov/${model}`, reasoningEffort: 'none' },
+      { system: 's', prompt: 'p', signal: new AbortController().signal, maxTokens: 131072 },
+    )
+    assert.equal(result.finish, 'stop')
+    assert.equal(calls.find(x => x.kind === 'stream').options.maxTokens, cap)
+    assert.equal(result.effectiveReasoningEffort, 'none')
+  }
+})
+
+test('analysis does not invent an unsupported high effort or guess another model family', async () => {
+  for (const [model, efforts] of [['deepseek-flash', [{ id: 'low' }]], ['unfamiliar-model', [{ id: 'high' }]]]) {
+    const { service } = strictLlm({ chunks: textChunks })
+    service.resolveModelInfo = async () => ({ reasoning: { efforts } })
+    const result = await new DshLlmBackend(contextWith(service)).generate(
+      { backend: 'dsh', model: `prov/${model}` },
+      { system: 's', prompt: 'p', signal: new AbortController().signal, maxTokens: 131072 },
+    )
+    assert.equal(result.effectiveReasoningEffort, null)
+  }
+})

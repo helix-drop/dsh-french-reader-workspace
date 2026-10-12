@@ -10,8 +10,8 @@
  *    say "this was about the old text" instead of silently re-attaching.
  * 2. **The model-facing shape.** Analysing a sentence is a generation, so the
  *    request carries an explicit JSON contract and the reply is validated before
- *    anything is written. A reply that fails the gate is reported with its errors
- *    and stored nowhere.
+ *    anything is written. Generated replies may save validated portions with
+ *    explicit pending issues; strict manual imports still refuse invalid nodes.
  */
 import type { PassageRecord } from './domain.ts';
 import type { RecordTable } from './lexicon-store.ts';
@@ -84,45 +84,35 @@ export declare function coverageOf(table: RecordTable, passageId: string, senten
  *
  * It is stated to the model as data, and the same shape is what the validator
  * checks, so "the model returned JSON" is never mistaken for "the analysis is
- * usable". Ranges are left for the model to fill from the sentence it was given;
- * a reply whose ranges do not fit is refused by the gate with the offending range
- * named.
+ * usable". Source token anchors are provided by the program; the model identifies
+ * syntax and quotes. Unresolved nodes remain pending rather than receiving guessed ranges.
  */
 export declare const ANALYSIS_JSON_CONTRACT: {
-    readonly translation: "string — 该句的简体中文译文";
-    readonly backbone: "string — 去掉修饰后的法语句子主干，保留原词";
+    readonly translation: "string — 简体中文译文";
+    readonly backbone: "string — 法语主干，保留否定、必要补语与原词";
     readonly clauses: readonly [{
-        readonly role: "string — 中文从句类型（主句／关系从句／补语从句…）";
-        readonly start: "number";
-        readonly end: "number";
-        readonly text: "string — 对应的法语原文";
-        readonly parentIndex: "number|null — 父从句在下标中的位置";
+        readonly id: "string — 唯一标识，例如 c1";
+        readonly role: "string — 中文从句类型";
+        readonly startToken: "number — 首词段编号";
+        readonly endToken: "number — 末词段编号，包含此词段";
+        readonly text: "string — 连续的准确原文";
+        readonly parentId: "string|null — 父从句标识";
     }];
     readonly constituents: readonly [{
-        readonly role: "string — 中文句法功能（主语／谓语／直接宾语／表语／宾补／状语…）";
-        readonly start: "number";
-        readonly end: "number";
-        readonly text: "string — 对应的法语原文";
-        readonly clauseIndex: "number|null";
-        readonly partOfSpeech: "string|null — 中文词性，不是句法功能";
-    }];
-    readonly morphology: readonly [{
-        readonly form: "string — 法语原形态";
-        readonly lemma: "string|null — 法语词元";
+        readonly role: "string — 中文句法功能";
+        readonly startToken: "number";
+        readonly endToken: "number";
+        readonly text: "string — 连续的准确原文";
+        readonly clauseId: "string|null — 所属从句标识";
         readonly partOfSpeech: "string|null — 中文词性";
-        readonly tense: "string|null — 中文时态";
-        readonly mood: "string|null — 中文语式";
-        readonly person: "string|null — 中文人称";
-        readonly gender: "string|null — 中文性";
-        readonly number: "string|null — 中文数";
-        readonly agreesWith: "string|null — 法语对应词形";
-        readonly note: "string — 中文说明";
+        readonly gloss: "string — 一两句中文句意，内部成分可为空";
     }];
+    readonly morphology: readonly [];
     readonly explanations: readonly [{
-        readonly kind: "syntax|context|rhetoric|unverified";
-        readonly text: "string — 简体中文说明；需要时可引用法语原词";
-        readonly start: "number|null";
-        readonly end: "number|null";
+        readonly kind: "context|rhetoric|unverified";
+        readonly text: "string — 简短说明";
+        readonly start: null;
+        readonly end: null;
     }];
 };
 export declare const ANALYSIS_CONTEXT_CHARACTER_LIMIT = 3500;
@@ -174,17 +164,17 @@ export interface AnalysisDraftInput {
     backend: string | null;
     model: string | null;
     provenance?: 'ai' | 'user' | 'mixed';
+    /** Generated results may retain valid spans while unresolved nodes remain pending. */
+    allowPartial?: boolean;
 }
 /**
  * Read a model reply into a stored analysis, or say precisely why it cannot be.
  *
  * The reply is expected to be one JSON object, possibly wrapped in a code fence.
- * Index references (`parentIndex`, `clauseIndex`) are how a model can point at
- * another item without inventing an id; they are resolved here into real ids, and
- * an index that names nothing is a refusal rather than a dropped parent.
- * Character offsets obey the same rule: they must be non-negative integers
- * exactly as the contract states them — a reply that breaks the contract is
- * refused, never repaired into something that merely looks valid.
+ * Wire token anchors and stable labels are normalized before storage UUIDs are
+ * generated. Legacy offsets and numeric references remain supported. Strict
+ * imports refuse invalid nodes; allowPartial retains only validated nodes and
+ * records every unresolved quotation/reference instead of guessing a parent.
  */
 export declare function parseAnalysisReply(reply: string, input: AnalysisDraftInput): {
     ok: true;

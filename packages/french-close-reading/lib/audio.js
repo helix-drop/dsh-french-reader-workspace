@@ -700,6 +700,7 @@ export async function synthesizeSpeech(target, configuration, signal, deps = {})
         const result = backend.kind === 'live'
             ? await synthesizeWithLive(verdict.text, config, backend, apiKey, link, deps)
             : await synthesizeWithTts(verdict.text, config, backend, apiKey, link, deps);
+        assertNotAborted(link);
         return result;
     }
     finally {

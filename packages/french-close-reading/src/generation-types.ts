@@ -375,12 +375,15 @@ export type ReadSentenceAnalysisValue =
   | {
     kind: 'found'
     analysis: {
+      cacheIdentity?: string
+      sourceRevision?: number
+      segmentationRevision?: number
       anchorId: string
       text: string
       translation: string
       backbone: string
       clauses: { id: string; role: string; start: number; end: number; text: string; parentId: string | null }[]
-      constituents: { id: string; role: string; start: number; end: number; text: string; clauseId: string | null; partOfSpeech: string | null }[]
+      constituents: { id: string; role: string; start: number; end: number; text: string; clauseId: string | null; partOfSpeech: string | null; gloss: string }[]
       morphology: {
         id: string; form: string; lemma: string | null; partOfSpeech: string | null
         tense: string | null; mood: string | null; person: string | null

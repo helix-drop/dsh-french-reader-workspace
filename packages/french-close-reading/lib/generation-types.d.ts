@@ -377,6 +377,9 @@ export interface ReadSentenceAnalysisRequest {
 export type ReadSentenceAnalysisValue = {
     kind: 'found';
     analysis: {
+        cacheIdentity?: string;
+        sourceRevision?: number;
+        segmentationRevision?: number;
         anchorId: string;
         text: string;
         translation: string;
@@ -397,6 +400,7 @@ export type ReadSentenceAnalysisValue = {
             text: string;
             clauseId: string | null;
             partOfSpeech: string | null;
+            gloss: string;
         }[];
         morphology: {
             id: string;

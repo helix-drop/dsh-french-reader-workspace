@@ -142,7 +142,7 @@ test('the inlined contribution passes the client registry validation that failed
   const { endpoints } = validateContribution(contribution)
   // 46 reading/library endpoints plus the eight audio ones; the count is asserted
   // so that a descriptor dropped by an edit is caught here rather than at call time.
-  assert.equal(endpoints.size, 54)
+  assert.equal(endpoints.size, 57)
   assert.ok(endpoints.has('frenchReader/listPassages'))
   assert.ok(endpoints.has('frenchReader/previewAnalysisContext'))
   assert.ok(endpoints.has('frenchReader/archivePassage'))
@@ -269,7 +269,7 @@ test('the client sends every argument under the name the Host descriptor declare
   assert.equal(Array.isArray(clientInvocations), true)
 
   const hostById = new Map(TYPERT.invocations.map((entry) => [entry.id, entry]))
-  assert.equal(hostById.size, 54, 'the Host declares every endpoint')
+  assert.equal(hostById.size, 57, 'the Host declares every endpoint')
 
   const mismatches = []
   for (const client of clientInvocations) {

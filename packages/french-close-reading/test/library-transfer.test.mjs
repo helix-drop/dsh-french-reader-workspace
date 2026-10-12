@@ -10,7 +10,7 @@ const SENTENCE = 'Il faut cultiver notre jardin.'
 const ANALYSIS_REPLY = JSON.stringify({
   translation: '我们必须耕种我们的园地。',
   backbone: 'il faut cultiver notre jardin',
-  clauses: [{ role: '主句', start: 0, end: 16, text: SENTENCE.slice(0, 16), parentIndex: null }],
+  clauses: [{ role: '主句', start: 0, end: SENTENCE.length, text: SENTENCE, parentIndex: null }],
   constituents: [
     { role: '形式主语', start: 0, end: 2, text: 'Il', clauseIndex: 0, partOfSpeech: '代词' },
     { role: '谓语', start: 3, end: 16, text: 'faut cultiver', clauseIndex: 0, partOfSpeech: '动词' },

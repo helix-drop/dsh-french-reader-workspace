@@ -42,6 +42,7 @@ async function panel(services = {}, browser = {}) {
     TextEncoder, crypto: webcrypto, AbortController, sessionStorage: memoryStorage, localStorage: memoryStorage, ...browser,
   })
   vm.runInContext(source, context)
+  services.cancelWork ??= async () => ({ ok: true, value: { accepted: true, settled: false } })
   const api = new Proxy(services, { get: (target, key) => target[key] ?? (async () => ({ ok: true, value: {} })) })
   let dictionaries
   const ctx = {
@@ -176,7 +177,7 @@ test('a revised source relocates a uniquely matching sentence before resuming', 
   const scroll = { scrollTop: 0 }
   const currentPassage = { ...passage, sourceRevision: 2, sourceText: 'Bonjour.\n\nJe lis.' }
   const p = await panel({
-    getPassage: async () => ok({ passage: currentPassage }),
+    getPassage: async (request) => { assert.deepEqual(Object.keys(request), ['id']); assert.equal(request.id, currentPassage.id); return ok({ passage: currentPassage }) },
     getSegmentation: async () => ok({ segmentation: { paragraphs: [
       { id: 'p1', text: 'Bonjour.', start: 0, end: 8, sentences: [{ id: 'p1.s1', text: 'Bonjour.', start: 0, end: 8 }] },
       { id: 'p2', text: 'Je lis.', start: 10, end: 17, sentences: [{ id: 'p2.s1', text: 'Je lis.', start: 10, end: 17 }] },
@@ -212,7 +213,7 @@ test('a revised source with no unique sentence match returns to the start with a
   const scroll = { scrollTop: 72 }
   const currentPassage = { ...passage, sourceRevision: 2, sourceText: 'Bonjour. Salut.' }
   const p = await panel({
-    getPassage: async () => ok({ passage: currentPassage }),
+    getPassage: async (request) => { assert.deepEqual(Object.keys(request), ['id']); assert.equal(request.id, currentPassage.id); return ok({ passage: currentPassage }) },
     getSegmentation: async () => ok({ segmentation: { paragraphs: [{ id: 'p1', text: 'Bonjour. Salut.', start: 0, end: 15, sentences: [
       { id: 'p1.s1', text: 'Bonjour.', start: 0, end: 8 }, { id: 'p1.s2', text: 'Salut.', start: 9, end: 15 },
     ] }] } }),
@@ -389,13 +390,13 @@ test('reading tools have one analyse action in the sentence workspace and no glo
   p.values.set(18, 'p1.s1')
   const tree = p.render()
   const header = all(tree, (node) => node.type === 'header')[0]
-  assert.equal(button(header, '预览材料并解析'), undefined)
+  assert.equal(button(header, '开始解析'), undefined)
   const workbench = all(tree, (node) => node.props?.className === 'sentenceWorkspace')[0]
-  assert.ok(button(workbench, '预览材料并解析'))
-  assert.equal(all(tree, (node) => node.type === 'button' && text(node) === '预览材料并解析').length, 1)
+  assert.ok(button(workbench, '开始解析'))
+  assert.equal(all(tree, (node) => node.type === 'button' && text(node) === '开始解析').length, 1)
   assert.equal(button(tree, '▷ 发音'), undefined, 'no unusable pronunciation control remains in the reading toolbar')
   const context = all(tree, (node) => node.props?.className === 'readingSource')[0]
-  assert.equal(context.type, 'details')
+  assert.equal(context.type, 'section')
 })
 
 test('a late failed read cannot blank the newer passage or show its error', async () => {
@@ -446,7 +447,7 @@ test('selecting A again does not accept the first unfinished read of A', async (
 
 test('the discussion dialog ignores composing Escape and closes on normal Escape', async () => {
   const p = await panel()
-  button(p.render(), '＋').props.onClick()
+  button(p.render(), '讨论').props.onClick()
   const dialog = all(p.render(), (node) => node.props?.role === 'dialog' && node.props['aria-labelledby'] === 'modalTitle')[0]
   assert.ok(dialog)
   const event = { key: 'Escape', isComposing: true, preventDefault() {}, stopPropagation() {} }
@@ -1127,7 +1128,7 @@ test('clicking a branch in the strip selects it and never creates a branch', asy
   assert.equal(buttons[0].props.className.includes('active'), true, 'the selected branch reads as active')
   // Creating one is not the strip's job: it is the panel's own ＋ control, which
   // lives outside the strip precisely so this list stays a list of branches.
-  assert.equal(button(tree, '＋').props.className.includes('discussFab'), true,
+  assert.equal(button(tree, '讨论').props.className.includes('discussFab'), true,
     'creating a discussion is the floating control, not a strip entry')
 
   // Clicking it again keeps the selection and still creates nothing.
@@ -1154,7 +1155,7 @@ test('the ＋讨论 entry starts with a first question and an optional editable 
   p.values.set(16, { paragraphs: [{ id: 'p1', text: 'Je lis.', start: 0, end: 7,
     sentences: [{ id: 'p1.s1', text: 'Je lis.', start: 0, end: 7 }] }] })
   p.values.set(30, { branches: [], conclusions: [] })
-  button(p.render(), '＋').props.onClick()
+  button(p.render(), '讨论').props.onClick()
   await flush()
   assert.equal(requests.length, 0, 'opening the first-question form is not a creation')
   assert.notEqual(p.values.get(51), null, 'the first-question form opened')
@@ -1313,10 +1314,10 @@ test('a lookup miss says the lexicon is local and offers the library', async () 
   assert.ok(result, 'the miss view is shown')
   assert.match(text(result), /本地词库未命中/u)
   assert.doesNotMatch(text(result), /未收藏/u, 'the empty state is stated once without collector language')
-  assert.match(text(result), /只读本地词库/u, 'the miss says what the lookup actually read')
+  assert.match(text(result), /点击进一步查询/u, 'the miss says what the lookup actually read')
   assert.ok(button(result, '打开知识库'), 'and offers the real next step')
   assert.ok(button(result, '手动添加词条'), 'the reader can explicitly author an entry')
-  assert.ok(button(result, '在讨论中询问'), 'the reader can ask the current model about it')
+  assert.ok(button(result, '进一步查询'), 'the reader can ask the current model about it')
   assert.ok(button(result, '← 返回解析'))
 })
 
@@ -1336,7 +1337,7 @@ test('a reader-authored exact Mot is saved with the lemma and opens its entry ca
   const result = all(p.render(), (node) => node.props?.className === 'lookupResult')[0]
   button(result, '手动添加词条').props.onClick()
   const dialog = p.render()
-  assert.match(text(dialog), /此处只保存你填写的内容/u)
+  assert.match(text(dialog), /此处只保存你确认的内容/u)
   assert.equal(all(dialog, (node) => node.props?.id === 'entryExample')[0].props.readOnly, true, 'the current sentence is shown as the occurrence example')
   all(dialog, (node) => node.props?.id === 'entryLemma')[0].props.onChange({ target: { value: 'aller' } })
   all(dialog, (node) => node.props?.id === 'entryPartOfSpeech')[0].props.onChange({ target: { value: 'verbe' } })
@@ -1431,18 +1432,32 @@ test('sentence analysis previews paragraph materials before a fingerprinted conf
   startButton.props.onClick()
   await flush()
   assert.equal(previewCalls.length, 1)
-  assert.equal(generationCalls.length, 0, 'opening the preview never calls the model')
-  let tree = p.render()
-  assert.ok(text(tree).includes('本次解析材料'))
-  const currentMaterial = all(tree, (node) => node.type === 'label' && text(node).includes('当前段 · p2'))[0]
-  assert.ok(currentMaterial)
-  const currentCheckbox = currentMaterial.props.children[0]
-  assert.equal(currentCheckbox.props.disabled, true, 'the current paragraph is mandatory')
-  button(tree, '确认材料并生成解析').props.onClick()
-  await flush()
-  assert.equal(generationCalls.length, 1)
+  assert.equal(generationCalls.length, 1, 'an acceptable preview starts analysis on the same click')
   assert.deepEqual(generationCalls[0].paragraphIds, ['p2', 'p3'])
   assert.equal(generationCalls[0].expectedFingerprint, 'context-fingerprint')
+  assert.equal(text(p.render()).includes('本次解析材料'), false, 'the confirmation dialog is not a second step')
+})
+
+test('an unacceptable analysis preview still asks before generating', async () => {
+  const generationCalls = []
+  const p = await panel({
+    previewAnalysisContext: async () => ok({
+      ok: false, reason: 'selected-context-too-long', anchorId: 'p1.s1', currentParagraphId: 'p1',
+      characterLimit: 3500, characters: 4000,
+      materials: [{ paragraphId: 'p1', relation: 'current', text: 'Je lis.', start: 0, end: 7, included: true, reason: 'included' }],
+      includedParagraphIds: ['p1'], omittedParagraphIds: [], fingerprint: null,
+    }),
+    analyseSentence: async (request) => { generationCalls.push(request); return ok({ ok: true }) },
+  })
+  p.values.set(16, { paragraphs: [{ id: 'p1', text: 'Je lis.', start: 0, end: 7, sentences: [{ id: 'p1.s1', text: 'Je lis.', start: 0, end: 7 }] }] })
+  p.values.set(18, 'p1.s1')
+  p.values.set(27, 'stub')
+  p.values.set(29, 'stub-model')
+  all(p.render(), (node) => node.type === 'button' && node.props.id === 'start')[0].props.onClick()
+  await flush()
+  assert.equal(generationCalls.length, 0, 'a preview the gate rejects does not start the model')
+  assert.match(text(p.render()), /本次解析材料/u)
+  assert.equal(button(p.render(), '确认材料并生成解析').props.disabled, true)
 })
 
 test('a vocabulary discussion answer can seed a confirmed, still-unverified lexicon draft', async () => {
@@ -1503,7 +1518,7 @@ test('asking about a miss creates a ready discussion without another title dialo
   button(p.render(), '查阅').props.onClick()
   await flush()
   await flush()
-  button(all(p.render(), (node) => node.props?.className === 'lookupResult')[0], '在讨论中询问').props.onClick()
+  button(all(p.render(), (node) => node.props?.className === 'lookupResult')[0], '进一步查询').props.onClick()
   await flush()
   await flush()
 
@@ -1514,7 +1529,7 @@ test('asking about a miss creates a ready discussion without another title dialo
   const tree = p.render()
   const wordDraft = Object.values(p.values.get(31) ?? {}).join(' ')
   assert.match(wordDraft, /原形、词性、在此句中的含义/u, 'the composer is prefilled with a focused question')
-  assert.ok(button(tree, '查看本次上下文'), 'the model turn still requires an explicit context review')
+  assert.ok(button(tree, '查看本次上下文'), 'without a selected model the reader can still inspect the discussion')
 })
 
 test('a lookup miss names each candidate and opens it with one click', async () => {
@@ -1571,8 +1586,56 @@ test('the start button reaches the preview even when React hands the click event
   // handler must treat "no confirmed preview" as its default, not the event.
   startButton.props.onClick({ target: {}, preventDefault() {}, stopPropagation() {} })
   await flush()
-  assert.equal(previewCalls.length, 1, 'the click opens the material preview')
-  assert.equal(generationCalls.length, 0, 'opening the preview never calls the model')
+  assert.equal(previewCalls.length, 1, 'the click still reviews the material fingerprint')
+  assert.equal(generationCalls.length, 1, 'a successful preview starts analysis without a second click')
+  assert.equal(generationCalls[0].expectedFingerprint, 'fp-f01')
+})
+
+test('a selection can ask about the sentence or look up one word, and neither sends', async () => {
+  const created = []
+  const lookups = []
+  const asks = []
+  const branch = {
+    branchId: 'b-ask', anchorId: 'p1.s1', kind: 'discussion', title: '讨论 · médicalisation',
+    parentId: null, messages: [], status: 'open',
+  }
+  const p = await panel({
+    createBranch: async (request) => { created.push(request); return ok({ kind: 'created', branchId: 'b-ask' }) },
+    listDiscussion: async () => ok({ branches: [branch], conclusions: [] }),
+    ask: async (request) => { asks.push(request); return ok({ ok: true }) },
+    previewAsk: async () => ok({ ok: true, fingerprint: 'fp', characters: 1, materials: [], prompt: '' }),
+    lookupMot: async ({ mot }) => {
+      lookups.push(mot)
+      return ok({ found: false, entries: [], candidates: [] })
+    },
+  })
+  p.values.set(16, { paragraphs: [{ id: 'p1', text: 'Je lis.', start: 0, end: 7, sentences: [{ id: 'p1.s1', text: 'Je lis.', start: 0, end: 7 }] }] })
+  p.values.set(18, 'p1.s1')
+  p.values.set(27, 'stub')
+  p.values.set(29, 'stub-model')
+  p.values.set(55, { text: 'médicalisation,', anchorId: 'p1.s1', top: 40, left: 12 })
+  let tree = p.render()
+  const popover = all(tree, (node) => node.props?.className === 'selectionLookup')[0]
+  assert.ok(popover, 'the selection offers its own actions')
+  assert.equal(popover.props.onMouseDown != null, true, 'pressing the bar does not clear the selection')
+  button(popover, '提问').props.onClick()
+  await flush()
+  assert.equal(created.length, 1)
+  assert.equal(created[0].kind, 'discussion')
+  assert.equal(created[0].anchorId, 'p1.s1')
+  assert.match(created[0].title, /médicalisation/u)
+  assert.equal(asks.length, 0, 'asking from the selection does not send')
+  tree = p.render()
+  assert.match(text(tree), /直接提问/u)
+  assert.equal(p.values.get(55), null, 'the selection bar closes once the composer is open')
+
+  p.values.set(50, null)
+  p.values.set(55, { text: 'médicalisation,', anchorId: 'p1.s1', top: 40, left: 12 })
+  tree = p.render()
+  button(all(tree, (node) => node.props?.className === 'selectionLookup')[0], '查词').props.onClick()
+  await flush()
+  assert.deepEqual(lookups, ['médicalisation'], 'edge punctuation is not part of the lookup')
+  assert.match(text(p.render()), /本地词库未命中/u)
 })
 
 test('returning from the library after saving shows the stored entry, not the stale miss (F04)', async () => {
@@ -1931,11 +1994,13 @@ test('an import result is shown with its counts and conflicts (R7-B05)', async (
  */
 test('asking about a miss compiles the question in one step (R7-U01)', async () => {
   const previews = []
+  const sent = []
   let lookupCalls = 0
   const p = await panel({
     lookupMot: async () => { lookupCalls += 1; return ok({ found: false, entries: [], candidates: [] }) },
     createBranch: async () => ok({ kind: 'created', branchId: 'word-branch' }),
     listDiscussion: async () => ok({ branches: [], conclusions: [] }),
+    streamAsk: async function* (request) { sent.push(request); yield { kind: 'done', result: { ok: true, finish: 'stop', model: 'stub-model', resolvedModel: 'stub-model' } } },
     previewAsk: async (request) => {
       previews.push(request)
       return ok({ ok: true, contextId: 'c1', fingerprint: 'f1', characters: 128, backend: 'stub',
@@ -1951,13 +2016,16 @@ test('asking about a miss compiles the question in one step (R7-U01)', async () 
   all(p.render(), (node) => node.props?.id === 'lookupInput')[0].props.onChange({ target: { value: 'allée' } })
   button(p.render(), '查阅').props.onClick()
   await flush()
-  button(all(p.render(), (node) => node.props?.className === 'lookupResult')[0], '在讨论中询问').props.onClick()
+  button(all(p.render(), (node) => node.props?.className === 'lookupResult')[0], '进一步查询').props.onClick()
   await flush(6)
 
   assert.equal(previews.length, 1, 'the material is compiled right after the branch exists')
   assert.equal(previews[0].branchId, 'word-branch')
   assert.match(previews[0].question, /原形、词性、在此句中的含义/u, 'the compiled turn is the word question')
-  assert.ok(button(p.render(), '发送'), 'one press away from sending, with the material reviewed')
+  assert.equal(sent.length, 1, 'the same click sends the model request')
+  assert.equal(sent[0].branchId, 'word-branch')
+  assert.equal(sent[0].expectedFingerprint, 'f1')
+  assert.equal(sent[0].question, previews[0].question)
 })
 
 /**
@@ -2057,9 +2125,9 @@ test('the branch strip only switches branches; creation lives on the panel', asy
   const stripLabels = all(strip, (node) => node.type === 'button').map((node) => text(node))
   assert.deepEqual(stripLabels, [branch.title, other.title], 'the strip lists exactly the branches')
   assert.equal(stripLabels.includes('＋ 讨论'), false, 'creating is not a strip entry any more')
-  const fab = button(tree, '＋')
+  const fab = button(tree, '讨论')
   assert.equal(fab.props.className.includes('discussFab'), true, 'the panel owns the creating control')
-  assert.equal(fab.props['aria-label'], '＋ 讨论', 'and keeps the reader-facing name')
+  assert.equal(fab.props['aria-label'], '打开讨论', 'and keeps the reader-facing name')
 })
 
 /**
@@ -2091,4 +2159,286 @@ test('selecting a word is one lookup, in this sentence only', async () => {
   assert.equal(readingSelection('   '), null, 'a stray drag is not a word')
   assert.equal(readingSelection('x'.repeat(101)), null, 'a paragraph is not a word')
   assert.equal(readingSelection('  livre  '), 'livre', 'a word is trimmed, not rejected')
+})
+
+test('multi-paragraph queue uses cached results, shares in-flight work with single-sentence clicks, and refreshes current results', async () => {
+  let resolveAnalysis
+  const calls = []
+  const sourceText = 'Je lis.\n\nTu lis.\n\nIl lit.'
+  const currentPassage = { ...passage, sourceText }
+  const paragraphs = ['Je lis.', 'Tu lis.', 'Il lit.'].map((text, index) => ({
+    id: `p${index + 1}`, text, start: index * 9, end: index * 9 + text.length,
+    sentences: [{ id: `p${index + 1}.s1`, paragraphId: `p${index + 1}`, text, start: index * 9, end: index * 9 + text.length }],
+  }))
+  const analyses = new Map([['p2.s1', { text: 'Tu lis.', sourceRevision: 1, segmentationRevision: 1,
+    cacheIdentity: JSON.stringify(['stub', 'stub-model', null, 'fp-p2.s1']), translation: '你读。' }]])
+  const p = await panel({
+    getPassage: async (request) => { assert.deepEqual(Object.keys(request), ['id']); assert.equal(request.id, currentPassage.id); return ok({ passage: currentPassage }) },
+    previewAnalysisContext: async ({ anchorId }) => ok({ ok: true, fingerprint: `fp-${anchorId}`, includedParagraphIds: [anchorId.split('.')[0]] }),
+    readSentenceAnalysis: async ({ anchorId }) => ok(analyses.has(anchorId) ? { kind: 'found', analysis: analyses.get(anchorId), errors: [] } : { kind: 'missing' }),
+    analyseSentence: async (request) => {
+      calls.push(request)
+      if (request.anchorId === 'p1.s1' && calls.length === 1) await new Promise((resolve) => { resolveAnalysis = resolve })
+      analyses.set(request.anchorId, { text: paragraphs.find((para) => para.sentences[0].id === request.anchorId).text,
+        sourceRevision: 1, segmentationRevision: 1, cacheIdentity: JSON.stringify(['stub', request.model, null, `fp-${request.anchorId}`]), translation: '已完成。' })
+      return ok({ ok: true })
+    },
+    readAnalysisCoverage: async () => ok({ found: true, total: 3, covered: [...analyses.keys()], missing: [] }),
+  })
+  p.values.set(10, currentPassage); p.values.set(16, { revision: 1, paragraphs }); p.values.set(18, 'p1.s1')
+  p.values.set(27, 'stub'); p.values.set(29, 'stub-model')
+  button(p.render(), '自动解析 · 准备中').props.onClick()
+  await new Promise((resolve) => setImmediate(resolve))
+  assert.deepEqual(calls.map((request) => request.anchorId), ['p1.s1', 'p3.s1'], 'matching cache avoids the second model request')
+  await all(p.render(), (node) => node.props?.id === 'start')[0].props.onClick()
+  assert.equal(calls.length, 2, 'manual click joins the batch instead of launching a duplicate')
+  resolveAnalysis(); await new Promise((resolve) => setImmediate(resolve))
+  assert.match(text(p.render()), /解析完成 · 3\/3 段/u)
+  button(p.render(), '解析完成 · 3/3 段').props.onClick()
+  await new Promise((resolve) => setImmediate(resolve))
+  assert.equal(calls.length, 2, 'restarting a completed batch reuses all matching cached rows')
+  p.values.set(29, 'another-model')
+  p.render()
+  p.effects.findLast((fn) => String(fn).includes('autoBatchStarted.current.has(key)'))()
+  await new Promise((resolve) => setImmediate(resolve))
+  assert.equal(calls.length, 5, 'a changed model invalidates the cached results')
+})
+
+test('batch does not call the model after a source revision and reports the failure', async () => {
+  let calls = 0
+  const p = await panel({
+    getPassage: async () => ok({ passage: { ...passage, sourceRevision: 2 } }),
+    analyseSentence: async () => { calls += 1; return ok({ ok: true }) },
+  })
+  p.values.set(16, { revision: 1, paragraphs: [{ id: 'p1', text: 'Je lis.', sentences: [{ id: 'p1.s1', text: 'Je lis.' }] }] })
+  p.values.set(27, 'stub'); p.values.set(29, 'stub-model'); p.values.set(18, 'p1.s1')
+  button(p.render(), '自动解析 · 准备中').props.onClick()
+  await new Promise((resolve) => setImmediate(resolve))
+  assert.equal(calls, 0)
+  assert.match(text(p.render()), /原文已变化/u)
+})
+
+test('multi-paragraph import previews consecutive numbers, normalizes line endings and saves their first number', async () => {
+  const previews = [], created = []
+  const next = { ...passage, id: 'multi', title: '多段材料' }
+  const p = await panel({
+    listPassages: async () => ok({ items: [], hasMore: false }),
+    previewImport: async (request) => {
+      previews.push(request)
+      return ok({ paragraphs: 2, sentences: 2, blocks: [
+        { id: 'p1', sentences: 1, excerpt: 'Un.' }, { id: 'p2', sentences: 1, excerpt: 'Deux.' },
+      ], flags: [] })
+    },
+    createPassage: async (request) => { created.push(request); return ok({ kind: 'saved', passage: { ...next, sourceText: request.sourceText } }) },
+  })
+  await openNext(p)
+  enter(p.render(), '段落序号', '12')
+  all(p.render(), (node) => node.type === 'textarea')[0].props.onChange({ target: { value: 'Un.\r\n\r\nDeux.' } })
+  await all(p.render(), (node) => node.type === 'form')[0].props.onSubmit(submit)
+  assert.equal(previews[0].sourceText, 'Un.\n\nDeux.')
+  assert.match(text(p.render()), /第 12 段 · p1/u)
+  assert.match(text(p.render()), /第 13 段 · p2/u)
+  assert.equal(created.length, 0)
+  await all(p.render(), (node) => node.type === 'form')[0].props.onSubmit(submit)
+  assert.equal(created.length, 1)
+  const numbers = JSON.parse(p.storage.get('french-close-reading/paragraph-starts'))
+  assert.equal(numbers.multi, 12)
+  for (const [index, value] of p.values) {
+    if (value?.multi === 12) p.values.set(index, { parent: 12 })
+    if (value?.parent?.id === 'multi') p.values.set(index, {})
+  }
+  p.values.set(16, { paragraphs: ['p1', 'p2'].map((id) => ({ id, text: 'Je lis.', sentences: [] })) })
+  const nextComposer = await openNext(p)
+  assert.equal(field(nextComposer, '段落序号').props.value, 14, 'continuation begins after the entire two-paragraph input')
+})
+
+test('invalid first number blocks preview even without a book placement', async () => {
+  let previews = 0, saves = 0
+  const p = await panel({
+    listPassages: async () => ok({ items: [], hasMore: false }),
+    previewImport: async () => { previews += 1; return ok({}) },
+    createPassage: async () => { saves += 1; return ok({}) },
+  })
+  await openNext(p)
+  all(p.render(), (node) => node.type === 'textarea')[0].props.onChange({ target: { value: 'Un.' } })
+  enter(p.render(), '段落序号', '0')
+  await all(p.render(), (node) => node.type === 'form')[0].props.onSubmit(submit)
+  assert.equal(previews, 0); assert.equal(saves, 0)
+  assert.match(text(p.render()), /首段编号必须是正整数/u)
+})
+
+test('continuous analysis preserves valid reviewed and manually edited results', async () => {
+  let calls = 0
+  const p = await panel({
+    getPassage: async () => ok({ passage }),
+    previewAnalysisContext: async () => ok({ ok: true, fingerprint: 'new-context', includedParagraphIds: ['p1'] }),
+    readSentenceAnalysis: async () => ok({ kind: 'found', errors: [], analysis: {
+      text: 'Je lis.', sourceRevision: 1, segmentationRevision: 1, provenance: 'user', status: 'reviewed', translation: '人工核定。',
+    } }),
+    analyseSentence: async () => { calls += 1; return ok({ ok: true }) },
+  })
+  p.values.set(16, { revision: 1, paragraphs: [{ id: 'p1', text: 'Je lis.', sentences: [{ id: 'p1.s1', text: 'Je lis.' }] }] })
+  p.values.set(27, 'stub'); p.values.set(29, 'stub-model'); p.values.set(18, 'p1.s1')
+  button(p.render(), '自动解析 · 准备中').props.onClick()
+  await new Promise((resolve) => setImmediate(resolve))
+  assert.equal(calls, 0)
+  assert.match(text(p.render()), /解析完成 · 1\/1 段/u)
+})
+
+test('composer automatic title follows first number while an authored title stays unchanged', async () => {
+  const p = await panel()
+  button(p.render(), '添加书籍').props.onClick()
+  enter(p.render(), '书名', 'Lecture')
+  enter(p.render(), '章节', 'Chapitre')
+  await button(p.render(), '保存位置').props.onClick()
+  button(p.render(), '＋ 录入段落').props.onClick()
+  enter(p.render(), '段落序号', '12')
+  assert.match(field(p.render(), '标题').props.value, /段落 12$/u)
+  enter(p.render(), '标题', '我的阅读标题')
+  enter(p.render(), '段落序号', '13')
+  assert.equal(field(p.render(), '标题').props.value, '我的阅读标题')
+})
+
+test('directory paragraph jump restores a sentence without pretending a discussion branch is missing', async () => {
+  const sourceText = 'Je lis.\n\nTu lis.'
+  const summary = { ...passage, sourceText, paragraphCount: 2 }
+  const p = await panel({
+    listPassages: async () => ok({ items: [summary], hasMore: false }),
+    getPassage: async () => ok({ passage: summary }),
+  })
+  p.values.set(0, [summary])
+  const jump = button(p.render(), '第 2 段')
+  assert.ok(jump)
+  jump.props.onClick()
+  await new Promise((resolve) => setImmediate(resolve))
+  const point = p.refs.find((ref) => ref.current?.directoryJump)?.current
+  assert.equal(point.anchorId, 'p2.s1')
+  assert.equal(point.branchId, null)
+  assert.equal(point.scrollTop, 0)
+})
+
+test('dictionary gloss appears without a model request and late gloss never replaces a discussion', async () => {
+  let resolveDictionary, modelCalls = 0
+  const p = await panel({
+    lookupMot: async () => ok({ found: false, entries: [], candidates: [] }),
+    quickDictionary: async () => await new Promise(resolve => { resolveDictionary = resolve }),
+    createBranch: async () => ok({ kind: 'created', branchId: 'dict-word' }),
+    listDiscussion: async () => ok({ branches: [{ branchId: 'dict-word', title: 'préféré', kind: 'vocabulary', anchorId: 'passage', messages: [] }], conclusions: [] }),
+    previewAsk: async () => ok({ ok: true, fingerprint: 'dict-fingerprint', materials: [], prompt: 'context', characters: 50 }),
+    streamAsk: async function* () { modelCalls++; yield { kind: 'done', result: { ok: true, finish: 'stop', model: 'stub-model', resolvedModel: 'stub-model' } } },
+  })
+  p.values.set(27, 'stub'); p.values.set(29, 'stub-model')
+  button(p.render(), '查词').props.onClick()
+  all(p.render(), node => node.props?.id === 'lookupInput')[0].props.onChange({ target: { value: 'préféré' } })
+  button(p.render(), '查阅').props.onClick(); await flush()
+  assert.match(text(p.render()), /正在获取词典简释/u)
+  assert.equal(modelCalls, 0)
+  const explore = button(p.render(), '进一步查询')
+  explore.props.onClick(); explore.props.onClick(); await flush(8)
+  assert.equal(modelCalls, 1, 'rapid repeated clicks dispatch only one model turn')
+  resolveDictionary(ok({ status: 'found', sourceUrl: 'https://en.wiktionary.org/wiki/préféré#French', glosses: [{ partOfSpeech: '形容词', text: 'favourite' }] }))
+  await flush()
+  assert.equal(all(p.render(), node => node.props?.className === 'lookupResult').length, 0, 'late dictionary reply does not replace the selected discussion')
+})
+
+test('dictionary result remains temporary and a newer query fences the earlier response', async () => {
+  const pending = new Map(); let saves = 0
+  const p = await panel({
+    lookupMot: async () => ok({ found: false, entries: [], candidates: [] }),
+    quickDictionary: async ({ mot }) => await new Promise(resolve => pending.set(mot, resolve)),
+    createLexiconEntry: async () => { saves++; return ok({}) },
+  })
+  for (const mot of ['préféré', 'jardin']) {
+    button(p.render(), '查词').props.onClick()
+    all(p.render(), node => node.props?.id === 'lookupInput')[0].props.onChange({ target: { value: mot } })
+    button(p.render(), '查阅').props.onClick(); await flush()
+  }
+  pending.get('jardin')(ok({ status: 'found', sourceUrl: 'https://en.wiktionary.org/wiki/jardin#French', glosses: [{ partOfSpeech: '名词', text: 'garden' }] }))
+  await flush()
+  pending.get('préféré')(ok({ status: 'found', sourceUrl: 'https://en.wiktionary.org/wiki/préféré#French', glosses: [{ partOfSpeech: '形容词', text: 'favourite' }] }))
+  await flush()
+  const result = all(p.render(), node => node.props?.className === 'lookupResult')[0]
+  assert.match(text(result), /garden/u); assert.doesNotMatch(text(result), /favourite/u)
+  assert.equal(saves, 0)
+})
+
+test('automatic parsing starts once, pause prevents effect restart, and resume waits for cancellation settlement', async () => {
+ let calls=0, finish
+ const p=await panel({
+  getPassage:async()=>ok({passage}),
+  previewAnalysisContext:async()=>ok({ok:true,fingerprint:'fp',includedParagraphIds:['p1']}),
+  readSentenceAnalysis:async()=>ok({kind:'missing'}),
+  analyseSentence:async()=>{calls++;await new Promise(resolve=>{finish=resolve});return ok({ok:true})},
+ })
+ p.values.set(16,{revision:1,paragraphs:[{id:'p1',text:'Je lis.',sentences:[{id:'p1.s1',text:'Je lis.'}]}]})
+ p.values.set(18,'p1.s1');p.values.set(27,'stub');p.values.set(29,'stub-model')
+ const automatic=()=>{p.render();p.effects.findLast(fn=>String(fn).includes('autoBatchStarted.current.has(key)'))()}
+ automatic();await flush();assert.equal(calls,1)
+ automatic();await flush();assert.equal(calls,1)
+ assert.equal(button(p.render(),'当前句解析中').props.disabled,true)
+ assert.match(text(p.render()),/当前第 1 句正在解析/u)
+ p.values.set(18,'p1.s2')
+ assert.ok(button(p.render(),'等待自动解析'))
+ assert.match(text(p.render()),/后台正在解析 1 句/u)
+ p.values.set(18,'p1.s1')
+ button(p.render(),'暂停解析 · 0/1 段').props.onClick()
+ automatic();await flush();assert.equal(calls,1)
+ assert.match(text(p.render()),/正在停止后台请求/u)
+ finish();await flush()
+ assert.ok(button(p.render(),'继续解析 · 0/1 段'))
+ automatic();await flush();assert.equal(calls,1)
+ button(p.render(),'继续解析 · 0/1 段').props.onClick();await flush();assert.equal(calls,2)
+ finish();await flush()
+})
+test('original stays expanded and structure fragments use identical syntax classes without changing text', async () => {
+ const p=await panel()
+ p.values.set(16,{revision:1,paragraphs:[{id:'p1',text:'Je lis.',sentences:[{id:'p1.s1',text:'Je lis.'}]}]})
+ p.values.set(18,'p1.s1')
+ p.values.set(36,{kind:'found',analysis:{text:'Je lis.',translation:'我阅读。',clauses:[{id:'main',text:'Je lis.',role:'主句',start:0,end:7,parentId:null}],constituents:[
+  {text:'Je',role:'主语',start:0,end:2,clauseId:'main',gloss:'我'},
+  {text:'lis',role:'谓语',start:3,end:6,clauseId:'main',gloss:'阅读'},
+ ],explanations:[],morphology:[]}})
+ const tree=p.render(),original=all(tree,n=>n.props?.className==='readingSource')[0]
+ assert.equal(original.type,'section')
+ assert.match(text(original),/Je lis\./)
+ const classes=node=>all(node,n=>n.type==='span'&&n.props.className?.startsWith('syn-')).map(n=>n.props.className)
+ assert.deepEqual(classes(original),['syn-subject','syn-verb'])
+ const fragments=all(tree,n=>n.props?.className==='componentSource')
+ assert.deepEqual(fragments.map(text),['Je我','lis阅读'])
+ assert.deepEqual(fragments.flatMap(classes),classes(original))
+})
+
+
+
+test('nested syntax colours both original and reading unit while keeping explanation rows compact', async () => {
+ const p=await panel()
+ p.values.set(16,{revision:1,paragraphs:[{id:'p1',text:'Je lis.',sentences:[{id:'p1.s1',text:'Je lis.'}]}]})
+ p.values.set(18,'p1.s1')
+ p.values.set(36,{kind:'found',analysis:{text:'Je lis.',backbone:'Je lis!',translation:'我阅读。',clauses:[{id:'main',text:'Je lis.',role:'主句',start:0,end:7,parentId:null}],constituents:[
+  {id:'whole',text:'Je lis.',role:'主句',start:0,end:7,clauseId:'main',gloss:'Je 是主语；lis 表示阅读。'},
+  {id:'subject',text:'Je',role:'主语',start:0,end:2,clauseId:'main',gloss:''},
+  {id:'verb',text:'lis',role:'变位动词',start:3,end:6,clauseId:'main',gloss:''},
+ ],explanations:[],morphology:[]}})
+ const tree=p.render(),original=all(tree,n=>n.props?.className==='readingSource')[0]
+ const roles=node=>all(node,n=>n.type==='span'&&n.props.className?.startsWith('syn-')).map(n=>n.props.className)
+ const fragments=all(tree,n=>n.props?.className==='constituentSource')
+ assert.deepEqual(roles(original),['syn-subject','syn-verb'])
+ assert.equal(fragments.length,1,'one primary reading unit keeps the sentence together')
+ assert.equal(all(tree,n=>n.type==='table'&&n.props?.className==='structureComponents').length,1)
+ assert.ok(!text(original).includes('原文全文'))
+ const scroll=all(tree,n=>n.props?.className==='detailScroll')[0]
+ assert.ok(text(scroll).indexOf('重新解析')<text(scroll).indexOf('Je lis.'))
+ const analysis=all(tree,n=>n.props?.className==='analysisView')[0]
+ assert.ok(text(analysis).indexOf('句子解析')<text(analysis).indexOf('主语'))
+ assert.ok(!text(analysis).includes('草稿'))
+ assert.equal(text(fragments[0]),'Je lis.')
+ assert.deepEqual(roles(fragments[0]),roles(original))
+ assert.equal(all(tree,n=>n.props?.className==='backbone').length,0,'the primary clause already shows the core without a duplicate backbone')
+ const gloss=all(tree,n=>n.props?.className==='constituentGloss')[0]
+ assert.equal(text(gloss),'Je 是主语；lis 表示阅读。')
+ assert.deepEqual(roles(gloss),roles(original))
+ const toolbar=all(tree,n=>n.props?.className==='readerToolbar')[0]
+ assert.ok(button(toolbar,'查词'));assert.ok(button(toolbar,'句法配色'))
+ button(toolbar,'句法配色').props.onClick()
+ assert.equal(all(p.render(),n=>n.type==='span'&&n.props.className?.startsWith('syn-')).length,0)
 })

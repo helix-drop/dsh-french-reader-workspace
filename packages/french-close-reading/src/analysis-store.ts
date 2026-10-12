@@ -10,8 +10,8 @@
  *    say "this was about the old text" instead of silently re-attaching.
  * 2. **The model-facing shape.** Analysing a sentence is a generation, so the
  *    request carries an explicit JSON contract and the reply is validated before
- *    anything is written. A reply that fails the gate is reported with its errors
- *    and stored nowhere.
+ *    anything is written. Generated replies may save validated portions with
+ *    explicit pending issues; strict manual imports still refuse invalid nodes.
  */
 import type { PassageRecord } from './domain.ts'
 import type { RecordTable } from './lexicon-store.ts'
@@ -21,7 +21,8 @@ import type {
   StoredSentenceAnalyses,
   StoredSentenceAnalysis,
 } from './analysis.ts'
-import { analysisCoverage, validateSentenceAnalysis } from './analysis.ts'
+import { SentenceAnalysisSchema, analysisCoverage, validateSentenceAnalysis } from './analysis.ts'
+import { normalizeAnalysisReply, extractAnalysisObject, sourceTokens } from './analysis-reception.ts'
 import type { ParagraphAnchor } from './segmentation.ts'
 
 export const sentenceAnalysesKey = (passageId: string): string => `sentences_${passageId}`
@@ -62,12 +63,22 @@ export async function writeAnalysisVersions(table: RecordTable, value: StoredAna
  */
 export async function putSentenceAnalysis(table: RecordTable, analysis: StoredSentenceAnalysis, sentenceText: string):
 Promise<{ stored: boolean; errors?: string[]; hints?: string[]; replaced?: boolean }> {
+  const shape = SentenceAnalysisSchema.safeParse(analysis)
+  if (!shape.success) return { stored: false, errors: shape.error.issues.map(issue => `${issue.path.join('.')}: ${issue.message}`), hints: [] }
+  analysis = shape.data
   const report = validateSentenceAnalysis(analysis, sentenceText)
   if (report.errors.length > 0) {
     return { stored: false, errors: report.errors, hints: report.hints }
   }
   const store = readSentenceAnalyses(table, analysis.passageId)
   const existing = store.sentences.find((entry) => entry.anchorId === analysis.anchorId)
+  // Preserve the previously usable analysis before a partial generation replaces it.
+  // The snapshot uses the existing record schema and travels with library backups.
+  if (existing !== undefined && analysis.reception?.state === 'partial' && existing.reception?.state !== 'partial') {
+    await table.put(`sentences_${analysis.passageId}_history_${analysis.anchorId}_${existing.revision}`, {
+      kind: 'sentenceAnalyses', recordVersion: 1, payload: { passageId: analysis.passageId, sentences: [existing] },
+    })
+  }
   const versioned = existing === undefined ? analysis : { ...analysis, revision: existing.revision + 1 }
   const sentences = existing === undefined
     ? [...store.sentences, versioned]
@@ -143,17 +154,16 @@ export function coverageOf(
  *
  * It is stated to the model as data, and the same shape is what the validator
  * checks, so "the model returned JSON" is never mistaken for "the analysis is
- * usable". Ranges are left for the model to fill from the sentence it was given;
- * a reply whose ranges do not fit is refused by the gate with the offending range
- * named.
+ * usable". Source token anchors are provided by the program; the model identifies
+ * syntax and quotes. Unresolved nodes remain pending rather than receiving guessed ranges.
  */
 export const ANALYSIS_JSON_CONTRACT = {
-  translation: 'string — 该句的简体中文译文',
-  backbone: 'string — 去掉修饰后的法语句子主干，保留原词',
-  clauses: [{ role: 'string — 中文从句类型（主句／关系从句／补语从句…）', start: 'number', end: 'number', text: 'string — 对应的法语原文', parentIndex: 'number|null — 父从句在下标中的位置' }],
-  constituents: [{ role: 'string — 中文句法功能（主语／谓语／直接宾语／表语／宾补／状语…）', start: 'number', end: 'number', text: 'string — 对应的法语原文', clauseIndex: 'number|null', partOfSpeech: 'string|null — 中文词性，不是句法功能' }],
-  morphology: [{ form: 'string — 法语原形态', lemma: 'string|null — 法语词元', partOfSpeech: 'string|null — 中文词性', tense: 'string|null — 中文时态', mood: 'string|null — 中文语式', person: 'string|null — 中文人称', gender: 'string|null — 中文性', number: 'string|null — 中文数', agreesWith: 'string|null — 法语对应词形', note: 'string — 中文说明' }],
-  explanations: [{ kind: 'syntax|context|rhetoric|unverified', text: 'string — 简体中文说明；需要时可引用法语原词', start: 'number|null', end: 'number|null' }],
+  translation: 'string — 简体中文译文',
+  backbone: 'string — 法语主干，保留否定、必要补语与原词',
+  clauses: [{ id: 'string — 唯一标识，例如 c1', role: 'string — 中文从句类型', startToken: 'number — 首词段编号', endToken: 'number — 末词段编号，包含此词段', text: 'string — 连续的准确原文', parentId: 'string|null — 父从句标识' }],
+  constituents: [{ role: 'string — 中文句法功能', startToken: 'number', endToken: 'number', text: 'string — 连续的准确原文', clauseId: 'string|null — 所属从句标识', partOfSpeech: 'string|null — 中文词性', gloss: 'string — 一两句中文句意，内部成分可为空' }],
+  morphology: [],
+  explanations: [{ kind: 'context|rhetoric|unverified', text: 'string — 简短说明', start: null, end: null }],
 } as const
 
 export const ANALYSIS_CONTEXT_CHARACTER_LIMIT = 3500
@@ -275,18 +285,29 @@ export function analysisPrompt(input: {
     JSON.stringify(ANALYSIS_JSON_CONTRACT, null, 2),
     '',
     '规则：',
-    '- start/end 是相对「这一句」的字符下标，半开区间，必须落在句子范围内。',
-    '- 所有讲解与结构标签必须使用简体中文：包括译文、从句/成分角色、词性与形态标签、note 和 explanations.text；仅 backbone、法语原文片段、form/lemma/agreesWith 保留法语。',
+    '- 不计算字符位置。startToken/endToken 引用程序提供的词段编号，均从 1 开始，末编号包含在范围内。text 必须等于这两个编号之间的连续原文，保留标点和空格。不能拼接不连续的词；这种结构分成多条成分并在 gloss 说明。',
+    '- clauses 的 id 必须唯一；parentId 和 clauseId 引用这些标识，不使用数组下标。父级不可指向自身或形成循环。成分范围应位于所属从句内。编号用于定位，不要求逐词分析。',
+    '- 所有讲解与结构标签必须使用简体中文：包括译文、从句/成分角色、成分句意 gloss、词性与形态标签、note 和 explanations.text；仅 backbone、法语原文片段、form/lemma/agreesWith 保留法语。',
     '- 已提供的前后段落只用于理解代词指向与段落衔接；解析范围仍仅限目标句，不可把上下文当作本句事实；未提供的段落内容不可猜测。',
-    '- 句子里每一段含词的文字都必须被某个成分覆盖，不要留空隙；不要用一个成分覆盖整句来敷衍。',
-    '- kind 为 syntax 的只写句法事实，不要写作者意图；语境与修辞分别用 context 与 rhetoric；不确定用 unverified。',
+    '- constituents 同时包含阅读片段和内部句法成分，内部范围可以嵌套在阅读片段中；同一层不要交叉重叠。准确引用原文，不要为了覆盖每个字符添加虚构成分。',
+    '- 先按从句或主要词组提供两到四个阅读片段及中文 gloss，再在同一 constituents 数组补充片段内部的主语、变位动词（复合时态包含助动词和分词）、直接/间接宾语、表语、状语、不定式补语和名词修饰的准确范围。内部句法成分的 gloss 可以留空，不要逐词机械切分。例如 Léa est allée à la bibliothèque 中，Léa 标主语，est allée 标变位动词，à la bibliothèque 标地点状语。',
+    '- 多从句的句子不要用一个成分覆盖整句。',
+    '- 结构说明以成分为主。每个成分的 gloss 只写一两句：先给这个片段在本句中的意思，再用半句点明它做什么。不要写句法论文，不要写「属于某种形式」这类教科书说明。',
+    '- 成分的 role 只写功能名，例如主句、让步从句、主语、变位动词、状语、直接宾语。不要在 role 里用括号追加句法说明。',
+    '- morphology 留空数组。界面不展示逐词形态，不要为每个词填写。',
+    '- explanations 不是主体，可以为空数组。只在俗语、固定说法、修辞，或尚不能确定的指代上稍作延伸，每条一两句，不要重复 gloss。kind 用 rhetoric、context 或 unverified；不要为了分类再写一段 syntax。',
     '- 词性（partOfSpeech）与句法功能（role）分开写，不要混在一个字段里。',
+    '- 主语范围不含变位动词；现在分词和不定式不标为变位动词。表语、程度副词及宾语补足语分别标注，不并入动词范围。复合动词遇到插入副词时拆分助动词和分词，并说明组合关系。',
+    '- 先判断每个 que 是关系代词、内容补语还是结果连接词；并列内容从句使用同一 parentId，不把第二项嵌入第一项。分词结构的内容从句归于分词结构，该结构归于它实际修饰的主句。',
+    '- 对内部成分只写必要的指代、时态或固定结构说明，避免重复阅读片段的译文；不确定的判断留作待查证。',
     '',
     ...adjacent.map((material) => [`【${labels[material.relation]}（仅供指代与衔接参考，不需解析）${material.paragraphId ? ` · ${material.paragraphId}` : ''}】\n${material.text}`, '']).flat(),
     `【当前段落${current?.paragraphId ? ` · ${current.paragraphId}` : ''}】\n${current?.text ?? input.paragraph}`,
     ...(input.omittedParagraphIds?.length ? ['', `【未纳入的同篇相邻段落锚点】${input.omittedParagraphIds.join('、')}（其内容未提供；不要推测）`] : []),
     '',
     `【需要解析的这一句 · 锚点 ${input.anchorId}】\n${input.sentence}`,
+    '',
+    `【原文词段编号，仅用于定位】\n${sourceTokens(input.sentence).map(token => `${token.id}:${token.text}`).join(' ')}`,
   ].join('\n')
 }
 
@@ -306,26 +327,29 @@ export interface AnalysisDraftInput {
   backend: string | null
   model: string | null
   provenance?: 'ai' | 'user' | 'mixed'
+  /** Generated results may retain valid spans while unresolved nodes remain pending. */
+  allowPartial?: boolean
 }
 
 /**
  * Read a model reply into a stored analysis, or say precisely why it cannot be.
  *
  * The reply is expected to be one JSON object, possibly wrapped in a code fence.
- * Index references (`parentIndex`, `clauseIndex`) are how a model can point at
- * another item without inventing an id; they are resolved here into real ids, and
- * an index that names nothing is a refusal rather than a dropped parent.
- * Character offsets obey the same rule: they must be non-negative integers
- * exactly as the contract states them — a reply that breaks the contract is
- * refused, never repaired into something that merely looks valid.
+ * Wire token anchors and stable labels are normalized before storage UUIDs are
+ * generated. Legacy offsets and numeric references remain supported. Strict
+ * imports refuse invalid nodes; allowPartial retains only validated nodes and
+ * records every unresolved quotation/reference instead of guessing a parent.
  */
 export function parseAnalysisReply(
   reply: string,
   input: AnalysisDraftInput,
 ): { ok: true; analysis: StoredSentenceAnalysis } | { ok: false; reason: string; detail: string } {
-  const json = extractJsonObject(reply)
-  if (json === null) return { ok: false, reason: 'model-reply-not-json', detail: reply.slice(0, 300) }
+  const extracted = extractJsonObject(reply)
+  if (extracted === null) return { ok: false, reason: 'model-reply-not-json', detail: reply.slice(0, 300) }
 
+  const normalized = normalizeAnalysisReply(extracted, input.text)
+  const json = normalized.json
+  if (!input.allowPartial && normalized.reception.issues.length) return { ok: false, reason: 'analysis-invalid', detail: normalized.reception.issues.map(issue => `${issue.kind} ${issue.index + 1}: ${issue.reason}`).join('；') }
   const translation = typeof json.translation === 'string' ? json.translation.trim() : ''
   if (translation === '') return { ok: false, reason: 'analysis-incomplete', detail: '译文为空' }
 
@@ -336,23 +360,33 @@ export function parseAnalysisReply(
     clauseIds.set(index, id)
     return { id, entry }
   })
-  if (clauses.length === 0) return { ok: false, reason: 'analysis-incomplete', detail: '没有从句结构' }
 
   // Contract violations are collected and then refused together, so the report
   // names everything the reply got wrong rather than one field at a time.
   const problems: string[] = []
-  const requireChinese = (value: unknown, label: string): void => {
-    if (typeof value === 'string' && value.trim() !== '' && !/[\u3400-\u9fff]/u.test(value)) {
-      problems.push(`${label} 必须使用简体中文说明`)
+  /** Source quotations, rather than the model's character counting, determine ranges. */
+  const rangeOf = (item: Record<string, unknown>, what: string): { start: number; end: number; text: string } => {
+    const quoted = typeof item.text === 'string' ? item.text : ''
+    const valid = typeof item.start === 'number' && Number.isSafeInteger(item.start) && item.start >= 0
+      && typeof item.end === 'number' && Number.isSafeInteger(item.end) && item.end > item.start && item.end <= input.text.length
+    if (valid && (quoted === '' || input.text.slice(item.start as number, item.end as number) === quoted)) {
+      return { start: item.start as number, end: item.end as number, text: input.text.slice(item.start as number, item.end as number) }
     }
-  }
-  requireChinese(translation, '译文')
-
-  /** One character offset, exactly as the contract states it. */
-  const offsetOf = (value: unknown, what: string): number => {
-    if (typeof value === 'number' && Number.isSafeInteger(value) && value >= 0) return value
-    problems.push(`${what} 的字符下标不是非负整数（${JSON.stringify(value) ?? '缺失'}）`)
-    return 0
+    if (quoted !== '') {
+      const first = input.text.indexOf(quoted)
+      if (first >= 0 && input.text.indexOf(quoted, first + 1) === -1) return { start: first, end: first + quoted.length, text: quoted }
+      // Typography may differ, but no words may be added, dropped or substituted.
+      const escaped = quoted.trim().replace(/[.*+?^${}()|[\]\\]/gu, '\\$&').replace(/\s+/gu, '\\s+').replace(/['’]/gu, "['’]")
+      if (escaped !== '') {
+        const matches = [...input.text.matchAll(new RegExp(escaped, 'gu'))]
+        if (matches.length === 1) {
+          const start = matches[0]!.index!
+          return { start, end: start + matches[0]![0].length, text: matches[0]![0] }
+        }
+      }
+    }
+    problems.push(`${what} 的原文片段无法唯一定位；请提供本句中的准确引用`)
+    return { start: 0, end: 0, text: quoted }
   }
 
   /** One clause index reference: null, or a position that actually exists. */
@@ -369,49 +403,46 @@ export function parseAnalysisReply(
   const optionalOffsetOf = (value: unknown, what: string): number | null => {
     if (value === null || value === undefined) return null
     if (typeof value === 'number' && Number.isSafeInteger(value) && value >= 0) return value
-    problems.push(`${what} 的字符下标不是非负整数（${JSON.stringify(value) ?? '缺失'}）`)
     return null
   }
 
   const built = clauses.map(({ id, entry }, index) => {
     const item = asRecord(entry)
-    requireChinese(item.role, `第 ${String(index + 1)} 个从句的角色`)
-    const start = offsetOf(item.start, `第 ${String(index + 1)} 个从句`)
-    const end = offsetOf(item.end, `第 ${String(index + 1)} 个从句`)
+
+    const { start, end, text } = rangeOf(item, `第 ${String(index + 1)} 个从句`)
     const parentIndex = clauseIndexOf(item.parentIndex, `第 ${String(index + 1)} 个从句`)
     return {
       id,
       role: stringOf(item.role, '从句'),
       start,
       end,
-      text: stringOf(item.text, input.text.slice(start, end)),
+      text,
       parentId: parentIndex === null ? null : (clauseIds.get(parentIndex) ?? null),
     }
   })
 
   const constituents = (Array.isArray(json.constituents) ? json.constituents : []).map((entry, index) => {
     const item = asRecord(entry)
-    requireChinese(item.role, `第 ${String(index + 1)} 个成分的角色`)
-    requireChinese(item.partOfSpeech, `第 ${String(index + 1)} 个成分的词性`)
-    const start = offsetOf(item.start, `第 ${String(index + 1)} 个成分`)
-    const end = offsetOf(item.end, `第 ${String(index + 1)} 个成分`)
+
+
+    const gloss = typeof item.gloss === 'string' ? item.gloss.trim() : ''
+
+    const { start, end, text } = rangeOf(item, `第 ${String(index + 1)} 个成分`)
     const clauseIndex = clauseIndexOf(item.clauseIndex, `第 ${String(index + 1)} 个成分`)
     return {
       id: globalThis.crypto.randomUUID(),
       role: stringOf(item.role, '成分'),
       start,
       end,
-      text: stringOf(item.text, input.text.slice(start, end)),
+      text,
       clauseId: clauseIndex === null ? null : (clauseIds.get(clauseIndex) ?? null),
       partOfSpeech: typeof item.partOfSpeech === 'string' && item.partOfSpeech !== '' ? item.partOfSpeech : null,
+      gloss,
     }
   })
 
   const morphology = (Array.isArray(json.morphology) ? json.morphology : []).map((entry, index) => {
     const item = asRecord(entry)
-    for (const field of ['partOfSpeech', 'tense', 'mood', 'person', 'gender', 'number', 'note']) {
-      requireChinese(item[field], `第 ${String(index + 1)} 个形态项的 ${field}`)
-    }
     return {
       id: globalThis.crypto.randomUUID(),
       form: stringOf(item.form, '?'),
@@ -429,7 +460,7 @@ export function parseAnalysisReply(
 
   const explanations = (Array.isArray(json.explanations) ? json.explanations : []).map((entry, index) => {
     const item = asRecord(entry)
-    requireChinese(item.text, `第 ${String(index + 1)} 条解释`)
+
     const kind = item.kind
     return {
       id: globalThis.crypto.randomUUID(),
@@ -443,12 +474,26 @@ export function parseAnalysisReply(
     }
   })
 
-  // A reply that broke the offset or index contract is refused as a whole:
-  // storing a repaired version would claim the model said something it did not.
+  // Refuse unlocatable source quotations and invalid hierarchy references.
   if (problems.length > 0) {
     return { ok: false, reason: 'analysis-invalid', detail: problems.join('；') }
   }
 
+  if (input.allowPartial) {
+    let cursor = 0
+    const ranges = [...constituents].sort((a, b) => a.start - b.start || a.end - b.end)
+    for (const range of [...ranges, { start: input.text.length, end: input.text.length }]) {
+      if (range.start > cursor) {
+        const gap = input.text.slice(cursor, range.start)
+        if (/[\p{L}\p{N}]/u.test(gap)) normalized.reception.issues.push({
+          kind: 'constituent', index: normalized.reception.receivedConstituents,
+          role: '未解析片段', text: gap, reason: '尚未提供该片段的成分分析',
+        })
+      }
+      cursor = Math.max(cursor, range.end)
+    }
+    if (normalized.reception.issues.length) normalized.reception.state = 'partial'
+  }
   const now = new Date().toISOString()
   return {
     ok: true,
@@ -467,6 +512,7 @@ export function parseAnalysisReply(
       explanations,
       provenance: input.provenance ?? 'ai',
       status: 'draft',
+      ...(input.allowPartial ? { reception: normalized.reception } : {}),
       revision: 1,
       createdAt: now,
       updatedAt: now,
@@ -476,18 +522,7 @@ export function parseAnalysisReply(
 
 /** The first JSON object in a reply, tolerating a code fence around it. */
 export function extractJsonObject(reply: string): Record<string, unknown> | null {
-  const text = reply.trim()
-  const fenced = /```(?:json)?\s*([\s\S]*?)```/u.exec(text)
-  const candidate = fenced?.[1]?.trim() ?? text
-  const start = candidate.indexOf('{')
-  const end = candidate.lastIndexOf('}')
-  if (start === -1 || end === -1 || end <= start) return null
-  try {
-    const value: unknown = JSON.parse(candidate.slice(start, end + 1))
-    return asRecord(value)
-  } catch {
-    return null
-  }
+  return extractAnalysisObject(reply)
 }
 
 function asRecord(value: unknown): Record<string, unknown> {

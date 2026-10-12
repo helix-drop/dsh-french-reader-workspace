@@ -547,6 +547,7 @@ test('a running synthesis offers 取消, which aborts the Remote call’s own si
       listSentenceAudio: async () => listing([], configured, null),
       // Never answers: this is the state the reader is looking at while a take is
       // being made, and the only cancel there is is aborting this signal.
+      cancelWork: async () => ({ ok: true, value: { accepted: true, settled: false } }),
       synthesizeSentenceAudio: async (_request, signal) => {
         signals.push(signal)
         return new Promise(() => {})

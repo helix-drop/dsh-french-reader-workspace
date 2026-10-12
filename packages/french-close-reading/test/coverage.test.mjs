@@ -51,7 +51,7 @@ test('one constituent spanning everything is a summary, not an analysis', () => 
   const report = checkCoverage(PASCAL, [{ label: '整句', start: 0, end: PASCAL.length }])
   assert.deepEqual(report.errors, [], 'nothing is missing, so nothing errors')
   assert.equal(report.hints.some((hint) => /等于没有拆分/u.test(hint)), true)
-  assert.equal(report.hints.some((hint) => /句子有 \d+ 个从句单位/u.test(hint)), true)
+  assert.equal(report.hints.some((hint) => /成分只有/u.test(hint)), false, 'a coarser clause split is not nagged into word cards')
 })
 
 test('overlaps, out-of-range ranges and nameless constituents are refused', () => {

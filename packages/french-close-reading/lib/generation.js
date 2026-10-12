@@ -42,7 +42,8 @@ export class DshLlmBackend {
                 models.push({
                     id: `${provider.id}/${model.id}`,
                     name: `${model.name} · ${provider.name}`,
-                    reasoningEfforts: [],
+                    reasoningEfforts: isEvaluatedAnalysisModel(model.id)
+                        ? await this.resolveReasoningEfforts(`${provider.id}/${model.id}`, signal) : [],
                     contextWindow: null,
                 });
             }
@@ -83,12 +84,19 @@ export class DshLlmBackend {
         let prepared;
         request.onPhase?.('preparing');
         try {
+            const info = request.maxTokens === undefined ? null
+                : await llm.resolveModelInfo(route.provider, route.model, request.signal);
+            const efforts = info?.reasoning?.efforts.map((effort) => String(effort.id)) ?? [];
+            // Only select a tested analysis preset when the exact adapter supports it.
+            const effort = target.reasoningEffort ?? (request.maxTokens !== undefined
+                && isEvaluatedAnalysisModel(route.model) && efforts.includes('high') ? 'high' : undefined);
             prepared = await llm.prepareCall({
                 provider: route.provider,
                 model: route.model,
-                ...(target.reasoningEffort === undefined
+                ...(request.maxTokens === undefined ? {} : { maxTokens: analysisOutputBudget(route.model, request.maxTokens) }),
+                ...(effort === undefined
                     ? {}
-                    : { reasoningEffort: target.reasoningEffort }),
+                    : { reasoningEffort: effort }),
             }, request.signal);
         }
         catch (error) {
@@ -184,8 +192,22 @@ export class DshLlmBackend {
         }
         // A route that answered is named by the request's own route; the backend does
         // not pretend to know a different one after the fact.
-        return { text, resolvedModel: target.model, usage, finish, failure, modelCallMs, firstTextDeltaMs };
+        return { text, resolvedModel: target.model, usage, finish, failure, modelCallMs, firstTextDeltaMs,
+            effectiveMaxTokens: prepared.config.maxTokens ?? null,
+            effectiveReasoningEffort: prepared.config.reasoningEffort ?? null };
     }
+}
+export const ANALYSIS_OUTPUT_TOKENS = 131072;
+export function isEvaluatedAnalysisModel(model) {
+    return /^(deepseek-flash|deepseek-v4\.1.?flash|mimo-v2\.6-flash|gpt-6-luna|gemma-4-31b(?:-it)?)$/iu.test(model);
+}
+/** Known published caps, not adapter defaults (which may be much smaller). */
+export function analysisOutputBudget(model, requested = ANALYSIS_OUTPUT_TOKENS) {
+    if (!Number.isSafeInteger(requested) || requested <= 0)
+        throw new Error('analysis-output-budget-invalid');
+    const limit = /^gemma-4-31b(?:-it)?$/iu.test(model) ? 32768
+        : /^gpt-6-luna$/iu.test(model) ? 128000 : requested;
+    return Math.min(requested, limit);
 }
 /** Split a `provider/model` id, or null when the id is not a route. */
 export function splitRoute(model) {

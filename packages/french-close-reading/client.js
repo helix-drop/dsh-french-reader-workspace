@@ -18,11 +18,20 @@ window.__ModuleLoader__.load({
      * same panel served by the browser half has no such chrome, and a blank strip
      * there would be a defect of its own. Electron identifies itself in the user
      * agent, and `process.versions.electron` is the belt to that braces.
+     *
+     * `debug/boot.js` sets `__FCR_DEBUG_DESKTOP__` so the browser debug entry can
+     * rehearse that inset. The product host never sets it, and a normal browser
+     * page leaves it unset.
      */
     function insideDesktopWindow() {
+      if (globalThis.__FCR_DEBUG_DESKTOP__ === true) return true
       const agent = globalThis.navigator?.userAgent ?? ''
       if (agent.includes('Electron')) return true
-      return typeof globalThis.process?.versions?.electron === 'string'
+      if (typeof globalThis.process?.versions?.electron === 'string') return true
+      // The Desktop shell loads the panel from dsh-app://. A custom user agent
+      // that drops the Electron token would otherwise leave the traffic lights
+      // on top of 法语精读 / 目录 / 书架.
+      return (globalThis.location?.protocol ?? '') === 'dsh-app:'
     }
     // The generated Remote contract is inlined instead of imported: a browser
     // half may require only baseline modules, and the shell's static table
@@ -188,7 +197,7 @@ window.__ModuleLoader__.load({
       archivedAt: S.oneOf(S.str, S.nil), archiveOperationId: S.oneOf(S.str, S.nil),
     })
     const summaryShape = S.obj({
-      id: S.str, title: S.str, excerpt: S.str, characterCount: S.num,
+      id: S.str, title: S.str, excerpt: S.str, characterCount: S.num, paragraphCount: S.opt(S.num),
       sourceRevision: S.num, createdAt: S.str, updatedAt: S.str,
     })
     const sentenceShape = S.obj({ id: S.str, paragraphId: S.str, text: S.str, start: S.num, end: S.num })
@@ -309,11 +318,11 @@ window.__ModuleLoader__.load({
     const ROLE_TOKENS = [
       [/^(主语|sujet)/iu, 'var(--fr-role-subject)'],
       [/^(谓语|verbe|predicate)/iu, 'var(--fr-role-verb)'],
-      [/^(直接宾语|间接宾语|宾语|objet|cod|coi)/iu, 'var(--fr-role-object)'],
+      [/^(直接宾语|间接宾语|宾语|同位语|objet|cod|coi)/iu, 'var(--fr-role-object)'],
       [/^(表语|宾补|attribut|compl)/iu, 'var(--fr-role-attribute)'],
       [/^(状语|circ|adverbial)/iu, 'var(--fr-role-adverbial)'],
       [/^(不定式|infinitif)/iu, 'var(--fr-role-infinitive)'],
-      [/^(修饰|épithète|epithete|modif)/iu, 'var(--fr-role-modifier)'],
+      [/(修饰|épithète|epithete|modif)/iu, 'var(--fr-role-modifier)'],
     ]
 
     function tokenForRole(role) {
@@ -322,8 +331,8 @@ window.__ModuleLoader__.load({
     }
 
     /**
-     * The sentence text as nested spans, one per constituent, longest-first so an
-     * inner part sits inside the clause that contains it.
+     * Split at constituent boundaries and prefer the smallest functional range.
+     * Unclassified inner labels inherit a containing functional range.
      *
      * Nothing here changes the text: the concat of the pieces is exactly the
      * sentence, which `test/analysis-rendering.test.mjs` asserts, because colour
@@ -331,20 +340,61 @@ window.__ModuleLoader__.load({
      */
     function renderConstituents(text, constituents) {
       if (!Array.isArray(constituents) || constituents.length === 0) return [{ text, role: null }]
-      const spans = constituents
-        .filter((item) => Number.isInteger(item.start) && Number.isInteger(item.end))
-        .filter((item) => item.end > item.start && item.end <= text.length)
-        .sort((left, right) => left.start - right.start || right.end - left.end)
+      const spans = constituents.filter((item) => Number.isInteger(item.start) && Number.isInteger(item.end)
+        && item.start >= 0 && item.end > item.start && item.end <= text.length)
+        .sort((left, right) => (left.end - left.start) - (right.end - right.start) || left.start - right.start)
+      const boundaries = [...new Set([0, text.length, ...spans.flatMap((span) => [span.start, span.end])])].sort((a, b) => a - b)
       const pieces = []
-      let cursor = 0
-      for (const span of spans) {
-        if (span.start < cursor) continue
-        if (span.start > cursor) pieces.push({ text: text.slice(cursor, span.start), role: null })
-        pieces.push({ text: text.slice(span.start, span.end), role: span.role, partOfSpeech: span.partOfSpeech ?? null })
-        cursor = span.end
+      for (let index = 0; index < boundaries.length - 1; index++) {
+        const start = boundaries[index], end = boundaries[index + 1]
+        const containing = spans.filter((item) => item.start <= start && item.end >= end)
+        const span = containing.find((item) => /(主语|sujet|变位动词|谓语|verbe|predicate|宾语|同位语|objet|cod|coi|表语|attribut|状语|副词|adverb|circ|不定式|infinit|修饰|épithète|modif)/iu.test(item.role ?? '')) ?? containing[0]
+        const piece = { text: text.slice(start, end), role: span?.role ?? null }
+        if (span) piece.partOfSpeech = span.partOfSpeech ?? null
+        const previous = pieces[pieces.length - 1]
+        if (previous && previous.role === piece.role && previous.partOfSpeech === piece.partOfSpeech) previous.text += piece.text
+        else pieces.push(piece)
       }
-      if (cursor < text.length) pieces.push({ text: text.slice(cursor), role: null })
       return pieces
+    }
+
+    /** Source-backed clause tree. Ignore contradictory parent IDs; containment
+     * cannot form a cycle. Disjoint main clauses retain their source order. */
+    function backboneStructure(found) {
+      const source = found.text ?? ''
+      const seen = new Set()
+      const nodes = (found.clauses ?? []).filter((item) => {
+        const key = `${item.start}:${item.end}`
+        if (!Number.isInteger(item.start) || !Number.isInteger(item.end) || item.start < 0 || item.end > source.length || item.end <= item.start || seen.has(key)) return false
+        seen.add(key); return true
+      }).map((item) => ({ ...item, text: source.slice(item.start, item.end), children: [] }))
+      const roots = []
+      for (const node of nodes) {
+        const containers = nodes.filter((outer) => outer !== node && outer.start <= node.start && outer.end >= node.end && outer.end - outer.start > node.end - node.start)
+          .sort((a, b) => (a.end - a.start) - (b.end - b.start))
+        if (containers.length) containers[0].children.push(node)
+        else roots.push(node)
+      }
+      const prepare = (node) => {
+        node.children.sort((a, b) => a.start - b.start)
+        let cursor = node.start
+        node.core = []
+        for (const child of node.children) {
+          // Crossing ranges cannot safely be omitted from a simplified core.
+          if (child.start < cursor) continue
+          if (child.start > cursor) node.core.push({ start: cursor, end: child.start, text: source.slice(cursor, child.start) })
+          node.core.push({ omitted: true, text: '…' })
+          cursor = child.end
+        }
+        if (cursor < node.end) node.core.push({ start: cursor, end: node.end, text: source.slice(cursor, node.end) })
+        if (node.children.some((child, index) => index > 0 && child.start < node.children[index - 1].end)) {
+          node.core = [{ start: node.start, end: node.end, text: node.text }]
+        }
+        node.children.forEach(prepare)
+      }
+      roots.sort((a, b) => Number(/主句|main|principale/iu.test(b.role)) - Number(/主句|main|principale/iu.test(a.role)) || a.start - b.start)
+      roots.forEach(prepare)
+      return roots
     }
 
     function markdownInline(source) {
@@ -592,7 +642,82 @@ window.__ModuleLoader__.load({
       kind: S.oneOf(S.lit('found'), S.lit('missing')), takeId: S.str, mimeType: S.nilable(S.str),
       base64: S.str, bytes: S.num, durationMs: S.num, createdAt: S.nilable(S.str),
     })
-    const internals = { readingSelection, selectionLookup, measureSelection, paragraphOffsetBefore, tokenForRole, renderConstituents, renderMarkdown, contextPreviewIdentity, conjugationPersonLabel, mergeShelf, mergeContinuationLinks, ConjugationView, KnowledgeEntry, GrammarDetail, LexiconCard, KnowledgeLibrary, duplicateTopicKey, AudioControls, audioSourceKey, sentenceSpeechSource, inflectionSpeechSource, inflectionUtterance }
+    /** Panel-lifetime queue: one serial worker per paragraph, two workers total. */
+    function createParagraphQueue(paragraphs, execute, changed = () => {}, concurrency = 2) {
+      const tasks = paragraphs.map((paragraph) => ({ paragraph, state: 'queued', error: null }))
+      let current = 0, active = 0, stopped = false
+      const controller = new AbortController()
+      const snapshot = () => ({ active, stopped, total: tasks.length,
+        done: tasks.filter((task) => task.state === 'done').length,
+        failed: tasks.filter((task) => task.state === 'failed').length,
+        tasks: tasks.map((task) => ({ id: task.paragraph.id, state: task.state, error: task.error })) })
+      const publish = () => changed(snapshot())
+      function pump() {
+        if (stopped) return
+        while (active < Math.min(2, Math.max(1, concurrency))) {
+          const first = tasks.findIndex((task) => task.state === 'queued' || task.state === 'running')
+          // Advance a window of at most two future paragraphs as work completes.
+          const eligible = tasks.map((task, index) => ({ task, index })).filter(({ task, index }) =>
+            task.state === 'queued' && ((index >= current && index <= current + 2) || (index >= first && index <= first + 2)))
+          const rank = (index) => index >= current && index <= current + 2 ? index - current : tasks.length + index
+          eligible.sort((a, b) => rank(a.index) - rank(b.index))
+          const next = eligible[0]
+          if (!next) break
+          next.task.state = 'running'
+          active += 1
+          Promise.resolve().then(() => {
+            controller.signal.throwIfAborted()
+            return execute(next.task.paragraph, controller.signal)
+          }).then(() => { next.task.state = stopped ? 'cancelled' : 'done' }, (error) => {
+            next.task.state = stopped ? 'cancelled' : 'failed'
+            next.task.error = String(error?.message ?? error)
+          }).finally(() => { active -= 1; publish(); pump() })
+        }
+        publish()
+      }
+      return {
+        start(id) { current = Math.max(0, tasks.findIndex((task) => task.paragraph.id === id)); pump() },
+        prioritize(id) { const index = tasks.findIndex((task) => task.paragraph.id === id); if (index >= 0) current = index; pump() },
+        stop() { stopped = true; controller.abort(); for (const task of tasks) if (task.state === 'queued') task.state = 'cancelled'; publish() },
+        snapshot,
+      }
+    }
+
+    function normalizeParagraphInput(text) { return text.replace(/\r\n?/gu, '\n') }
+
+    function cleanParagraphStarts(value) {
+      if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
+      return Object.fromEntries(Object.entries(value).filter(([id, number]) => id !== '__proto__' && Number.isSafeInteger(number) && number > 0))
+    }
+
+    function wordOccurs(text, word) {
+      const normalize = (value) => String(value ?? '').normalize('NFC').toLocaleLowerCase('fr').replaceAll('’', "'")
+      const tokens = (value) => normalize(value).match(/[\p{L}\p{M}]+/gu) ?? []
+      const words = tokens(word), sentence = tokens(text)
+      return words.length > 0 && sentence.some((_, index) => words.every((part, offset) => sentence[index + offset] === part))
+    }
+    function sourceLabel(source) {
+      return ({ 'cnrtl-definition': 'CNRTL · 法语词义', cnrtl: 'CNRTL · 法国国家文本与词汇资源中心（词源）', 'cnrtl-etymology': 'CNRTL · 词源', semanticEvolution: '词义演变', collocations: '词语搭配', 'le-conjugueur': 'Le Conjugueur · 动词变位', 'wiktionary': '维基词典', sense: '词义', fixedExpressions: '固定表达', etymology: '词源', conjugation: '动词变位', synonyms: '近义词', antonyms: '反义词', register: '语体', usage: '用法', pronunciation: '发音' })[source] ?? source
+    }
+
+    function visibleStreamText(text) {
+      const marker = '<<<GRAMMAR'
+      const at = text.indexOf(marker)
+      if (at >= 0) return text.slice(0, at).trimEnd()
+      for (let length = marker.length - 1; length > 0; length -= 1) {
+        if (text.endsWith(marker.slice(0, length))) return text.slice(0, -length)
+      }
+      return text
+    }
+
+    function numberedBlocks(blocks, first) {
+      if (!Number.isSafeInteger(first) || first < 1 || !Number.isSafeInteger(first + Math.max(0, blocks.length - 1))) {
+        throw new Error('首段编号必须是正整数，末段编号不能超过安全整数范围')
+      }
+      return blocks.map((block, index) => ({ ...block, number: first + index }))
+    }
+
+    const internals = { analysisCacheMatches, analysisEffortChoice, wordOccurs, sourceLabel, visibleStreamText, createParagraphQueue, numberedBlocks, normalizeParagraphInput, cleanParagraphStarts, readingSelection, selectionLookup, measureSelection, paragraphOffsetBefore, tokenForRole, renderConstituents, renderMarkdown, contextPreviewIdentity, conjugationPersonLabel, mergeShelf, mergeContinuationLinks, ConjugationView, KnowledgeEntry, GrammarDetail, LexiconCard, KnowledgeLibrary, duplicateTopicKey, AudioControls, audioSourceKey, sentenceSpeechSource, inflectionSpeechSource, inflectionUtterance }
 
     const TYPES = '@local/french-close-reading/types#'
     const remoteContribution = {
@@ -725,6 +850,20 @@ window.__ModuleLoader__.load({
             }),
             S.obj({ ok: S.lit(false), reason: S.str }),
           )),
+        },
+        {
+          id: '@local/french-close-reading#frenchReader/renamePassage',
+          service: 'frenchReader', namespace: 'frenchReader', method: 'renamePassage', invocation: { kind: 'direct' },
+          parameters: [{ name: 'request', wire: 'request', source: 'json', codec: strict(`${TYPES}RenamePassageRequest`, S.obj({ passageId: S.str, expectedTitle: S.str, title: S.str, sourceRevision: S.num })) }],
+          cancellation: { parameter: 'signal' }, result: strict(`${TYPES}RenamePassageValue`, S.obj({ updated: S.bool })),
+        },
+        {
+          id: '@local/french-close-reading#frenchReader/cancelWork',
+          service: 'frenchReader', namespace: 'frenchReader', method: 'cancelWork',
+          invocation: { kind: 'direct' },
+          parameters: [{ name: 'request', wire: 'request', source: 'json', codec: strict(`${TYPES}CancelWorkRequest`, S.obj({ kind: S.oneOf(S.lit('sentence'), S.lit('inflection'), S.lit('ask')), requestId: S.str })) }],
+          cancellation: { parameter: 'signal' },
+          result: strict(`${TYPES}CancelWorkValue`, S.obj({ accepted: S.bool, settled: S.bool })),
         },
         {
           id: '@local/french-close-reading#frenchReader/ask',
@@ -939,6 +1078,7 @@ window.__ModuleLoader__.load({
             S.obj({
               kind: S.lit('found'),
               analysis: S.obj({
+                cacheIdentity: S.opt(S.str), sourceRevision: S.opt(S.num), segmentationRevision: S.opt(S.num),
                 anchorId: S.str, text: S.str, translation: S.str, backbone: S.str,
                 clauses: S.arr(S.obj({
                   id: S.str, role: S.str, start: S.num, end: S.num, text: S.str, parentId: S.nilable(S.str),
@@ -946,6 +1086,8 @@ window.__ModuleLoader__.load({
                 constituents: S.arr(S.obj({
                   id: S.str, role: S.str, start: S.num, end: S.num, text: S.str,
                   clauseId: S.nilable(S.str), partOfSpeech: S.nilable(S.str),
+                  // Absent on a host that has not reloaded since gloss was added.
+                  gloss: S.opt(S.str),
                 })),
                 morphology: S.arr(S.obj({
                   id: S.str, form: S.str, lemma: S.nilable(S.str), partOfSpeech: S.nilable(S.str),
@@ -1346,6 +1488,19 @@ window.__ModuleLoader__.load({
           )),
         },
         {
+          id: '@local/french-close-reading#frenchReader/quickDictionary',
+          service: 'frenchReader', namespace: 'frenchReader', method: 'quickDictionary',
+          invocation: { kind: 'direct' },
+          parameters: [{ name: 'request', wire: 'request', source: 'json',
+            codec: strict(`${TYPES}LookupMotRequest`, S.obj({ mot: S.str, partOfSpeech: S.nilable(S.str) })),
+          }],
+          cancellation: { parameter: 'signal' },
+          result: strict(`${TYPES}QuickDictionaryValue`, S.obj({
+            status: S.oneOf(S.lit('found'), S.lit('not-found'), S.lit('unavailable')),
+            sourceUrl: S.str, glosses: S.arr(S.obj({ partOfSpeech: S.str, text: S.str })),
+          })),
+        },
+        {
           /**
            * Exact-Mot lookup. A hit is the stored entry; a miss returns candidates that
            * were never merged into the Mot — lookup and collection stay separate.
@@ -1380,7 +1535,7 @@ window.__ModuleLoader__.load({
               mot: S.str, partOfSpeech: S.str, lemma: S.nilable(S.str),
               forms: S.arr(S.str), label: S.str, definition: S.str,
               provenance: S.opt(S.oneOf(S.lit('user'), S.lit('mixed'))),
-              operationId: S.str, passageId: S.str, anchorId: S.str, occurrenceNote: S.str,
+              operationId: S.str, passageId: S.str, anchorId: S.str, occurrenceNote: S.str, attachOccurrence: S.opt(S.bool),
             })),
           }],
           cancellation: { parameter: 'signal' },
@@ -1737,7 +1892,7 @@ window.__ModuleLoader__.load({
       bookField: '书名', chapterField: '章节', numberField: '段落序号', unfiled: '未归类', noChapter: '未分章',
       organizePassage: '归类与排序', saveLocation: '保存位置', sourceReading: '原文全文', learningTools: '句子学习',
       shelfWelcome: '从书籍目录开始阅读', shelfWelcomeHint: '展开书籍与章节，选择段落。新内容按书籍归类，段落序号在章节内接续。',
-      shelfEmpty: '尚未添加书籍。添加书籍后，可在章节内录入第一段。', shelfLocal: '目录归类保存在本机',
+      shelfEmpty: '尚未添加书籍。添加书籍后，可在章节内录入第一段。', shelfLocal: '目录和编号保存在当前入口。切换桌面与浏览器入口时，请导出完整备份并在新入口导入。',
       continueReading: '继续上次阅读', resumeLocation: '上次阅读：{book} · {chapter} · {title}',
       resumeUnavailable: '上次阅读的原文已不可用；请从目录选择段落。',
       resumeSourceChanged: '原文已修订，无法唯一定位上次句子；已回到开头，请重新选择位置。',
@@ -1748,7 +1903,7 @@ window.__ModuleLoader__.load({
       panel: '法语精读', brandSub: 'FRENCH CLOSE READING · 原文为锚，逐层精读',
       close: '关闭面板', loading: '载入中…',
       tabPassages: '段落库', tabKnowledge: '知识库',
-      listTitle: '已保存段落', count: '共 {count} 段 · 上限 250', refresh: '刷新',
+      listTitle: '已保存阅读材料', count: '共 {count} 份材料 · 上限 250', refresh: '刷新',
       empty: '还没有段落。在右侧保存第一段法语原文。',
       open: '打开', previous: '上一页', nextPage: '下一页', page: '第 {page} 页',
       exportAll: '导出完整备份', exporting: '正在导出…', exportDone: '已导出完整备份（{count} 条记录）：原文、解析、讨论、知识库、任务及本地书架续读关系一并保存。',
@@ -1799,17 +1954,18 @@ window.__ModuleLoader__.load({
       analysisCancelFailed: '未能确认取消，解析仍在运行。请重试或等待当前结果。',
       analysisTimedOut: '等待超过 {seconds} 秒，已停止等待；请检查句子状态后再决定是否重试。',
       conclusionSaveFailed: '尚未确认结论是否保存；编辑内容仍保留。可用同一内容重试。',
-      analyseSentence: '预览材料并生成解析', reanalyseSentence: '预览材料并重新解析', analyzing: '解析中…',
+      analyseSentence: '生成解析', reanalyseSentence: '重新解析', analyzing: '解析中…',
       // The prototype's reading-pane wording, which differs by location from the
       // detail pane's button: 解析这句 in the text, 查看解析 once it exists.
-      analyseThisSentence: '预览材料并解析这句', viewAnalysis: '查看解析',
+      analyseThisSentence: '解析这句', viewAnalysis: '查看解析',
       paragraphLabel: '段落 {index}', sentenceMark: '当前 · 第 {index} 句',
       // Reading toolbar and route controls.
-      analyseTop: '预览材料并解析', navToggle: '打开路线', navTitle: '原文 · 路线',
+      analyseTop: '开始解析', navToggle: '打开路线', navTitle: '原文 · 路线',
       navZoomOut: '缩小', navZoomIn: '放大', navCollapse: '收起路线',
       nextPassage: '录入下一段', startNextPassage: '开始下一段', nextPassageHint: '标题自动接续段落编号，可手动修改。保存后继续学习当前段。',
       saveNextPassage: '保存，继续当前段', nextPassageSaved: '下一段已保存，准备好后即可开始。', resumeReading: '返回当前段',
-      navStageLabel: '可缩放导航；加减号缩放，方向键平移', navHint: '双指滑动平移 · 捏合缩放', navFit: '全览', navPosition: '位移 x {x} · y {y}',
+      navStageLabel: '可缩放导航；按住拖动或方向键平移，加减号缩放', navHint: '图内按住拖动 · 横杠移动面板 · 捏合缩放', navFit: '全览', navPosition: '位移 x {x} · y {y}',
+      navDragHandle: '按住拖动路线面板',
       progressSentences: '{covered} / {total} 句', paragraphAnchor: '段落后重新解析',
       closeDiscussion: '关闭讨论，回到主分支',
       audioGenerate: '▷ 发音', audioRegenerate: '↻ 重新生成',
@@ -1839,9 +1995,10 @@ window.__ModuleLoader__.load({
       syntaxTranslationColourOn: '译文配色', syntaxTranslationColourOff: '取消译文配色',
       synSubject: '主语', synVerb: '变位动词', synObject: '宾语／同位语', synPredicative: '表语',
       synAdverbial: '状语／副词', synInfinitive: '不定式补语', synModifier: '名词修饰', synClause: '从句范围',
-      syntaxToggle: '句法配色', lookupWord: '查词', audioUnavailable: '未接入',
+      syntaxToggle: '句法配色', lookupWord: '查词', selectionAsk: '提问', audioUnavailable: '未接入',
       addBranchShort: '＋ 讨论', notAnalysed: '尚未解析', statusDraft: '草稿', statusReviewed: '已复核',
       partStructure: '结构与说明', analysisTitle: '句子解析', sentenceTranslationLabel: '句子译文', noStructureYet: '本条尚未给出结构与说明。',
+      structureExtension: '延伸', structureLegacy: '展开详细说明',
       certainty_syntax: '句法事实', certainty_context: '语境解释', certainty_rhetoric: '修辞效果', certainty_unverified: '待查证',
       lexiconTab: '词汇', statusGenerated: '已生成', branchOpen: '待理解', branchSettled: '已理解',
       confirmedConclusion: '已确认的学习结论', conclusionSource: '来源：', backToSourceDiscussion: '返回来源讨论',
@@ -1886,8 +2043,10 @@ window.__ModuleLoader__.load({
       conclusionSaved: '结论已保存', dialogTooLong: '最多输入 {max} 个字符',
       entryStored: '已有词条', entryNotStored: '本地词库未命中', lookupMiss: '相关原形 {count} 条（不自动合并）',
       lookupCandidates: '相关词条（逐条点开确认）',
-      lookupMissAdvice: '查词只读本地词库，没有联网词典。你可以手动添加词条，或先在讨论中询问；只有明确保存的内容才会进入词库。动词词条卡片可按原形主动抓取变位数据。',
-      lookupOpenLibrary: '打开知识库', lookupAddEntry: '手动添加词条', lookupAskWord: '在讨论中询问', lookupOpenEntry: '打开词条卡片',
+      dictionaryLoading: '正在获取词典简释…', dictionaryFound: '词典简释（中文译释）', dictionaryMissing: '词典未找到对应法语词条', dictionaryUnavailable: '暂时无法取得词典释义', dictionarySource: '维基词典 · 查看原始词条', lookupMissAdvice: '点击进一步查询，当前模型将结合阅读句子生成中文解释。词典结果和模型解释只有明确保存后才进入词库。',
+      lookupPhraseMiss: '「{mot}」不是单个词形。查词按完整词形精确匹配本地词库，不会把一句话拆开。请改选一个词，或改用「提问」。',
+      selectionAskHint: '就「{selection}」直接提问。这一句和它所在段落会随问题一起作为上下文，写完后先查看将要发送的材料。',
+      lookupOpenLibrary: '打开知识库', lookupAddEntry: '手动添加词条', lookupAskWord: '进一步查询', lookupOpenEntry: '打开词条卡片',
        wordDiscussionTitle: '查词讨论：{mot}', wordDiscussionPrompt: '请用中文解释法语词形「{mot}」的原形、词性、在此句中的含义与相关配合；区分确定事实和待查证项。',
        wordQuestionReady: '讨论已准备好；先查看本次上下文，再发送问题。',
        discussionQuestionReady: '问题已预填；查看本次上下文后即可发送。',
@@ -1897,9 +2056,9 @@ window.__ModuleLoader__.load({
        createEntryTitle: '添加本地词条',
         addSuggestedEntry: '整理为词条', modelEntryUnverified: '下方释义来自模型回答，可能有误。请核对并编辑原文词形、原形、词性、标签和释义；例句会关联当前原文。保存后仍标记为模型建议、未经独立核实。',
         modelEntryConfirmation: '我已检查并编辑该模型建议；仍保留“未经独立核实”标记。', modelEntryConfirmationRequired: '保存前请确认你已检查模型建议。',
-        modelAnswerTooLong: '回答超过释义字段 4000 字符上限，未截断填入；请手动整理一条释义。', createEntryHint: '此处只保存你填写的内容；查词不联网，也不会自动推测原形或释义。',
+        modelAnswerTooLong: '回答超过释义字段 4000 字符上限，未截断填入；请手动整理一条释义。', createEntryHint: '此处只保存你确认的内容；词典查询不会自动保存或替换已有词条。',
        exactMotField: '原文词形（精确 Mot）', lemmaField: '原形（可选）', partOfSpeechField: '词性', senseLabelField: '义项标签',
-       definitionField: '释义', entryExampleField: '当前阅读句（保存时自动关联）', relatedFormsField: '相关形式（逗号分隔，可选）', saveEntry: '保存词条',
+       definitionField: '释义', entryExampleField: '可选例句（仅关联含有该词的句子）', relatedFormsField: '相关形式（逗号分隔，可选）', saveEntry: '保存词条',
        entryOccurrenceNote: '从当前阅读中的本地查词手动收录。', entryAiOccurrenceNote: '模型讨论建议，未经独立核实；来源消息 {messageId}，由读者核对后收录。', entrySaved: '词条已保存。',
        entrySavedContextFailed: '词条已保存，但本次阅读上下文未能保存；请在词条卡片中确认。',
        entryAlreadyExists: '该词形和词性已有词条；已打开现有条目，未覆盖内容。',
@@ -2034,7 +2193,7 @@ window.__ModuleLoader__.load({
       bookField: 'Book', chapterField: 'Chapter', numberField: 'Paragraph number', unfiled: 'Unfiled', noChapter: 'No chapter',
       organizePassage: 'Organize and order', saveLocation: 'Save location', sourceReading: 'Full source text', learningTools: 'Sentence tools',
       shelfWelcome: 'Read from your book library', shelfWelcomeHint: 'Expand a book and chapter to open a passage. Add new text within its chapter.',
-      shelfEmpty: 'Add a book, then enter the first passage in its chapter.', shelfLocal: 'Organization is saved on this device',
+      shelfEmpty: 'Add a book, then enter the first passage in its chapter.', shelfLocal: 'Organization and numbering are saved for this entry. Export a full backup and import it to migrate between desktop and browser entries.',
       continueReading: 'Continue reading', resumeLocation: 'Last read: {book} · {chapter} · {title}',
       resumeUnavailable: 'The last passage is no longer available; choose a passage from the library.',
       resumeSourceChanged: 'The source changed and the last sentence could not be located uniquely; returned to the start. Choose a position again.',
@@ -2095,15 +2254,16 @@ window.__ModuleLoader__.load({
       analysisCancelFailed: 'Cancellation was not confirmed; the analysis is still running. Retry or wait for its result.',
       analysisTimedOut: 'Waited more than {seconds}s and stopped waiting; check the sentence state before retrying.',
       conclusionSaveFailed: 'Could not confirm whether the conclusion was saved; your edit is retained. Retry with the same text.',
-      analyseSentence: 'Preview materials and analyse', reanalyseSentence: 'Preview materials and re-analyse', analyzing: 'Analysing…',
-      analyseThisSentence: 'Preview materials and analyse this sentence', viewAnalysis: 'View analysis',
+      analyseSentence: 'Analyse', reanalyseSentence: 'Re-analyse', analyzing: 'Analysing…',
+      analyseThisSentence: 'Analyse this sentence', viewAnalysis: 'View analysis',
       paragraphLabel: 'Paragraph {index}', sentenceMark: 'Current · sentence {index}',
-      analyseTop: 'Preview materials and analyse', navToggle: 'Open route', navTitle: 'Text · route',
+      analyseTop: 'Analyse', navToggle: 'Open route', navTitle: 'Text · route',
       navZoomOut: 'Zoom out', navZoomIn: 'Zoom in', navCollapse: 'Close route',
       nextPassage: 'Add next passage', startNextPassage: 'Read next passage', nextPassageHint: 'The paragraph number advances automatically. You can edit the title. Saving keeps the current passage open.',
       saveNextPassage: 'Save and keep reading', nextPassageSaved: 'Next passage saved. Start it when ready.', resumeReading: 'Back to current passage',
-      navStageLabel: 'Zoomable navigation; minus and plus zoom, arrow keys pan',
-      navHint: 'Two-finger swipe to pan · pinch to zoom', navFit: 'Fit', navPosition: 'offset x {x} · y {y}',
+      navStageLabel: 'Zoomable navigation; drag or arrow keys to pan, minus and plus to zoom',
+      navHint: 'Drag the map · drag the bar to move the panel · pinch to zoom', navFit: 'Fit', navPosition: 'offset x {x} · y {y}',
+      navDragHandle: 'Drag to move the route panel',
       progressSentences: '{covered} / {total} sentences', paragraphAnchor: 'Paragraph anchor',
       closeDiscussion: 'Close the discussion and return to the main branch',
       audioGenerate: '▷ Speak', audioRegenerate: '↻ Regenerate',
@@ -2128,9 +2288,10 @@ window.__ModuleLoader__.load({
       syntaxTranslationColourOn: 'Colour the translation', syntaxTranslationColourOff: 'Stop colouring the translation',
       synSubject: 'Subject', synVerb: 'Finite verb', synObject: 'Object / apposition', synPredicative: 'Predicative',
       synAdverbial: 'Adverbial / adverb', synInfinitive: 'Infinitive complement', synModifier: 'Noun modifier',
-      synClause: 'Clause range', syntaxToggle: 'Syntax colour', lookupWord: 'Look up', audioUnavailable: 'not wired',
+      synClause: 'Clause range', syntaxToggle: 'Syntax colour', lookupWord: 'Look up', selectionAsk: 'Ask', audioUnavailable: 'not wired',
       addBranchShort: '＋ Discussion', notAnalysed: 'not analysed yet', statusDraft: 'draft', statusReviewed: 'reviewed',
       partStructure: 'Structure and notes', analysisTitle: 'Sentence analysis', sentenceTranslationLabel: 'Sentence translation', noStructureYet: 'No structure has been recorded for this sentence yet.',
+      structureExtension: 'Aside', structureLegacy: 'Show the longer notes',
       certainty_syntax: 'syntax', certainty_context: 'context', certainty_rhetoric: 'rhetoric', certainty_unverified: 'unverified',
       lexiconTab: 'Vocabulary', statusGenerated: 'generated', branchOpen: 'open', branchSettled: 'understood',
       confirmedConclusion: 'Confirmed conclusion', conclusionSource: 'From: ', backToSourceDiscussion: 'Back to the source discussion',
@@ -2180,8 +2341,10 @@ window.__ModuleLoader__.load({
       entryStored: 'entry on file', entryNotStored: 'not in the local lexicon',
       lookupMiss: '{count} related forms (never merged automatically)',
       lookupCandidates: 'Related entries (open each to confirm)',
-      lookupMissAdvice: 'Lookup reads only the local lexicon — no network dictionary. You can add an entry yourself or ask about the word in a discussion; only content you explicitly save enters the lexicon. A verb card can fetch conjugation data by lemma when you choose.',
-      lookupOpenLibrary: 'Open the library', lookupAddEntry: 'Add an entry', lookupAskWord: 'Ask in a discussion', lookupOpenEntry: 'Open entry card',
+      dictionaryLoading: 'Fetching dictionary gloss…', dictionaryFound: 'Dictionary gloss (Chinese)', dictionaryMissing: 'No French dictionary entry found', dictionaryUnavailable: 'Dictionary temporarily unavailable', dictionarySource: 'Wiktionary · View source', lookupMissAdvice: 'Explore with model generates a Chinese explanation in the reading context. Dictionary results and model explanations enter the lexicon only when you save them.',
+      lookupPhraseMiss: '“{mot}” is not a single form. Lookup matches the whole form in the local lexicon and does not split a sentence. Select one word, or use Ask.',
+      selectionAskHint: 'Ask about “{selection}”. This sentence and its paragraph go with the question as context; review what will be sent before it goes.',
+      lookupOpenLibrary: 'Open the library', lookupAddEntry: 'Add an entry', lookupAskWord: 'Explore with model', lookupOpenEntry: 'Open entry card',
        wordDiscussionTitle: 'Word lookup: {mot}', wordDiscussionPrompt: 'Explain in Chinese the lemma, part of speech, meaning in this sentence, and relevant agreement for French form “{mot}”. Separate verified facts from points to check.',
        wordQuestionReady: 'Discussion ready. Review this context before sending the question.',
        discussionQuestionReady: 'Your question is ready; review this context before sending it.',
@@ -2191,9 +2354,9 @@ window.__ModuleLoader__.load({
        createEntryTitle: 'Add a local entry',
         addSuggestedEntry: 'Prepare vocabulary entry', modelEntryUnverified: 'The definition below comes from a model answer and may be wrong. Check and edit the exact French form, lemma, part of speech, label, and definition; the current source sentence will be attached as an example. It will remain marked as a model suggestion that has not been independently verified.',
         modelEntryConfirmation: 'I checked and edited this model suggestion; keep the unverified marker.', modelEntryConfirmationRequired: 'Confirm that you checked the model suggestion before saving.',
-        modelAnswerTooLong: 'The answer exceeds the 4,000-character definition limit; it was not truncated into the form. Write a concise definition manually.', createEntryHint: 'Only the details you enter are stored here. Lookup does not use a network dictionary or guess the lemma or meaning.',
+        modelAnswerTooLong: 'The answer exceeds the 4,000-character definition limit; it was not truncated into the form. Write a concise definition manually.', createEntryHint: 'Only the details you enter are stored here. Dictionary lookup does not save or replace your entries.',
        exactMotField: 'Exact form from the text (Mot)', lemmaField: 'Lemma (optional)', partOfSpeechField: 'Part of speech', senseLabelField: 'Sense label',
-       definitionField: 'Definition', entryExampleField: 'Current sentence (linked when saved)', relatedFormsField: 'Related forms (comma-separated, optional)', saveEntry: 'Save entry',
+       definitionField: 'Definition', entryExampleField: 'Optional example (linked only if it contains this word)', relatedFormsField: 'Related forms (comma-separated, optional)', saveEntry: 'Save entry',
        entryOccurrenceNote: 'Manually collected from a local lookup in this reading.', entryAiOccurrenceNote: 'Model discussion suggestion; not independently verified. Source message {messageId}; reviewed by the reader before saving.', entrySaved: 'Entry saved.',
        entrySavedContextFailed: 'Entry saved, but its reading context was not. Check the entry card.',
        entryAlreadyExists: 'This exact form and part of speech already has an entry. The existing entry is open; nothing was overwritten.',
@@ -2351,11 +2514,11 @@ window.__ModuleLoader__.load({
 
 /* v2: semantic zoom; one working surface at a time. */
 .fr-root{height:100dvh;overflow:hidden}.fr-root .top{height:67px;background:var(--paper)}.fr-root .logo{width:29px;height:34px;font-size:22px;border-radius:8px}.fr-root .brand .eyebrow{display:none}.fr-root .title{font-size:14px;font-weight:600}.fr-root .topActions .model{display:none}.fr-root .demo{background:transparent;color:var(--fr-c44);font-size:10px}.fr-root .sub{height:52px;padding:0 max(24px,calc((100cqw - 1100px)/2));gap:10px;background:var(--paper)}.fr-root .viewModes{display:flex;gap:3px;background:var(--fr-c45);padding:3px;border-radius:9px}.fr-root .viewModes button{border:0;background:transparent;padding:7px 13px;font-size:12px;color:var(--fr-c46)}.fr-root .viewModes button[aria-pressed="true"]{background:var(--paper);color:var(--ink);box-shadow:0 1px 4px var(--fr-c47)}.fr-root .workspace{display:block!important;position:relative;height:calc(100dvh - 119px);overflow:hidden;background:var(--fr-c48)}.fr-root .workspace>.pane{display:none!important;position:absolute;inset:0;border:0;max-height:none;min-height:0;background:transparent}.fr-root .workspace[data-view="focus"]>.detailPane,.fr-root .workspace[data-view="source"]>.readerPane,.fr-root .workspace[data-view="map"]>.graphPane{display:flex!important;animation:fr-appear .2s ease-out}@keyframes fr-appear{from{opacity:.3;transform:scale(.985)}to{opacity:1;transform:scale(1)}}@media(prefers-reduced-motion:reduce){.fr-root .workspace>.pane{animation:fr-none!important}}
-.fr-root .detailPane .paneHead,.fr-root .detailPane .crumb,.fr-root .detailPane .detailScroll,.fr-root .detailPane .composer,.fr-root .detailPane .branchStrip{width:min(100%,860px);margin-left:auto;margin-right:auto;background:var(--paper)}.fr-root .detailPane .paneHead{height:57px;padding:14px 38px;border-left:1px solid var(--fr-c49);border-right:1px solid var(--fr-c49)}.fr-root .detailPane .crumb{padding:0 38px 14px;color:var(--fr-c50);font-size:11px}.fr-root .detailScroll{padding:30px 54px 55px;border-left:1px solid var(--fr-c49);border-right:1px solid var(--fr-c49)}.fr-root .detailTitle{font-size:22px;font-weight:550;margin-bottom:10px}.fr-root .detailScroll .quote{font-size:calc(24px * var(--reading-scale,1));line-height:1.85;background:none;border:0;padding:0;margin:20px 0 30px;color:var(--fr-c51)}.fr-root .detailScroll .answer{font-size:calc(16px * var(--reading-scale,1));line-height:1.95}.fr-root .detailScroll .sectionLabel{font-size:11px;margin-top:27px}.fr-root .detailScroll .backbone{font-size:calc(20px * var(--reading-scale,1));padding:18px 22px}.fr-root .detailPane .composer{padding:14px 38px 20px}.fr-root .detailPane .composer textarea{min-height:68px}.fr-root .detailPane .composeTarget{font-size:11px}.fr-root .composerFoot .hint{font-size:10px}.fr-root .branchStrip{display:flex;gap:7px;overflow:auto;padding:11px 38px;border-bottom:1px solid var(--line);flex-shrink:0}.fr-root .branchStrip:empty{display:none}.fr-root .branchStrip button{font-size:11px;padding:6px 9px;white-space:nowrap;background:transparent;border-color:var(--fr-c52)}.fr-root .branchStrip button.active{background:var(--pale);border-color:var(--fr-c53)}.fr-root .sentenceControls{display:flex;align-items:center;gap:9px;font-size:11px;color:var(--fr-c54)}.fr-root .sentenceControls button{padding:4px 9px}.fr-root button:disabled{opacity:.35;cursor:default}.fr-root .focusTools{display:flex;gap:3px;align-items:center}.fr-root .focusTools button{font-size:11px}.fr-root .workspace[data-view="source"] .readerPane{align-items:center}.fr-root .readerPane .paneHead{width:min(860px,100%);padding:18px 32px;background:var(--paper)}.fr-root .reader{flex:1;width:min(860px,100%);padding:35px 64px;background:var(--paper)}.fr-root .reader .chapter{font-size:29px}.fr-root .reader .french{font-size:24px;line-height:2}.fr-root .reader .meta{margin-bottom:25px}.fr-root .reader .hint{display:none}.fr-root .reader .inlineActions{margin-top:25px}.fr-root .graphPane .graphHead{height:58px;background:var(--paper);padding:12px max(24px,calc((100cqw - 1000px)/2));flex-shrink:0}.fr-root .graphViewport{width:100%;padding:20px 24px 80px}.fr-root .graph{margin:0 auto;width:max-content;transform-origin:top center}.fr-root .legend{background:var(--paper);justify-content:center}.fr-root .node{width:270px}.fr-root .node.root{background:var(--fr-c24)}.fr-root .empty{padding-top:8px}.fr-root .empty .quote{margin-top:14px}.fr-root .empty .answerActions{margin-top:30px}.fr-root .modal .eyebrow{display:none}.fr-root .modal h2{font-size:20px}.fr-root .modal .hint:empty{display:none}.fr-root .top #start{font-size:12px;padding:8px 13px}.fr-root .mobileTabs{display:none!important}.fr-root .translation{line-height:2.1}.fr-root .mapTools{display:flex;gap:6px;align-items:center}.fr-root .mapTools span{font-size:11px;min-width:35px;text-align:center;color:var(--fr-c55)}
+.fr-root .detailPane .paneHead,.fr-root .detailPane .crumb,.fr-root .detailPane .detailScroll,.fr-root .detailPane .composer,.fr-root .detailPane .branchStrip{width:min(100%,860px);margin-left:auto;margin-right:auto;background:var(--paper)}.fr-root .detailPane .paneHead{height:57px;padding:14px 38px;border-left:1px solid var(--fr-c49);border-right:1px solid var(--fr-c49)}.fr-root .detailPane .crumb{padding:0 38px 14px;color:var(--fr-c50);font-size:11px}.fr-root .detailScroll{padding:30px 54px 55px;border-left:1px solid var(--fr-c49);border-right:1px solid var(--fr-c49)}.fr-root .detailTitle{font-size:22px;font-weight:550;margin-bottom:10px}.fr-root .detailScroll .quote{font-size:calc(24px * var(--reading-scale,1));line-height:1.85;background:none;border:0;padding:0;margin:20px 0 30px;color:var(--fr-c51)}.fr-root .detailScroll .answer{font-size:calc(16px * var(--reading-scale,1));line-height:1.95}.fr-root .detailScroll .sectionLabel{font-size:11px;margin-top:27px}.fr-root .detailScroll .backbone{font-size:calc(20px * var(--reading-scale,1));padding:18px 22px}.fr-root .detailPane .composer{padding:14px 38px 20px}.fr-root .detailPane .composer textarea{min-height:68px}.fr-root .detailPane .composeTarget{font-size:11px}.fr-root .composerFoot .hint{font-size:10px}.fr-root .branchStrip{display:flex;flex-wrap:wrap;gap:7px;overflow:auto;max-height:120px;padding:11px 38px;border-bottom:1px solid var(--line);flex-shrink:0}.fr-root .branchStrip:empty{display:none}.fr-root .branchStrip button{font-size:11px;padding:6px 9px;white-space:normal;overflow-wrap:anywhere;max-width:100%;background:transparent;border-color:var(--fr-c52)}.fr-root .branchStrip button.active{background:var(--pale);border-color:var(--fr-c53)}.fr-root .sentenceControls{display:flex;align-items:center;gap:9px;font-size:11px;color:var(--fr-c54)}.fr-root .sentenceControls button{padding:4px 9px}.fr-root button:disabled{opacity:.35;cursor:default}.fr-root .focusTools{display:flex;gap:3px;align-items:center}.fr-root .focusTools button{font-size:11px}.fr-root .workspace[data-view="source"] .readerPane{align-items:center}.fr-root .readerPane .paneHead{width:min(860px,100%);padding:18px 32px;background:var(--paper)}.fr-root .reader{flex:1;width:min(860px,100%);padding:35px 64px;background:var(--paper)}.fr-root .reader .chapter{font-size:29px}.fr-root .reader .french{font-size:24px;line-height:2}.fr-root .reader .meta{margin-bottom:25px}.fr-root .reader .hint{display:none}.fr-root .reader .inlineActions{margin-top:25px}.fr-root .graphPane .graphHead{height:58px;background:var(--paper);padding:12px max(24px,calc((100cqw - 1000px)/2));flex-shrink:0}.fr-root .graphViewport{width:100%;padding:20px 24px 80px}.fr-root .graph{margin:0 auto;width:max-content;transform-origin:top center}.fr-root .legend{background:var(--paper);justify-content:center}.fr-root .node{width:270px}.fr-root .node.root{background:var(--fr-c24)}.fr-root .empty{padding-top:8px}.fr-root .empty .quote{margin-top:14px}.fr-root .empty .answerActions{margin-top:30px}.fr-root .modal .eyebrow{display:none}.fr-root .modal h2{font-size:20px}.fr-root .modal .hint:empty{display:none}.fr-root .top #start{font-size:12px;padding:8px 13px}.fr-root .mobileTabs{display:none!important}.fr-root .translation{line-height:2.1}.fr-root .mapTools{display:flex;gap:6px;align-items:center}.fr-root .mapTools span{font-size:11px;min-width:35px;text-align:center;color:var(--fr-c55)}
 @container (max-width:650px) {.fr-root .top{height:58px;padding:0 14px}.fr-root .top .demo{display:none}.fr-root .sub{height:54px;padding:0 12px}.fr-root .sub>span:last-child{display:block}.fr-root .workspace{height:calc(100dvh - 112px)}.fr-root .sub .progressWrap{display:none}.fr-root .detailPane .paneHead{padding:12px 20px}.fr-root .detailPane .crumb{padding:0 20px 12px}.fr-root .detailScroll{padding:22px 24px 40px}.fr-root .detailPane .composer{padding:12px 20px}.fr-root .branchStrip{padding:10px 20px}.fr-root .detailScroll .quote{font-size:calc(21px * var(--reading-scale,1))}.fr-root .reader{padding:22px 25px}.fr-root .reader .french{font-size:21px}.fr-root .readerPane .paneHead{padding:16px 22px}.fr-root .graphPane .graphHead{padding:12px 18px}.fr-root .graphViewport{padding:18px 10px 60px}.fr-root .demo{display:none}.fr-root .title{font-size:13px}}
 
 /* v3: a zoomable text/route plane beside a stable reading surface. */
-.fr-root{background:var(--paper);container-type:inline-size;container-name:fr}.fr-root .top,.fr-root .sub{background:var(--paper)}.fr-root .sub{padding:0 26px}.fr-root .workspace{background:var(--paper)}.fr-root .workspace>.readerPane,.fr-root .workspace>.graphPane{display:none!important}.fr-root .workspace>.detailPane{display:flex!important;left:auto!important;right:30px!important;width:min(780px,calc(100cqw - 88px));animation:fr-none!important;border:0}.fr-root .detailPane .paneHead,.fr-root .detailPane .crumb,.fr-root .detailPane .detailScroll,.fr-root .detailPane .composer,.fr-root .detailPane .branchStrip{width:100%;border-left:0;border-right:0;background:transparent}.fr-root .detailScroll{padding:28px 44px 50px}.fr-root .detailScroll .backbone{background:none;border-radius:0;border-left:2px solid var(--fr-c56);padding:4px 0 4px 18px}.fr-root .message.user{background:none;border-radius:0;border-left:2px solid var(--fr-c56);padding:5px 0 5px 16px}.fr-root .branchStrip button{border-radius:0;border:0;border-bottom:1px solid transparent}.fr-root .branchStrip button.active{background:none;border-bottom-color:var(--green)}.fr-root .tag{background:none;padding:0;color:var(--fr-c57)}.fr-root .focusTools button{border-radius:0}.fr-root .navToggle{background:none;border:0;padding:6px 0;font-size:12px;color:var(--fr-c58)}.fr-root .navigation{position:absolute;top:0;bottom:0;left:0;right:834px;border-right:1px solid var(--fr-c59);background:var(--fr-c60);display:flex;flex-direction:column;z-index:2;transition:opacity .15s}.fr-root .navigation.closed{display:none}.fr-root .navHead{height:56px;display:flex;align-items:center;justify-content:space-between;padding:12px 17px;font-size:11px;color:var(--fr-c61);gap:5px;border-bottom:1px solid var(--fr-c62)}.fr-root .navHead button{border:0;background:none;padding:5px 7px;border-radius:0;font-size:12px}.fr-root .navHead .controls{display:flex;align-items:center;gap:1px}.fr-root .navStage{position:relative;overflow:hidden;flex:1;cursor:grab;touch-action:none;outline:none}.fr-root .navStage:active{cursor:grabbing}.fr-root .navStage:focus-visible{box-shadow:inset 0 0 0 1px var(--fr-c63)}.fr-root .navWorld{position:absolute;left:0;top:0;width:1700px;height:1800px;transform-origin:0 0;will-change:transform}.fr-root .navWorld svg{position:absolute;left:0;top:0;pointer-events:none}.fr-root .navText{position:absolute;border:0;border-radius:0;background:none!important;box-shadow:none!important;text-align:left;padding:0;line-height:1.7;cursor:pointer;white-space:normal}.fr-root .navText:hover{color:var(--green)}.fr-root .navText.active{color:var(--green)}.fr-root .navText.active .routeTitle,.fr-root .navText.active .sourceText{text-decoration:underline;text-decoration-color:var(--fr-c64);text-underline-offset:6px;text-decoration-thickness:1px}.fr-root .sourceText{font-family:Georgia,serif;font-size:23px;font-weight:400}.fr-root .navNumber{font:10px/2 sans-serif;color:var(--fr-c65);letter-spacing:1px;margin-bottom:7px}.fr-root .routeTitle{font-size:16px;font-weight:400}.fr-root .routeMeta{font-size:10px;color:var(--fr-c66);margin-top:3px}.fr-root .navCaption{position:absolute;font-size:11px;color:var(--fr-c67);letter-spacing:2px}.fr-root .navFoot{height:35px;display:flex;align-items:center;justify-content:space-between;padding:0 17px;border-top:1px solid var(--fr-c62);font-size:10px;color:var(--fr-c68)}.fr-root .navFoot button{border:0;background:none;padding:4px;font-size:10px}.fr-root .selectionTools{margin-top:15px}.fr-root .navRail{position:absolute;top:20px;left:14px;writing-mode:vertical-rl;font-size:11px;letter-spacing:2px;background:none;border:0;color:var(--fr-c69);padding:10px;z-index:1}.fr-root .detailPane .quote{font-size:24px!important}.fr-root .detailPane .answer{font-size:16px!important}.fr-root .detailPane .backbone{font-size:20px!important}.fr-root .detailPane .composer{background:var(--paper)}
+.fr-root{background:var(--paper);container-type:inline-size;container-name:fr}.fr-root .top,.fr-root .sub{background:var(--paper)}.fr-root .sub{padding:0 26px}.fr-root .workspace{background:var(--paper)}.fr-root .workspace>.readerPane,.fr-root .workspace>.graphPane{display:none!important}.fr-root .workspace>.detailPane{display:flex!important;left:auto!important;right:30px!important;width:min(780px,calc(100cqw - 88px));animation:fr-none!important;border:0}.fr-root .detailPane .paneHead,.fr-root .detailPane .crumb,.fr-root .detailPane .detailScroll,.fr-root .detailPane .composer,.fr-root .detailPane .branchStrip{width:100%;border-left:0;border-right:0;background:transparent}.fr-root .detailScroll{padding:28px 44px 50px}.fr-root .detailScroll .backbone{background:none;border-radius:0;border-left:2px solid var(--fr-c56);padding:4px 0 4px 18px}.fr-root .message.user{background:none;border-radius:0;border-left:2px solid var(--fr-c56);padding:5px 0 5px 16px}.fr-root .branchStrip button{border-radius:0;border:0;border-bottom:1px solid transparent}.fr-root .branchStrip button.active{background:none;border-bottom-color:var(--green)}.fr-root .tag{background:none;padding:0;color:var(--fr-c57)}.fr-root .focusTools button{border-radius:0}.fr-root .navToggle{background:none;border:0;padding:6px 0;font-size:12px;color:var(--fr-c58)}.fr-root .navigation{position:absolute;top:0;bottom:0;left:0;right:834px;border-right:1px solid var(--fr-c59);background:var(--fr-c60);display:flex;flex-direction:column;z-index:2;transition:opacity .15s}.fr-root .navigation.closed{display:none}.fr-root .navHead{height:56px;display:flex;align-items:center;justify-content:space-between;padding:12px 17px;font-size:11px;color:var(--fr-c61);gap:5px;border-bottom:1px solid var(--fr-c62)}.fr-root .navHead button{border:0;background:none;padding:5px 7px;border-radius:0;font-size:12px}.fr-root .navHead .controls{display:flex;align-items:center;gap:1px}.fr-root .navStage{position:relative;overflow:hidden;flex:1;cursor:grab;touch-action:none;outline:none}.fr-root .navStage:active,.fr-root .navStage.panning,.fr-root .navStage.panning *{cursor:grabbing}.fr-root .navStage:focus-visible{box-shadow:inset 0 0 0 1px var(--fr-c63)}.fr-root .navWorld{position:absolute;left:0;top:0;width:1700px;height:1800px;transform-origin:0 0;will-change:transform}.fr-root .navWorld svg{position:absolute;left:0;top:0;pointer-events:none}.fr-root .navText{position:absolute;border:0;border-radius:0;background:none!important;box-shadow:none!important;text-align:left;padding:0;line-height:1.7;cursor:pointer;white-space:normal}.fr-root .navText:hover{color:var(--green)}.fr-root .navText.active{color:var(--green)}.fr-root .navText.active .routeTitle,.fr-root .navText.active .sourceText{text-decoration:underline;text-decoration-color:var(--fr-c64);text-underline-offset:6px;text-decoration-thickness:1px}.fr-root .sourceText{font-family:Georgia,serif;font-size:23px;font-weight:400}.fr-root .navNumber{font:10px/2 sans-serif;color:var(--fr-c65);letter-spacing:1px;margin-bottom:7px}.fr-root .routeTitle{font-size:16px;font-weight:400}.fr-root .routeMeta{font-size:10px;color:var(--fr-c66);margin-top:3px}.fr-root .navCaption{position:absolute;font-size:11px;color:var(--fr-c67);letter-spacing:2px}.fr-root .navFoot{height:35px;display:flex;align-items:center;justify-content:space-between;padding:0 17px;border-top:1px solid var(--fr-c62);font-size:10px;color:var(--fr-c68)}.fr-root .navFoot button{border:0;background:none;padding:4px;font-size:10px}.fr-root .selectionTools{margin-top:15px}.fr-root .navRail{position:absolute;top:20px;left:14px;writing-mode:vertical-rl;font-size:11px;letter-spacing:2px;background:none;border:0;color:var(--fr-c69);padding:10px;z-index:1}.fr-root .detailPane .quote{font-size:24px!important}.fr-root .detailPane .answer{font-size:16px!important}.fr-root .detailPane .backbone{font-size:20px!important}.fr-root .detailPane .composer{background:var(--paper)}
 @container (max-width:1190px) {.fr-root .navigation{right:auto;width:min(540px,calc(100cqw - 55px));background:var(--fr-c70);box-shadow:12px 0 24px var(--fr-c71)}.fr-root .workspace>.detailPane{right:20px!important;width:min(780px,calc(100cqw - 75px))}}
 @container (max-width:650px) {.fr-root .workspace>.detailPane{right:0!important;width:calc(100cqw - 34px)}.fr-root .detailScroll{padding:20px 20px 40px}.fr-root .detailPane .paneHead,.fr-root .detailPane .crumb,.fr-root .detailPane .branchStrip{padding-left:20px;padding-right:20px}.fr-root .navRail{left:0;padding:9px}.fr-root .detailPane .quote{font-size:21px!important}.fr-root .navigation{width:calc(100cqw - 35px)}.fr-root .sub{padding:0 14px}}
 
@@ -2644,17 +2807,22 @@ window.__ModuleLoader__.load({
       .fr-root .shelfBook{margin-bottom:18px}.fr-root .shelfBook>summary{font-weight:650;font-size:13px;padding:8px 5px;cursor:pointer;overflow-wrap:anywhere}
       .fr-root .shelfChapter{margin:3px 0 8px 12px;border-left:1px solid var(--line);padding-left:10px}
       .fr-root .shelfChapter>summary{font-size:12px;color:var(--muted);padding:8px 2px;cursor:pointer;overflow-wrap:anywhere}
-      .fr-root .shelfRow{display:flex;align-items:center;min-width:0;border-radius:6px;margin:4px 0}.fr-root .shelfRow.current{background:var(--pale);box-shadow:inset 3px 0 var(--green)}
+      .fr-root .shelfRow{display:flex;flex-wrap:wrap;align-items:center;min-width:0;border-radius:6px;margin:4px 0}.fr-root .shelfRow.current{background:var(--pale);box-shadow:inset 3px 0 var(--green)}
       .fr-root .shelfPassage{display:flex;gap:8px;text-align:left;flex:1;min-width:0;padding:9px 6px;border:0;background:transparent;font-size:12px}
-      .fr-root .shelfNumber{font-size:10px;font-variant-numeric:tabular-nums;color:var(--muted);padding-top:2px}
+      .fr-root .directoryParagraphs{width:100%;padding:0 6px 8px;font-size:11px}.fr-root .directoryParagraphs button{margin:4px 4px 0 0}.fr-root .shelfNumber{font-size:10px;font-variant-numeric:tabular-nums;color:var(--muted);padding-top:2px}
       .fr-root .shelfPassageText{display:flex;flex-direction:column;gap:4px;min-width:0}.fr-root .shelfPassageText>span{overflow-wrap:anywhere;line-height:1.5}.fr-root .shelfPassageText small{display:block;font:11px/1.5 Georgia,serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--muted)}
       .fr-root .shelfOrganize{flex-shrink:0;padding:7px 4px;border:0;background:transparent;min-width:28px}.fr-root .chapterAdd{font-size:11px;padding:7px 5px;border:0;background:transparent;color:var(--green);text-align:left}
       .fr-root .directoryFoot{border-top:1px solid var(--line);padding:12px 14px;display:flex;gap:7px;flex-wrap:wrap}.fr-root .directoryFoot small{width:100%;font-size:10px;color:var(--muted)}
       .fr-root.bookLayout[data-directory='open'] .shelfWelcome{margin-left:270px}.fr-root .shelfWelcome .frontDoorInner{padding-top:90px;max-width:760px}.fr-root .shelfWelcomeActions{display:flex;gap:12px;flex-wrap:wrap;margin:30px 0}
       .fr-root.bookLayout .workspace[data-view='focus']>.detailPane{position:relative;left:auto!important;right:auto!important;width:min(900px,calc(100% - 48px));margin:0 auto;height:100%;min-height:0;border-right:0;background:var(--paper)}
+      .fr-root.bookLayout .workspace[data-navigation='open'][data-view='focus']>.detailPane{width:auto;margin-left:min(720px,62%);margin-right:0}
+      .fr-root.bookLayout .workspace[data-route='floating'][data-navigation='open'][data-view='focus']>.detailPane{width:min(900px,calc(100% - 32px));margin-left:auto;margin-right:auto}
       .fr-root.bookLayout[data-directory='open'] .workspace{margin-left:270px;width:calc(100% - 270px)}
-      .fr-root.bookLayout .workspace .navigation{top:0;bottom:0;left:0;right:auto;transform:none;width:min(700px,100%);z-index:10;border-radius:0;box-shadow:8px 0 25px var(--fr-c71)}
-      .fr-root.bookLayout .navigation .sheetHandle{display:none}
+      .fr-root.bookLayout .workspace .navigation{top:0;bottom:0;left:0;right:auto;transform:none;width:min(720px,62%);z-index:10;border-radius:0;box-shadow:8px 0 25px var(--fr-c71)}
+      .fr-root.bookLayout .workspace[data-route='floating'] .navigation{z-index:16;border-radius:14px;box-shadow:0 18px 44px var(--fr-c40)}
+      .fr-root.bookLayout .navigation .sheetHandle{display:flex;align-items:center;justify-content:center;width:100%;height:28px;margin:0;padding:0;border:0;border-radius:14px 14px 0 0;background:transparent;cursor:grab;touch-action:none;flex-shrink:0;user-select:none}
+      .fr-root.bookLayout .navigation .sheetHandle::before{content:'';width:36px;height:4px;border-radius:3px;background:var(--fr-c86)}
+      .fr-root.bookLayout .navigation .sheetHandle:active,.fr-root.bookLayout .navigation .sheetHandle.dragging{cursor:grabbing}
       .fr-root.bookLayout .navigation .navHead{height:auto;min-height:56px;flex-wrap:wrap;gap:8px;padding:10px 14px}
       .fr-root.bookLayout .navigation .controls{flex-wrap:wrap;gap:4px;max-width:100%;flex-shrink:1}
       .fr-root.bookLayout .modalBackdrop{position:absolute;inset:0;min-height:0}
@@ -2664,11 +2832,12 @@ window.__ModuleLoader__.load({
       .fr-root.bookLayout .crumb{padding:9px 28px;font-size:11px;border-bottom:1px solid var(--line)}
       .fr-root .readingSource{padding-bottom:14px;border-bottom:1px solid var(--line)}.fr-root .sourceSectionHead{display:flex;align-items:baseline;gap:12px;justify-content:space-between;color:var(--muted);font-size:11px;flex-wrap:wrap}.fr-root .sourceSectionHead strong{font-size:12px;color:var(--ink)}
       .fr-root .sourceParagraph.quote{font:20px/1.9 Georgia,serif;margin:20px 0 0}.fr-root .readingSentence{border-radius:3px;cursor:pointer}.fr-root .readingSentence:hover{background:var(--pale)}.fr-root .readingSentence.selected{background:var(--pale);box-shadow:0 2px 0 var(--green)}.fr-root .readingSentence:focus-visible{outline:2px solid var(--green);outline-offset:3px}
-      .fr-root .sentenceWorkspace{padding:12px 0 18px;border-bottom:1px solid var(--line);margin-bottom:24px}.fr-root .sentenceWorkspace .paneHead{padding:0;height:auto;min-height:36px}.fr-root .sentenceWorkspace .readingActions{padding:10px 0;min-height:0;border:0;gap:8px;flex-wrap:wrap}.fr-root .sentenceWorkspace .branchStrip{padding:2px 0;min-height:0;border:0}
+      .fr-root .sentenceWorkspace{padding:4px 0 16px;border-bottom:1px solid var(--line);margin-bottom:24px;display:flex;flex-direction:column;gap:8px}.fr-root .sentenceWorkspace .paneHead{padding:0;height:auto;min-height:0;justify-content:flex-start;gap:16px;flex-wrap:wrap}.fr-root .sentenceWorkspace .readingActions{padding:0;min-height:0;border:0;gap:6px;flex-wrap:wrap;justify-content:flex-start;align-items:center}.fr-root .sentenceWorkspace .readingActions .audioGroup{margin-left:0;padding-left:8px;border-left:1px solid var(--line)}.fr-root .sentenceWorkspace .selectedWord:empty{display:none}.fr-root .sentenceWorkspace .sentenceMeta{min-width:0}.fr-root .sentenceWorkspace .analysisSettings>summary{max-width:min(100%,420px)}.fr-root .sentenceWorkspace .branchStrip{padding:8px 0 0;min-height:0;border:0;border-top:1px solid var(--line)}
       .fr-root .sentenceWorkspace .readingActions button{min-height:32px}.fr-root .sentenceWorkspace .readingActions select{margin-left:0;min-height:32px}.fr-root .analysisSettings{display:flex;align-items:center;gap:8px;min-width:0;max-width:100%}.fr-root .analysisSettings>summary{cursor:pointer;list-style:none;max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;color:var(--muted)}.fr-root .analysisSettings>summary::-webkit-details-marker{display:none}.fr-root .analysisSettings[open]{flex-wrap:wrap;padding:5px 8px;border:1px solid var(--line);border-radius:8px;background:var(--paper)}.fr-root .analysisSettingField{display:inline-flex;align-items:center;gap:5px;font-size:10px;color:var(--muted)}.fr-root .analysisSettingField select{margin:0!important;min-height:30px;max-width:180px}.fr-root .locationFields{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) 90px;gap:12px}.fr-root .locationFields .kbField{min-width:0}.fr-root .locationFields input{width:100%;min-width:0}.fr-root .locationFields datalist{display:none}
       @container (max-width:959px){.fr-root.bookLayout[data-directory='open'] .workspace{margin-left:0;width:100%}.fr-root.bookLayout[data-directory='open'] .shelfWelcome{margin-left:0}.fr-root.bookLayout .bookDirectory{width:min(310px,calc(100% - 30px));box-shadow:12px 0 25px var(--fr-c71);z-index:10}.fr-root.bookLayout .workspace[data-view='focus']>.detailPane{width:100%}.fr-root.bookLayout .compactTop{height:auto;min-height:62px;max-height:none;flex-wrap:wrap;padding:8px 12px;gap:8px}.fr-root.bookLayout .compactTop .topLeft{flex-wrap:wrap;gap:6px}.fr-root.bookLayout .workspace{height:calc(100% - 62px)}.fr-root.bookLayout .continuationBar{padding:15px 20px;flex-wrap:wrap}.fr-root.bookLayout .continuationBar .quiet{padding-left:0}.fr-root.bookLayout .bookDirectory{top:62px}}
       @container (max-width:560px){.fr-root.bookLayout .continuationBar .passageHeading{flex-basis:100%}.fr-root .shelfWelcome .frontDoorInner{padding:50px 22px}.fr-root.bookLayout .detailScroll{padding:20px}.fr-root .sourceParagraph.quote{font-size:18px}.fr-root .locationFields{grid-template-columns:minmax(0,1fr) 80px}.fr-root .locationFields .kbField:first-child{grid-column:1/-1}.fr-root .sentenceWorkspace .readingActions select{margin-left:0;max-width:100%}.fr-root.bookLayout .compactTop .title{display:none}.fr-root.bookLayout .compactTop button{padding:5px 6px;font-size:10px}.fr-root.bookLayout .compactTop .topActions{gap:4px}.fr-root.bookLayout .continuationBar .currentPassageTitle{font-size:16px}}
       .fr-root .readingSource>summary.sourceSectionHead{display:list-item;cursor:pointer;padding:4px 0;font-size:11px}.fr-root .readingSource>summary span{margin-left:15px}.fr-root .sentenceWorkspace .readingActions button.primary{background:var(--green);color:var(--paper);border:1px solid var(--green);padding:5px 12px}.fr-root .sentenceWorkspace .readingActions button.primary:disabled{opacity:.45}
+      .fr-root .structureBody{display:flex;flex-direction:column;gap:12px;margin-top:4px}.fr-root .structureClauses{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}.fr-root .structureClause{margin:0;padding:8px 0 8px 12px;border-left:2px solid var(--line)}.fr-root .structureClause .branchKind{display:block;margin:0 0 4px;font-size:11px;letter-spacing:.04em;color:var(--muted)}.fr-root .structureClause p{margin:0;font:18px/1.7 Georgia,serif}.fr-root .structureNote{margin:0;padding:12px 14px;border-radius:8px;background:var(--pale)}.fr-root .structureNote .noteKind{display:block;margin:0 0 6px;font-size:12px;font-weight:650;letter-spacing:.04em;color:var(--green)}.fr-root .structureNote p{margin:0;font-size:15px;line-height:1.85}.fr-root .structureNote.kind-rhetoric{background:transparent;border:1px solid var(--line)}.fr-root .structureNote.kind-rhetoric .noteKind{color:var(--ink)}.fr-root .structureNote.kind-unverified{background:transparent;border:1px dashed var(--orange)}.fr-root .structureNote.kind-unverified .noteKind{color:var(--orange)}.fr-root .structureClause p.constituentGloss{margin-top:4px;font:15px/1.75 ui-sans-serif,system-ui,sans-serif;color:var(--ink)}.fr-root .structureClause.brief{display:flex;flex-wrap:wrap;align-items:baseline;column-gap:12px;row-gap:2px;padding:1px 0 1px 12px}.fr-root .structureClause.brief .branchKind{display:inline;min-width:6.5em;margin:0}.fr-root .structureClause.brief p.constituentSource{display:inline;flex:1;font-size:16px;line-height:1.35}.fr-root .structureClause.brief p.constituentGloss{flex-basis:100%;margin:0;font-size:13px;line-height:1.45}.fr-root .structureExtensions{display:flex;flex-direction:column;gap:8px}.fr-root .structureLegacy{margin:0}.fr-root .structureLegacy>summary{cursor:pointer;font-size:13px;color:var(--muted)}.fr-root .structureLegacyBody{display:flex;flex-direction:column;gap:8px;margin-top:8px}
       .fr-root.bookLayout .modal.switcher .passageComposer .modalFoot{position:sticky;bottom:0;z-index:2;background:var(--paper);border-top:1px solid var(--line);padding-top:10px;padding-bottom:max(10px,env(safe-area-inset-bottom,0px))}.fr-root .modelEntryConfirm{display:flex;align-items:flex-start;gap:9px}.fr-root .modelEntryConfirm input{width:auto;min-width:auto;margin-top:3px}.fr-root .modelEntryNotice{padding:8px 12px;background:var(--pale);border-left:2px solid var(--green);margin:12px 0}.fr-root .previewDetail{margin:10px 0 4px;border-top:1px solid var(--line)}.fr-root .previewBlock{padding:8px 0;border-bottom:1px solid var(--line)}.fr-root .previewExcerpt,.fr-root .previewSentenceText{margin-top:4px;white-space:pre-wrap;overflow-wrap:anywhere;font:13px/1.7 Georgia,serif}.fr-root .previewSentence{padding:4px 0;border-top:1px dotted var(--line)}.fr-root .previewSentenceText{margin-top:2px}.fr-root .previewFlagClean{margin:8px 0 0}.fr-root .analysisContextMaterial{display:grid;grid-template-columns:18px minmax(0,1fr);gap:8px 10px;padding:12px 0;border-bottom:1px solid var(--line)}.fr-root .analysisContextMaterial input{grid-row:span 2;width:auto;min-width:auto;margin-top:3px}.fr-root .analysisContextMaterialLabel{font-size:11px;color:var(--muted)}.fr-root .analysisContextMaterial .previewExcerpt{grid-column:2;margin-top:0}.fr-root .analysisContextModal .modalFoot{position:sticky;bottom:0;background:var(--paper);padding:12px 0 max(8px,env(safe-area-inset-bottom,0px));border-top:1px solid var(--line)}
       .fr-root .previewPrompt{max-height:240px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;line-height:1.7;padding:10px;border:1px solid var(--line);border-radius:6px;margin:6px 0 0}
       /* The audio control states one fact at a time: 未配置, 生成中…, 播放中, the
@@ -2690,12 +2859,77 @@ window.__ModuleLoader__.load({
       .fr-root .discussFab{position:absolute;right:22px;bottom:22px;width:46px;height:46px;min-width:46px;padding:0;border-radius:50%;border-color:var(--green);background:var(--green);color:var(--paper);font-size:20px;line-height:1;box-shadow:0 6px 20px var(--fr-c40);z-index:6;display:grid;place-items:center}
       .fr-root .discussFab:hover:not(:disabled){background:var(--fr-c06);border-color:var(--fr-c06)}
       .fr-root .discussFab:disabled{opacity:.4}
+      .fr-root .discussFab[aria-expanded='true']{background:var(--paper);color:var(--green)}
+      /* A selection raises its own 查词, next to the word, so the reader does not
+         travel down to the sentence toolbar. */
+      .fr-root .selectionLookup{position:absolute;z-index:30;transform:translateY(-100%);margin-top:-6px;display:flex;gap:2px;padding:3px;border-radius:999px;background:var(--paper);border:1px solid var(--line);box-shadow:0 6px 16px var(--fr-c40)}
+      .fr-root .selectionLookup button{min-height:28px;padding:4px 12px;border:0;border-radius:999px;background:transparent;font-size:12px;line-height:1.2}
+      .fr-root .selectionLookup button:first-child{background:var(--green);color:var(--paper)}
+      /* Discussion is its own surface. The branch strip only switches which
+         branch this panel shows; closing it returns the reading column to the
+         sentence. */
+      .fr-root .discussionPanel{position:absolute;top:12px;right:16px;bottom:78px;width:min(420px,calc(100% - 32px));z-index:7;display:flex;flex-direction:column;background:var(--paper);border:1px solid var(--line);border-radius:14px;box-shadow:0 18px 44px var(--fr-c40);overflow:hidden}
+      .fr-root.bookLayout .workspace[data-navigation='open'] .discussionPanel{right:auto;left:16px;width:min(400px,calc(62% - 32px));z-index:20}
+      .fr-root.bookLayout .workspace>.detailPane>.detailScroll{padding-bottom:84px}
+      /* Below 1190px the route is the compact drawer, not a third column. A side
+         column here left the sentence about 300px wide and cut the French in half. */
+      @container (max-width:1190px) {
+        .fr-root.bookLayout .workspace .navigation{top:max(38px,12%);bottom:0;left:50%;right:auto;width:min(720px,calc(100% - 16px));transform:translateX(-50%);border-radius:14px 14px 0 0;z-index:12}
+        .fr-root.bookLayout .navigation .sheetHandle{display:flex}
+        .fr-root.bookLayout .workspace[data-navigation='open'][data-view='focus']>.detailPane{width:min(900px,calc(100% - 32px));margin-left:auto;margin-right:auto}
+        .fr-root.bookLayout .workspace[data-navigation='open'] .discussionPanel{left:auto;right:16px;width:min(400px,calc(100% - 32px));bottom:max(78px,42%);z-index:20}
+      }
+      .fr-root .discussionPanelHead{display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid var(--line);flex-shrink:0}
+      .fr-root .discussionPanelHead strong{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px}
+      .fr-root .discussionPanelBody{flex:1;min-height:0;overflow:auto;padding:12px 14px 16px}
+      .fr-root .discussionPanel .composer{position:static;padding:8px 0 0;border-top:1px solid var(--line);margin-top:12px}
       /* The Desktop shell paints its traffic lights over a panel window's top-left
-         corner, which put the brand, 目录 and 书架 underneath them (reported from a
-         real window). The panel reserves that strip for itself only when it really is
-         inside that shell; .fr-root is border-box, so the padding comes out of the
-         layout instead of pushing the workspace past the window. */
-      .fr-root[data-chrome='desktop']{box-sizing:border-box;padding-top:30px}
+         corner. 30px of padding still left 法语精读 and 目录 under the lights
+         (they sit in a ~52px titlebar band, and also cover the left of the first
+         row). The panel reserves both strips only inside that shell. */
+      .fr-root[data-chrome='desktop']{box-sizing:border-box;padding-top:52px}
+      .fr-root[data-chrome='desktop'] .compactTop{padding-left:84px}
+
+      .fr-root{font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Noto Sans CJK SC","Segoe UI",sans-serif;font-size:15px;line-height:1.65}
+      .fr-root .detailScroll{padding:16px 24px!important}
+      .fr-root .readingSource{position:static;background:var(--paper);padding:8px 0 10px;border-bottom:1px solid var(--line)}
+      .fr-root .sourceSectionHead{font-size:12px;line-height:1.4;gap:6px}.fr-root .sourceSectionHead strong{font-size:12px}
+      .fr-root .sourceParagraph.quote{font-family:Georgia,"Times New Roman",serif;font-size:20px!important;line-height:1.6;margin:5px 0 0;letter-spacing:0}
+      .fr-root .sentenceWorkspace{padding-top:8px}.fr-root .paneHead{gap:6px;padding:4px 0;flex-wrap:wrap}
+      .fr-root .discussFab{display:flex;flex-direction:column;justify-content:center;gap:1px}.fr-root .discussFabLabel{font-size:9px;line-height:1}
+      .fr-root .batchControls{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.fr-root .batchStatus{font-size:12px;color:var(--muted)}
+      .fr-root .answer{font-size:16px;line-height:1.8;margin:4px 0 12px;overflow-wrap:anywhere}
+      .fr-root .sectionLabel{font-size:12px;font-weight:600;line-height:1.5;margin:14px 0 5px;letter-spacing:0}
+      .fr-root .detailTitle{font-size:20px;margin:12px 0 4px;line-height:1.4}.fr-root .backbone{font:19px/1.6 Georgia,"Times New Roman",serif;padding:4px 0 4px 12px;margin:4px 0 12px}
+      .fr-root .structureClauses{gap:10px}.fr-root .structureClause,.fr-root .structureClause.brief{display:block;padding:6px 0 6px 12px}
+      .fr-root .structureClause .branchKind,.fr-root .structureClause.brief .branchKind{display:block;font-size:12px;margin:0 0 3px;min-width:0;letter-spacing:0}
+      .fr-root .structureClause p.constituentSource,.fr-root .structureClause.brief p.constituentSource{display:block;font:19px/1.6 Georgia,"Times New Roman",serif;margin:0}
+      .fr-root .structureClause p.constituentGloss,.fr-root .structureClause.brief p.constituentGloss{font:15px/1.75 -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif;margin:4px 0 0}
+      .fr-root .syntaxLegend{margin:8px 0 12px;padding:6px 10px;font-size:12px}.fr-root .branchStrip{margin:8px 0;padding:6px 0;gap:4px}
+      .fr-root .analysisHints{font-size:12px;color:var(--muted);margin:6px 0}.fr-root .analysisHints p{margin:4px 0}
+      .fr-root .dictionaryBrief p{margin:5px 0;font-size:15px;line-height:1.75}.fr-root .dictionaryBrief a{color:var(--green);font-size:13px;text-decoration-thickness:1px;text-underline-offset:3px}
+      .fr-root .hint{font-size:13px;line-height:1.65}.fr-root .inlineActions{gap:8px;flex-wrap:wrap}.fr-root .readingActions{gap:5px;flex-wrap:wrap;margin:5px 0}
+      @container (max-width:560px){.fr-root .detailScroll{padding:12px 16px!important}.fr-root .sourceParagraph.quote{font-size:18px!important;line-height:1.6}.fr-root .answer{font-size:15px}.fr-root .structureClause p.constituentSource,.fr-root .structureClause.brief p.constituentSource{font-size:18px}.fr-root .backbone{font-size:18px}.fr-root .currentPassageTitle{line-height:1.4}.fr-root .batchStatus{font-size:11px}}
+      .fr-root .readerToolbar{display:grid;grid-template-columns:auto minmax(0,1fr) auto;grid-template-areas:"nav actions progress" "model model model" "threads threads threads";align-items:center;gap:5px 12px;margin:10px 0 8px;padding:8px 0;border-bottom:1px solid var(--line)}
+      .fr-root .readerToolbar>.paneHead{grid-area:nav;min-height:0!important;height:auto!important;padding:0!important;margin:0!important;width:auto;display:flex;gap:8px;justify-content:flex-start}
+      .fr-root .readerToolbar .sentenceControls{gap:4px}.fr-root .readerToolbar #focusIndex{min-width:36px;text-align:center;font-size:12px}
+      .fr-root .readerToolbar>.readingActions{grid-area:actions;display:flex;justify-content:flex-start;gap:4px;padding:0!important;margin:0!important;border:0;min-height:0}
+      .fr-root .readerToolbar button{font-size:12px;min-height:30px;padding:4px 8px}.fr-root .readerToolbar>.readingActions button{white-space:nowrap;flex-shrink:0}.fr-root .readerToolbar #start{font-size:12px;padding:4px 9px!important;min-height:30px}
+      .fr-root .readerToolbar .selectedWord:empty{display:none}.fr-root .readerToolbar .batchAnalysis{grid-area:progress;margin:0}.fr-root .readerToolbar .batchControls{gap:5px;align-items:center;justify-content:flex-end}.fr-root .readerToolbar .batchProgressButton{border-radius:16px;font-size:11px;padding:4px 10px;color:var(--green);background:var(--fr-c07)}
+      .fr-root .readerToolbar>.sentenceMeta{grid-area:model;margin:0!important;padding:0!important;font-size:11px;min-width:0;border:0}.fr-root .readerToolbar .analysisSettings>summary{font-size:11px;max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer;padding:3px 0}
+      .fr-root .readerToolbar>.branchStrip{grid-area:threads;width:auto!important;display:flex;flex-wrap:wrap;gap:4px;border:0;margin:0!important;padding:0!important;min-height:0;max-height:none;overflow:visible}.fr-root .readerToolbar>.branchStrip:empty{display:none}.fr-root .readerToolbar .branchStrip button{border:1px solid var(--line);border-radius:14px;max-width:230px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;min-height:25px;padding:2px 9px}.fr-root .readerToolbar .branchStrip button.active{border-color:var(--green);background:var(--fr-c07)}
+      .fr-root .readerToolbar .audioControls{margin:0!important;padding:0!important;border:0!important;min-height:0}.fr-root .readerToolbar .focusTools{margin:0!important}.fr-root .syntaxLegend{margin:6px 0 10px;gap:2px 12px;padding:5px 9px;font-size:11px;line-height:1.65}.fr-root .syntaxLegend .legendHead{flex-basis:auto;gap:12px}
+      .fr-root .analysisReceipt{font-size:11px;margin:4px 0}.fr-root .syntaxMissing{margin:6px 0;padding:5px 9px;background:var(--fr-c07);border-radius:5px}
+      .fr-root.bookLayout .continuationBar{padding:10px 24px;gap:10px}.fr-root .currentPassageTitle{font-size:16px;line-height:1.5}.fr-root .bookBreadcrumb{font-size:11px}.fr-root .detailPane>.crumb{padding-top:5px;padding-bottom:5px;min-height:0;font-size:11px}
+      .fr-root .sentenceWorkspace{padding:0;border:0;margin:0;gap:0}.fr-root .readerToolbar{margin:0 0 10px;padding:6px 0 8px}.fr-root .readingSource{padding:0 0 12px;margin:0 0 14px}.fr-root .readingSource .sourceParagraph.quote{margin:0 0 6px}.fr-root .readingSentence+.readingSentence{margin-left:.2em}
+      .fr-root .analysisView .detailTitle{font-size:19px;margin:0 0 6px}.fr-root .analysisView .sectionLabel{margin:16px 0 5px;font-size:12px;font-weight:650;color:var(--ink)}.fr-root .analysisView .syntaxLegend{margin:0 0 14px;padding:4px 0;border:0}.fr-root .analysisView .answer{font-size:16px;line-height:1.7;margin:0}.fr-root .analysisView .backbone{margin:0;padding:8px 12px;background:var(--pale);border:0;font-size:20px;line-height:1.55}
+      .fr-root .structureClause,.fr-root .structureClause.brief{padding:16px 0;border:0;border-top:1px solid var(--line);border-radius:0;background:transparent}.fr-root .structureClause.primaryClause{border-left:0;background:transparent}.fr-root .structureClause .branchKind,.fr-root .structureClause.brief .branchKind{font:500 15px/1.5 -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif;color:var(--ink);margin:0}.fr-root .structureClause p.constituentSource,.fr-root .structureClause.brief p.constituentSource{font:23px/1.55 Georgia,"Times New Roman",serif;overflow-wrap:anywhere;margin:7px 0}.fr-root .structureClause.primaryClause>p.constituentSource{font-size:27px}.fr-root .structureClause p.constituentGloss,.fr-root .structureClause.brief p.constituentGloss{font:14px/1.75 -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif;color:var(--ink);margin:5px 0 0}
+      .fr-root .structureUnitHeading{display:flex;align-items:baseline;flex-wrap:wrap;gap:4px 14px}.fr-root .structureSimplified{font-size:12px;color:var(--muted)}.fr-root .structureNested{list-style:none;padding:0 0 0 16px;margin:16px 0 0;border-left:2px solid var(--line)}.fr-root .structureNested .structureClause{padding:12px 0}.fr-root .structureNested .structureClause:first-child{border-top:0;padding-top:0}.fr-root .structureNested .structureClause p.constituentSource{font-size:21px}.fr-root .structureComponentDetails{margin-top:12px}.fr-root .structureComponentDetails summary{font-size:13px;color:var(--muted);cursor:pointer}.fr-root .structureNote{background:transparent;border-radius:0;padding:12px 0;border-top:1px solid var(--line)}.fr-root .structureNote .noteKind{color:var(--ink)}.fr-root .analysisView .sectionLabel{font-size:14px;font-weight:500;letter-spacing:0;margin:20px 0 8px}.fr-root .analysisView>.answer{font:16px/1.8 -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif}.fr-root .analysisView .backbone{font:24px/1.55 Georgia,"Times New Roman",serif;background:transparent;border:0;padding:0;margin:0 0 12px}.fr-root .analysisView .syn-subject,.fr-root .analysisView .syn-verb{font-weight:500}
+      .fr-root .structureComponents{width:100%;table-layout:fixed;overflow-wrap:anywhere;border-collapse:collapse;margin:9px 0 0;font-size:13px;line-height:1.6}.fr-root .structureComponents th:first-child{width:6em}.fr-root .structureComponents th:nth-child(2){width:38%}.fr-root .structureComponents th{text-align:left;font-size:11px;color:var(--muted);font-weight:500;padding:5px 8px;border-bottom:1px solid var(--line)}.fr-root .structureComponents td{padding:6px 8px;border-bottom:1px solid var(--line);vertical-align:top}.fr-root .structureComponents tr:last-child td{border-bottom:0}.fr-root .structureComponents td:first-child{width:6em;font-size:12px;white-space:nowrap}.fr-root .structureComponents .componentSource{font:16px/1.55 Georgia,serif}.fr-root .structureComponents .componentGloss{color:var(--muted)}
+      @container(max-width:560px){.fr-root .structureClause,.fr-root .structureClause.brief{padding:12px 0}.fr-root .structureClause p.constituentSource{font-size:21px}.fr-root .structureClause.primaryClause>p.constituentSource{font-size:24px}.fr-root .structureNested{padding-left:10px}.fr-root .structureNested .structureNested{padding-left:0;border-left:0}.fr-root .structureNested .structureClause p.constituentSource{font-size:20px}.fr-root .structureComponents th:nth-child(2){width:auto}.fr-root .structureComponents th:last-child,.fr-root .structureComponents td:last-child{display:none}.fr-root .structureComponents .componentMobileGloss{display:block;font:13px/1.65 -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif;color:var(--ink);margin-top:2px}}@container(min-width:561px){.fr-root .componentMobileGloss{display:none}}
+      @container(max-width:700px){.fr-root .readerToolbar{grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"nav progress" "actions actions" "model model" "threads threads";gap:5px 8px}.fr-root .readerToolbar .analysisSettings>summary{max-width:185px}.fr-root .readerToolbar .branchStrip button{max-width:160px}}
+      @container(max-width:420px){.fr-root .readerToolbar{grid-template-areas:"nav progress" "actions actions" "model model" "threads threads"}.fr-root .readerToolbar button{padding:4px 6px;font-size:11px}.fr-root .readerToolbar .batchProgressButton{padding:4px 8px}.fr-root.bookLayout .continuationBar{padding:8px 16px}.fr-root .readerToolbar .analysisSettings>summary{max-width:100%}}
+
     `
 
     function format(t, key, values = {}) {
@@ -2846,6 +3080,19 @@ window.__ModuleLoader__.load({
       try { return localStorage.getItem(MODEL_KEY) } catch {
         try { return sessionStorage.getItem(MODEL_KEY) } catch { return null }
       }
+    }
+
+    function analysisEffortChoice(model, efforts, saved) {
+      const choice = saved?.[model]
+      return typeof choice === 'string' && efforts.includes(choice) ? choice : null
+    }
+
+    function analysisCacheMatches(identity, backend, model, effort, fingerprint, efforts) {
+      if (identity === JSON.stringify([backend, model, effort, fingerprint])) return true
+      const tested = /^(deepseek-flash|deepseek-v4\.1.?flash|mimo-v2\.6-flash|gpt-6-luna|gemma-4-31b(?:-it)?)$/iu.test(model.split('/').at(-1) ?? '')
+      if (!tested || !efforts.includes('high') || (effort !== null && effort !== 'high')) return false
+      // The controlled recommendation and an explicit high choice are equivalent.
+      return identity === JSON.stringify([backend, model, effort === null ? 'high' : null, fingerprint])
     }
 
     function persistModelPreference(value) {
@@ -3163,6 +3410,16 @@ window.__ModuleLoader__.load({
     }
 
     /**
+     * The form a lookup should match. Edge punctuation is not part of the Mot;
+     * a comma after a word used to miss every stored entry.
+     */
+    function lexicalMot(value) {
+      const text = String(value ?? '').normalize('NFC').trim()
+      const stripped = text.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, '')
+      return stripped === '' ? text : stripped
+    }
+
+    /**
      * The lookup a selection should start, or null when it should start none.
      *
      * The decision is pure so it can be pinned without a DOM or a render: the word
@@ -3325,6 +3582,7 @@ window.__ModuleLoader__.load({
         // next source starts from its own listing, never from the last one's take.
         return () => {
           cancelled = true
+          if (attempt.current && abort.current && typeof calls.cancel === 'function') void calls.cancel({ requestId: attempt.current.requestId }).catch(() => {})
           abort.current?.abort?.()
           abort.current = null
           player.current?.stop?.()
@@ -3477,17 +3735,20 @@ window.__ModuleLoader__.load({
         }
       }
 
-      function onCancel() {
-        // There is no cancel endpoint: this aborts the Remote call's own signal,
-        // which is exactly what the Host's cancellation parameter is for.
-        attempt.current = null
-        abort.current?.abort?.()
-        abort.current = null
-        player.current?.stop?.()
-        player.current = null
-        setPlaying('')
-        setPhase('idle')
-        setMessage(t('audioCancelled'))
+      async function onCancel() {
+        const pending = attempt.current
+        const controller = abort.current
+        if (!pending || !controller) return
+        setMessage('正在确认取消…')
+        try {
+          if (typeof calls.cancel !== 'function') throw new Error('此入口无法确认取消，请等待生成结果')
+          const value = unwrap(await calls.cancel({ requestId: pending.requestId }), t)
+          if (!value.accepted) { setMessage('生成已完成，无法取消'); return }
+          controller.abort()
+          attempt.current = null
+          setPhase('idle')
+          setMessage(t('audioCancelled'))
+        } catch (cause) { setMessage(String(cause?.message ?? cause)) }
       }
 
       // Without its calls this control could only throw inside an effect, which
@@ -3916,6 +4177,7 @@ window.__ModuleLoader__.load({
         const reduce = typeof window !== 'undefined'
           && typeof window.matchMedia === 'function'
           && window.matchMedia('(prefers-reduced-motion: reduce)').matches
+        if (target.tagName === 'DETAILS') target.open = true
         target.scrollIntoView({ block: 'start', behavior: reduce ? 'auto' : 'smooth' })
       }
 
@@ -3924,10 +4186,10 @@ window.__ModuleLoader__.load({
           parsed.map((section) => h('button', {
             key: sectionId(section), type: 'button', onClick: () => jump(sectionId(section)),
           }, `${section.number} ${section.title}`.trim()))),
-        parsed.map((section, position) => h('section', {
+        parsed.map((section, position) => h(section.body.every((line) => !line.trim() || line.trim() === t('notRecorded')) && !/变位|conjug/i.test(section.title) ? 'details' : 'section', {
           key: `section-${sectionId(section)}`, className: 'entrySection', id: sectionId(section),
         },
-          section.title === '' ? null : h('h3', { className: 'entryHeading' },
+          section.title === '' ? null : h(section.body.every((line) => !line.trim() || line.trim() === t('notRecorded')) && !/变位|conjug/i.test(section.title) ? 'summary' : 'h3', { className: 'entryHeading' },
             h('span', { className: 'num' }, section.number), section.title),
           // `renderWordDetail` puts the field grid at the top of the first section.
           position === 0 && entry !== null && entry !== undefined && entry.mot !== undefined
@@ -4097,6 +4359,7 @@ window.__ModuleLoader__.load({
         const reduce = typeof window !== 'undefined'
           && typeof window.matchMedia === 'function'
           && window.matchMedia('(prefers-reduced-motion: reduce)').matches
+        if (target.tagName === 'DETAILS') target.open = true
         target.scrollIntoView({ block: 'start', behavior: reduce ? 'auto' : 'smooth' })
       }, [focusConjugation, detail, kind, card?.entryId, entry?.entryId])
 
@@ -4130,7 +4393,7 @@ window.__ModuleLoader__.load({
           } else {
             setSourceState({
               ok: value.ok === true,
-              text: `${value.outcome ?? ''} · ${value.note ?? ''}`,
+              text: value.note || (value.ok ? '资料获取完成' : '本次未取得可用资料'),
             })
           }
           // Re-render the card: the stored source record is part of its evidence.
@@ -4234,9 +4497,9 @@ window.__ModuleLoader__.load({
             ? null
             : h(LexiconCard, { t, value: card.value, extraForSection, entry }),
           card.value.kind !== 'card' || card.value.errors.length === 0 ? null
-            : h('ul', { className: 'entryErrors' }, card.value.errors.map((message) => h('li', {
+            : h('details', { className: 'entryFold' }, h('summary', null, '资料校验详情'), h('ul', { className: 'entryErrors' }, card.value.errors.map((message) => h('li', {
               key: message, className: 'fr-error',
-            }, message))),
+            }, message)))),
           card.value.kind !== 'card' || card.value.hints.length === 0 ? null
             : h('details', { className: 'entryFold' },
               h('summary', null, t('entryHintsSummary')),
@@ -4252,7 +4515,7 @@ window.__ModuleLoader__.load({
                 className: 'fr-select', value: sourcePick, disabled: busy,
                 onChange: (event) => { setSourcePick(event.target.value); setSourceSection(''); setSourceState(null) },
               }, [h('option', { key: '', value: '' }, t('sourceNone'))].concat(
-                sources.map((item) => h('option', { key: item.source, value: item.source }, item.source)),
+                sources.map((item) => h('option', { key: item.source, value: item.source }, sourceLabel(item.source))),
               )),
             ),
             h('label', { className: 'fr-field' },
@@ -4262,7 +4525,7 @@ window.__ModuleLoader__.load({
                 onChange: (event) => setSourceSection(event.target.value),
               }, [h('option', { key: '', value: '' }, t('sourceNone'))].concat(
                 (sources.find((item) => item.source === sourcePick)?.sections ?? [])
-                  .map((section) => h('option', { key: section, value: section }, section)),
+                  .map((section) => h('option', { key: section, value: section }, sourceLabel(section))),
               )),
             ),
             h('button', {
@@ -4542,7 +4805,7 @@ window.__ModuleLoader__.load({
       )
     }
 
-    function PassagePage({t, listPassages, listArchivedPassages, getPassage, createPassage, exportPassages, exportLibrary, importLibrary, previewImport, listLexicon, listGrammar, renderLexicon, resolveGrammarCandidate, listLexiconSources, fetchLexiconSource, setGrammarMastery, mergeGrammarEntries, readConjugation, fetchConjugation, synthesizeSentenceAudio, listSentenceAudio, selectSentenceAudio, readSentenceAudioAsset, synthesizeInflectionAudio, listInflectionAudio, selectInflectionAudio, readInflectionAudioAsset, readSentenceAnalysis, readAnalysisCoverage, previewAnalysisContext, analyseSentence, analyseParagraph, cancelAnalysis, publishAnalysis, createSelection, getSegmentation, listAnalysis, saveTranslation, addBranch, listBackends, listBackendModels, previewAsk, readContext, ask, streamAsk, listDiscussion, createBranch, setBranchState, onClose, lookupMot, createLexiconEntry, recordConclusion, archivePassage, restorePassage}) {
+    function PassagePage({renamePassage, cancelWork, t, listPassages, listArchivedPassages, getPassage, createPassage, exportPassages, exportLibrary, importLibrary, previewImport, listLexicon, listGrammar, renderLexicon, resolveGrammarCandidate, listLexiconSources, fetchLexiconSource, setGrammarMastery, mergeGrammarEntries, readConjugation, fetchConjugation, synthesizeSentenceAudio, listSentenceAudio, selectSentenceAudio, readSentenceAudioAsset, synthesizeInflectionAudio, listInflectionAudio, selectInflectionAudio, readInflectionAudioAsset, readSentenceAnalysis, readAnalysisCoverage, previewAnalysisContext, analyseSentence, analyseParagraph, cancelAnalysis, publishAnalysis, createSelection, getSegmentation, listAnalysis, saveTranslation, addBranch, listBackends, listBackendModels, previewAsk, readContext, ask, streamAsk, listDiscussion, createBranch, setBranchState, onClose, quickDictionary, lookupMot, createLexiconEntry, recordConclusion, archivePassage, restorePassage}) {
       const [items, setItems] = useState([])
       const [archivedItems, setArchivedItems] = useState([])
       const [showArchived, setShowArchived] = useState(false)
@@ -4673,6 +4936,7 @@ window.__ModuleLoader__.load({
         if (draftLocation.book.trim() && (!Number.isSafeInteger(draftLocation.number) || draftLocation.number < 1 || Object.values(shelf.placements).some((loc) => loc.book === draftLocation.book.trim() && loc.chapter === (draftLocation.chapter.trim() || t('noChapter')) && loc.number === draftLocation.number))) { setError(t('locationConflict')); return }
         if (!title.trim()) { setError(t('titleRequired')); return }
         if (!sourceText.trim()) { setError(t('sourceRequired')); return }
+        try { numberedBlocks(preview?.blocks ?? [], startNumber) } catch (cause) { setError(cause.message); return }
         if (sourceText.length > 20000) { setError(t('sourceLimit')); return }
 
         // First press previews what would be stored; the confirming press
@@ -4684,6 +4948,7 @@ window.__ModuleLoader__.load({
           setError('')
           try {
             const value = unwrap(await previewImport({ title: title.trim(), sourceText }), t)
+            numberedBlocks(value.blocks ?? [], startNumber)
             setPreview({ ...value, sourceText, title: title.trim() })
             setStatus(t('previewReady'))
           } catch (cause) {
@@ -4699,6 +4964,11 @@ window.__ModuleLoader__.load({
           return
         }
 
+        if (draftLocation.book.trim()) {
+          const end = startNumber + (preview.blocks?.length ?? 1) - 1
+          const conflict = Object.entries(shelf.placements).some(([id, loc]) => loc.book === draftLocation.book.trim() && loc.chapter === (draftLocation.chapter.trim() || t('noChapter')) && startNumber <= loc.number + (items.find((item) => item.id === id)?.paragraphCount ?? 1) - 1 && end >= loc.number)
+          if (conflict) { setError(t('locationConflict')); return }
+        }
         submitLock.current = true
         setBusy(true)
         try {
@@ -4732,6 +5002,11 @@ window.__ModuleLoader__.load({
             const loc = { book: draftLocation.book.trim(), chapter: draftLocation.chapter.trim() || t('noChapter'), number: draftLocation.number }
             setShelf((current) => ({ ...addShelfChapter(current, loc.book, loc.chapter), placements: { ...current.placements, [value.passage.id]: loc } }))
           }
+          setParagraphStarts((current) => {
+            const next = { ...current, [value.passage.id]: startNumber }
+            try { localStorage.setItem('french-close-reading/paragraph-starts', JSON.stringify(next)) } catch {}
+            return next
+          })
           pendingAttempt.current = null
           clearPendingAttempt()
           setTitle('')
@@ -4774,6 +5049,7 @@ window.__ModuleLoader__.load({
               schemaVersion: 1,
               bookshelf: cleanShelf(shelf),
               continuations: cleanContinuationLinks(nextPassages),
+              paragraphStarts: cleanParagraphStarts(paragraphStarts),
             },
           }
           const name = `french-close-reading-${new Date().toISOString().slice(0, 10)}.json`
@@ -4781,8 +5057,9 @@ window.__ModuleLoader__.load({
           setStatus(format(t, 'exportDone', { count: hostLibrary.records.length }))
           setLibraryNotice({ kind: 'ok', text: format(t, 'exportDone', { count: hostLibrary.records.length }), file: name })
         } catch (cause) {
-          setError(`${t('backupFailed')} ${String(cause?.message ?? cause)}`)
-          setLibraryNotice({ kind: 'error', text: `${t('backupFailed')} ${String(cause?.message ?? cause)}` })
+          const reason = cause instanceof SyntaxError ? '文件不是有效的 JSON，请选择完整备份文件。' : String(cause?.message ?? cause)
+          setError(`${t('backupFailed')} ${reason}`)
+          setLibraryNotice({ kind: 'error', text: `${t('backupFailed')} ${reason}` })
         } finally {
           setExporting(false)
         }
@@ -4827,6 +5104,11 @@ window.__ModuleLoader__.load({
           if (browserLibrary !== null) {
             setShelf((current) => mergeShelf(current, browserLibrary.bookshelf))
             setNextPassages((current) => mergeContinuationLinks(current, browserLibrary.continuations))
+            setParagraphStarts((current) => {
+              const next = { ...cleanParagraphStarts(browserLibrary.paragraphStarts), ...current }
+              try { localStorage.setItem('french-close-reading/paragraph-starts', JSON.stringify(next)) } catch {}
+              return next
+            })
           }
           await refreshList(0)
           const summary = format(t, 'backupImportDone', {
@@ -4843,8 +5125,9 @@ window.__ModuleLoader__.load({
             counts: { imported: result.imported, skipped: result.skipped, conflicts: result.conflicts.length },
           })
         } catch (cause) {
-          setError(`${t('backupFailed')} ${String(cause?.message ?? cause)}`)
-          setLibraryNotice({ kind: 'error', text: `${t('backupFailed')} ${String(cause?.message ?? cause)}` })
+          const reason = cause instanceof SyntaxError ? '文件不是有效的 JSON，请选择完整备份文件。' : String(cause?.message ?? cause)
+          setError(`${t('backupFailed')} ${reason}`)
+          setLibraryNotice({ kind: 'error', text: `${t('backupFailed')} ${reason}` })
         } finally {
           setExporting(false)
         }
@@ -5125,10 +5408,132 @@ window.__ModuleLoader__.load({
       const pendingAnswerRevealRef = useRef(null)
       const answerRevealAutoScrollRef = useRef(false)
       const wordBranchOperationsRef = useRef(new Map())
+      const wordDiscussionPending = useRef(false)
       // R7-U04: leaving the sentence cancels the run, so the reader is told before
       // it happens instead of discovering it afterwards.
       const [pendingNavigation, setPendingNavigation] = useState(null)
       const bypassCancelGuard = useRef(false)
+      const batchQueueRef = useRef(null)
+      const batchDisposedRef = useRef(false)
+      const sourceAnalyses = useRef(new Map())
+      const autoBatchStarted = useRef(new Set())
+      const pausedBatches = useRef(new Set())
+      const [batchProgress, setBatchProgress] = useState(null)
+      const [paragraphStarts, setParagraphStarts] = useState(() => {
+        try { return cleanParagraphStarts(JSON.parse(localStorage.getItem('french-close-reading/paragraph-starts') ?? '{}')) } catch { return {} }
+      })
+      const [analysisEffortPreferences, setAnalysisEffortPreferences] = useState(() => {
+        try { return JSON.parse(localStorage.getItem('french-close-reading/analysis-efforts') ?? '{}') } catch { return {} }
+      })
+      const analysisEfforts = models.find((entry) => entry.id === model)?.reasoningEfforts ?? []
+      const analysisEffort = analysisEffortChoice(model, analysisEfforts, analysisEffortPreferences)
+      const startNumber = draftLocation.number
+      function stopBatch(pause = true) {
+        const batch = batchQueueRef.current
+        if (pause && batch?.key) pausedBatches.current.add(batch.key)
+        if (batch && batch.queue.snapshot().tasks.some((task) => task.state === 'queued' || task.state === 'running')) batch.queue.stop()
+        for (const operationId of batch?.operations ?? []) {
+          void cancelAnalysis({ passageId: batch.passageId, operationId }).catch(() => {})
+        }
+      }
+      useEffect(() => { batchDisposedRef.current = false; return () => { batchDisposedRef.current = true; stopBatch() } }, [])
+      useEffect(() => {
+        const batch = batchQueueRef.current
+        if (batch && (batch.backend !== backend || batch.model !== model || batch.reasoningEffort !== analysisEffort)) stopBatch()
+      }, [backend, model, analysisEffort])
+      useEffect(() => {
+        const batch = batchQueueRef.current
+        if (batch && batch.passageId === activePassage?.id) batch.queue.prioritize(anchorId.split('.')[0])
+      }, [activePassage?.id, anchorId])
+
+      function batchKey() {
+        return JSON.stringify([activePassage?.id, activePassage?.sourceRevision, segmentation?.revision, backend, model, analysisEffort])
+      }
+      useEffect(() => {
+        if (!activePassage || !segmentation || !backend || !model || analysisBusy) return
+        const key = batchKey()
+        if (pausedBatches.current.has(key) || autoBatchStarted.current.has(key)) return
+        const previous = batchQueueRef.current
+        if (previous?.queue.snapshot().active > 0) {
+          if (previous.key !== key) stopBatch(false)
+          return
+        }
+        void startBatch()
+      }, [activePassage?.id, activePassage?.sourceRevision, segmentation, backend, model, analysisEffort, analysisBusy, batchProgress?.active])
+
+      async function startBatch() {
+        if (!activePassage || !segmentation || !backend || !model || analysisBusyRef.current) return
+        const previous = batchQueueRef.current
+        if (previous && previous.queue.snapshot().active > 0) {
+          if (previous.passageId === activePassage.id && !previous.queue.snapshot().stopped) previous.queue.prioritize(anchorId.split('.')[0])
+          return
+        }
+        const passage = activePassage
+        const segments = segmentation
+        const key = batchKey()
+        autoBatchStarted.current.add(key)
+        pausedBatches.current.delete(key)
+        const batch = { key, passageId: passage.id, backend, model, reasoningEffort: analysisEffort, startedAt: Date.now(), operations: new Set(), runningSentences: new Set(), queue: null }
+        const publishRunning = () => {
+          if (!batchDisposedRef.current && batchQueueRef.current === batch) setBatchProgress({ ...batch.queue.snapshot(), passageId: passage.id, passageTitle: passage.title, runningSentences: [...batch.runningSentences] })
+        }
+        const refresh = async (completedSentenceId) => {
+          const request = passageRequest.current
+          if (batchDisposedRef.current || batchQueueRef.current !== batch || !currentRead(passage.id, request)) return
+          await loadCoverage(passage.id)
+          if (completedSentenceId) {
+            const completed = unwrap(await readSentenceAnalysis({ passageId: passage.id, anchorId: completedSentenceId }), t)
+            if (batchQueueRef.current !== batch || !currentRead(passage.id, request)) return
+            sourceAnalyses.current.set(`${passage.id}|${passage.sourceRevision}|${segments.revision}|${completedSentenceId}`, completed)
+          }
+          const sentenceId = focusedAnchor.current
+          if (!isSentenceAnchorId(sentenceId)) return
+          const stored = unwrap(await readSentenceAnalysis({ passageId: passage.id, anchorId: sentenceId }), t)
+          if (!batchDisposedRef.current && batchQueueRef.current === batch && currentRead(passage.id, request) && focusedAnchor.current === sentenceId) setSentenceAnalysis(stored)
+        }
+        batch.queue = createParagraphQueue(segments.paragraphs, async (paragraph, signal) => {
+          const failures = []
+          for (const sentence of paragraph.sentences) {
+            signal.throwIfAborted()
+            const latest = unwrap(await getPassage({ id: passage.id }), t)
+            signal.throwIfAborted()
+            if (latest.passage?.sourceRevision !== passage.sourceRevision || latest.passage?.sourceText !== passage.sourceText) throw new Error('原文已变化，停止该段解析；请重新载入。')
+            const context = unwrap(await previewAnalysisContext({ passageId: passage.id, anchorId: sentence.id }), t)
+            signal.throwIfAborted()
+            if (!context.ok || !context.fingerprint) { failures.push(`${sentence.id}: ${context.reason ?? '材料不可用'}`); continue }
+            const stored = unwrap(await readSentenceAnalysis({ passageId: passage.id, anchorId: sentence.id }), t)
+            signal.throwIfAborted()
+            sourceAnalyses.current.set(`${passage.id}|${passage.sourceRevision}|${segments.revision}|${sentence.id}`, stored)
+            const cached = stored.analysis
+            if (stored.kind === 'found' && !(stored.errors ?? []).length && !(stored.hints ?? []).some(hint => hint.startsWith('部分解析'))
+              && cached?.sourceRevision === passage.sourceRevision && cached?.segmentationRevision === segments.revision
+              && cached?.text === sentence.text
+              && (cached?.provenance === 'user' || cached?.provenance === 'mixed' || cached?.status === 'reviewed'
+                || analysisCacheMatches(cached?.cacheIdentity, backend, model, analysisEffort, context.fingerprint, analysisEfforts))) continue
+            const operationId = createUuid()
+            batch.operations.add(operationId)
+            batch.runningSentences.add(sentence.id)
+            publishRunning()
+            const timer = setTimeout(() => {
+              stopBatch()
+            }, ANALYSIS_TIMEOUT_MS)
+            try {
+              const value = unwrap(await analyseSentence({ passageId: passage.id, anchorId: sentence.id,
+                backend, model, reasoningEffort: analysisEffort, operationId,
+                paragraphIds: context.includedParagraphIds, expectedFingerprint: context.fingerprint }, signal), t)
+              signal.throwIfAborted()
+              if (!value.ok) failures.push(`${sentence.id}: ${value.reason}`)
+              await refresh(sentence.id)
+            } finally { clearTimeout(timer); batch.operations.delete(operationId); batch.runningSentences.delete(sentence.id); publishRunning() }
+          }
+          if (failures.length) throw new Error(failures.join('；'))
+        }, (progress) => {
+          if (!batchDisposedRef.current && batchQueueRef.current === batch) setBatchProgress({ ...progress, passageId: passage.id, passageTitle: passage.title, runningSentences: [...batch.runningSentences] })
+        }, backends.find((entry) => entry.backend === backend)?.singleFlight ? 1 : 2)
+        batchQueueRef.current = batch
+        batch.queue.start(anchorId.split('.')[0])
+      }
+
       function guardedNavigation(action) {
         // A discussion turn is cancelled by the same navigation that cancels an
         // analysis (the ask effect fences itself off the branch), so it is
@@ -5219,6 +5624,7 @@ window.__ModuleLoader__.load({
         setActivePassage(null)
         setSelectedId('')
         setKnowledgeOpen(false)
+        directorySize.pinned = false
         setDirectoryOpen(true)
       }
       useEffect(() => {
@@ -5230,7 +5636,11 @@ window.__ModuleLoader__.load({
         if (!root || typeof ResizeObserver === 'undefined') return
         const sync = () => {
           const narrow = root.getBoundingClientRect().width < 960
-          if (directorySize.current !== narrow) { setDirectoryOpen(!narrow); directorySize.current = narrow }
+          if (directorySize.current === narrow) return
+          directorySize.current = narrow
+          if (narrow) { setDirectoryOpen(false); return }
+          const onSentence = /^p[0-9]+\.s[0-9]+$/u.test(focusedAnchor.current ?? '')
+          setDirectoryOpen(!(onSentence && directorySize.pinned !== true))
         }
         sync()
         const observer = new ResizeObserver(sync)
@@ -5239,7 +5649,7 @@ window.__ModuleLoader__.load({
       }, [])
 
       function nextChapterNumber(book, chapter, after = 0) {
-        const used = new Set(Object.values(shelf.placements).filter((loc) => loc.book === book && loc.chapter === chapter).map((loc) => loc.number))
+        const used = new Set(Object.entries(shelf.placements).filter(([, loc]) => loc.book === book && loc.chapter === chapter).flatMap(([id, loc]) => Array.from({ length: items.find((item) => item.id === id)?.paragraphCount ?? 1 }, (_, index) => loc.number + index)))
         let number = Math.max(1, after + 1)
         while (used.has(number)) number += 1
         return number
@@ -5254,32 +5664,54 @@ window.__ModuleLoader__.load({
         setContinuationParent(null)
         setSwitcherMode('new'); setSwitcherOpen(true)
       }
-      function saveShelfLocation() {
+      async function saveShelfLocation() {
         const { book, chapter, number, passageId } = locationDialog
         const bookName = book.trim(), chapterName = chapter.trim() || t('noChapter')
         if (!bookName) { setError(t('bookRequired')); return }
         if (passageId && (!Number.isSafeInteger(number) || number < 1 || Object.entries(shelf.placements).some(([id, loc]) => id !== passageId && loc.book === bookName && loc.chapter === chapterName && loc.number === number))) {
           setError(t('locationConflict')); return
         }
+        if (passageId) {
+          const count = items.find((item) => item.id === passageId)?.paragraphCount ?? (activePassage?.id === passageId ? segmentation?.paragraphs?.length : 1) ?? 1
+          try { numberedBlocks(Array.from({ length: count }), number) } catch (cause) { setError(cause.message); return }
+          const end = number + count - 1
+          const conflict = Object.entries(shelf.placements).some(([id, loc]) => id !== passageId && loc.book === bookName && loc.chapter === chapterName && number <= loc.number + (items.find((item) => item.id === id)?.paragraphCount ?? 1) - 1 && end >= loc.number)
+          if (conflict) { setError(t('locationConflict')); return }
+        }
+        const item = items.find((item) => item.id === passageId) ?? (activePassage?.id === passageId ? activePassage : null)
+        const oldStart = shelf.placements[passageId]?.number ?? paragraphStarts[passageId] ?? 1
+        const suffix = item?.title?.match(/段落\s*(\d+)$/u)
+        if (item && suffix && Number(suffix[1]) === oldStart && number !== oldStart) {
+          const nextTitle = nextPassageTitle(item.title, [], number)
+          setBusy(true)
+          try {
+            const value = unwrap(await renamePassage({ passageId, expectedTitle: item.title, title: nextTitle, sourceRevision: item.sourceRevision }), t)
+            if (!value.updated) { setError('材料已变化，请刷新后重新归类。'); return }
+            setItems((current) => current.map((row) => row.id === passageId ? { ...row, title: nextTitle } : row))
+            setActivePassage((current) => current?.id === passageId ? { ...current, title: nextTitle } : current)
+          } catch (cause) { setError(String(cause?.message ?? cause)); return }
+          finally { setBusy(false) }
+        }
         setShelf((current) => {
           const next = addShelfChapter(current, bookName, chapterName)
           return passageId ? { ...next, placements: { ...next.placements, [passageId]: { book: bookName, chapter: chapterName, number } } } : next
         })
+        if (passageId) setParagraphStarts((current) => { const next = { ...current, [passageId]: number }; try { localStorage.setItem('french-close-reading/paragraph-starts', JSON.stringify(next)) } catch {} return next })
         setLocationDialog(null); setError('')
       }
       function locationFields(value, update, includeNumber = true) {
         return h('div', { className: 'locationFields' },
           h('label', { className: 'kbField' }, h('span', null, t('bookField')),
             h('input', { value: value.book, maxLength: 100, list: 'shelf-books', 'aria-label': t('bookField'), disabled: busy,
-              onChange: (event) => update({ ...value, book: event.target.value }) })),
+              onChange: (event) => { setError(''); update({ ...value, book: event.target.value }) } })),
           h('datalist', { id: 'shelf-books' }, shelf.books.map((book) => h('option', { key: book.name, value: book.name }))),
           h('label', { className: 'kbField' }, h('span', null, t('chapterField')),
             h('input', { value: value.chapter, maxLength: 100, list: 'shelf-chapters', 'aria-label': t('chapterField'), disabled: busy,
-              onChange: (event) => update({ ...value, chapter: event.target.value }) })),
+              onChange: (event) => { setError(''); update({ ...value, chapter: event.target.value }) } })),
           h('datalist', { id: 'shelf-chapters' }, (shelf.books.find((book) => book.name === value.book)?.chapters ?? []).map((chapter) => h('option', { key: chapter, value: chapter }))),
           includeNumber ? h('label', { className: 'kbField numberField' }, h('span', null, t('numberField')),
             h('input', { type: 'number', min: 1, step: 1, value: value.number, 'aria-label': t('numberField'), disabled: busy,
-              onChange: (event) => update({ ...value, number: Number(event.target.value) }) })) : null)
+              onChange: (event) => { setError(''); update({ ...value, number: Number(event.target.value) }) } })) : null)
       }
       function locationDialogView() {
         return h('div', { className: 'modalBackdrop' }, h('div', { className: 'modal switcher', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'location-title',
@@ -5402,10 +5834,17 @@ window.__ModuleLoader__.load({
           .map((item) => h('div', { key: item.id, className: `shelfRow${activePassage?.id === item.id ? ' current' : ''}` },
             h('button', { type: 'button', className: 'shelfPassage', 'aria-current': activePassage?.id === item.id ? 'page' : null,
               onClick: () => guardedNavigation(() => { void openPassage(item.id); if (directorySize.current) setDirectoryOpen(false); setKnowledgeOpen(false) }) },
-              h('span', { className: 'shelfNumber' }, shelf.placements[item.id] ? String(shelf.placements[item.id].number).padStart(2, '0') : '—'),
+              h('span', { className: 'shelfNumber' }, `${shelf.placements[item.id]?.number ?? paragraphStarts[item.id] ?? 1}${item.paragraphCount > 1 ? `—${(shelf.placements[item.id]?.number ?? paragraphStarts[item.id] ?? 1) + item.paragraphCount - 1}` : ''}`),
               h('span', { className: 'shelfPassageText' }, h('span', null, item.title || t('untitled')), h('small', null, item.excerpt ?? ''))),
             h('button', { className: 'shelfOrganize', type: 'button', title: t('organizePassage'), 'aria-label': `${t('organizePassage')} · ${item.title}`,
-              onClick: () => { setError(''); setLocationDialog({ passageId: item.id, ...(shelf.placements[item.id] ?? { book: '', chapter: '', number: 1 }) }) } }, '···')))
+              onClick: () => { setError(''); setLocationDialog({ passageId: item.id, ...(shelf.placements[item.id] ?? { book: '', chapter: '', number: 1 }) }) } }, '···'),
+            item.paragraphCount > 1 ? h('details', { className: 'directoryParagraphs' },
+              h('summary', null, `${item.paragraphCount} 个自然段`),
+              Array.from({ length: item.paragraphCount }, (_, index) => h('button', { type: 'button', className: 'small quiet',
+                onClick: () => guardedNavigation(() => {
+                  pendingResumeRef.current = { passageId: item.id, anchorId: `p${index + 1}.s1`, anchorText: '', sourceRevision: item.sourceRevision, directoryJump: true, branchId: null, scrollTop: 0 }
+                  void openPassage(item.id, true); setKnowledgeOpen(false); if (directorySize.current) setDirectoryOpen(false)
+                }) }, `第 ${(shelf.placements[item.id]?.number ?? paragraphStarts[item.id] ?? 1) + index} 段`))) : null))
         const canResume = lastReadingPoint !== null && items.some((item) => item.id === lastReadingPoint.passageId)
         // In a narrow panel the directory floats over the page: it needs its own
         // backdrop and a stacking order above the reading surface, so the list is
@@ -5421,7 +5860,7 @@ window.__ModuleLoader__.load({
             h('button', { className: 'small primary', type: 'button', disabled: !canResume, onClick: resumeLastReading }, t('continueReading')),
             h('small', null, canResume ? format(t, 'resumeLocation', {
               book: lastReadingPoint.book || t('unfiled'), chapter: lastReadingPoint.chapter || t('noChapter'), title: lastReadingPoint.title,
-            }) : t('resumeUnavailable'))),
+            }) : t(loadingList ? 'loading' : 'resumeUnavailable'))),
           resumeMessage === '' ? null : h('p', { className: 'hint', role: 'status' }, t(resumeMessage)),
           h('div', { className: 'directoryTree' }, 
             loadingList ? h('p', { className: 'hint' }, t('loading')) : null,
@@ -5453,26 +5892,31 @@ window.__ModuleLoader__.load({
               ref: backupInput, type: 'file', accept: 'application/json,.json', style: { display: 'none' },
               onChange: importBackupFile,
             }),
-            h('button', { type: 'button', className: 'small quiet', onClick: () => setDirectoryOpen(false) }, t('closeDirectory')),
+            h('button', { type: 'button', className: 'small quiet', onClick: () => { directorySize.pinned = false; setDirectoryOpen(false) } }, t('closeDirectory')),
             h('button', { type: 'button', className: 'small quiet', disabled: exporting, onClick: exportBackup }, t('exportAll')),
             h('button', { type: 'button', className: 'small quiet', disabled: exporting, onClick: () => backupInput.current?.click?.() }, t('importBackup')),
             h('button', { type: 'button', className: 'small quiet', onClick: () => { setShowArchived(false); setSwitcherMode('list'); setSwitcherOpen(true) } }, t('libraryActions'))))
         return overlay && directoryOpen
           ? [h('button', {
             key: 'directory-backdrop', className: 'directoryBackdrop', type: 'button',
-            'aria-label': t('closeDirectory'), onClick: () => setDirectoryOpen(false),
+            'aria-label': t('closeDirectory'), onClick: () => { directorySize.pinned = false; setDirectoryOpen(false) },
           }), directory]
           : directory
       }
       function readingSource() {
         if (knowledgeOpen) return null
-        return h('details', { className: 'readingSource', 'aria-label': t('sourceReading') },
-          h('summary', { className: 'sourceSectionHead' }, h('strong', null, t('sourceReading')), h('span', null, t('sourceSelectHint'))),
+        return h('section', { className: 'readingSource', 'aria-label': t('sourceReading') },
           segmentation === null ? h('p', { className: 'quote' }, activePassage.sourceText) : (segmentation.paragraphs ?? []).map((paragraph) => h('p', { className: 'sourceParagraph quote', key: paragraph.id },
-            paragraph.sentences.map((sentence) => h('span', { key: sentence.id, className: `readingSentence${anchorId === sentence.id ? ' selected' : ''}`, role: 'button', tabIndex: 0,
-              'aria-label': sentence.text,
-              onClick: () => { if (!window.getSelection?.()?.toString().trim()) selectSentence(sentence.id) },
-              onKeyDown: (event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); selectSentence(sentence.id) } } }, sentence.text, ' ')))))
+            paragraph.sentences.map((sentence) => {
+              const stored = anchorId === sentence.id ? sentenceAnalysis : sourceAnalyses.current.get(`${activePassage.id}|${activePassage.sourceRevision}|${segmentation.revision}|${sentence.id}`)
+              const analysed = stored?.kind === 'found' && !(stored.errors ?? []).length && stored.analysis.text === sentence.text
+              return h('span', { key: sentence.id, className: `readingSentence${anchorId === sentence.id ? ' selected' : ''}`, role: 'button', tabIndex: 0,
+                'aria-label': sentence.text, 'aria-current': anchorId === sentence.id ? 'true' : undefined,
+                onClick: () => { if (!window.getSelection?.()?.toString().trim()) selectSentence(sentence.id) },
+                onKeyDown: (event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); selectSentence(sentence.id) } } }, analysed && syntaxColour
+                ? syntaxMarkedSentence(sentence.text, stored.analysis.constituents, stored.analysis.clauses) : sentence.text, ' ')
+            }))))
+
       }
 
       useEffect(() => {
@@ -5515,7 +5959,12 @@ window.__ModuleLoader__.load({
             const reservedNumbers = location ? Object.values(shelf.placements)
               .filter((loc) => loc.book === location.book && loc.chapter === location.chapter)
               .map((loc) => loc.number) : []
-            const nextTitle = nextPassageTitle(activePassage.title, titles, location ? nextChapterNumber(location.book, location.chapter, location.number) : null, reservedNumbers)
+            const knownStart = shelf.placements[parentId]?.number ?? paragraphStarts[parentId]
+            const lastNumber = (knownStart ?? location?.number ?? 1) + Math.max(1, segmentation?.paragraphs?.length ?? 1) - 1
+            const suggested = location ? nextChapterNumber(location.book, location.chapter, lastNumber)
+              : knownStart === undefined ? null : lastNumber + 1
+            if (suggested !== null && !Number.isSafeInteger(suggested)) throw new Error('下一段编号超过安全整数范围。')
+            const nextTitle = nextPassageTitle(activePassage.title, titles, suggested, reservedNumbers)
             const number = Number(/段落\s*(\d+)$/u.exec(nextTitle)?.[1] ?? 1)
             setDraftLocation(location ? { ...location, number } : { book: '', chapter: '', number })
             setTitle(nextTitle)
@@ -5540,9 +5989,28 @@ window.__ModuleLoader__.load({
        * compact drawer moves the focus to the canvas so the keyboard follows the panel that
        * just appeared.
        */
+      /**
+       * Drop a dragged route panel back onto the dock. The offset lives on the
+       * existing nav ref, not in a new hook, and the inline geometry is cleared
+       * so the next open uses the column or the drawer again.
+       */
+      function dockRoutePanel() {
+        const panel = navStage.current?.closest?.('.navigation')
+        if (panel != null) {
+          for (const key of ['position', 'left', 'top', 'width', 'height', 'right', 'bottom', 'transform', 'margin', 'zIndex']) {
+            panel.style[key] = ''
+          }
+          const workspace = panel.parentElement
+          if (workspace?.dataset?.route === 'floating') delete workspace.dataset.route
+        }
+        navDrag.panel = null
+        navDrag.grip = null
+      }
+
       function toggleNavigation(force) {
         const wasOpen = navOpen
         const next = typeof force === 'boolean' ? force : !navOpen
+        if (!next) dockRoutePanel()
         setNavOpen(next)
         if (next && directorySize.current) setDirectoryOpen(false)
         if (!next) navToggleRef.current?.focus?.({ preventScroll: true })
@@ -5553,9 +6021,21 @@ window.__ModuleLoader__.load({
         }
       }
 
+      function closeDirectoryForSentence() {
+        // A sentence needs the reading column. The directory stays available from
+        // the top bar; opening it pins it for the rest of this passage.
+        // The pin lives on the existing directory ref so the hook list stays put.
+        if (directorySize.current === true || directorySize.pinned === true) return
+        setDirectoryOpen(false)
+      }
+
       function toggleDirectory() {
         if (!directoryOpen && directorySize.current) toggleNavigation(false)
-        setDirectoryOpen((open) => !open)
+        setDirectoryOpen((open) => {
+          const next = !open
+          directorySize.pinned = next === true && directorySize.current !== true
+          return next
+        })
       }
 
       function onNavigationKeyDown(event) {
@@ -5591,13 +6071,16 @@ window.__ModuleLoader__.load({
           const previous = previousLayoutCompact.current
           previousLayoutCompact.current = next
           setCompact(next)
-          if (previous !== next) setNavOpen((open) => {
-            if (next) {
-              if (previous === false) wideNavPreference.current = open
-              return false
-            }
-            return wideNavPreference.current
-          })
+          if (previous !== next) {
+            dockRoutePanel()
+            setNavOpen((open) => {
+              if (next) {
+                if (previous === false) wideNavPreference.current = open
+                return false
+              }
+              return wideNavPreference.current
+            })
+          }
           if (!next) return
           const pane = navStage.current?.closest('.navigation')
           const active = typeof document === 'undefined' ? null : document.activeElement
@@ -5658,6 +6141,42 @@ window.__ModuleLoader__.load({
         saveReadingPositionNow({ selectedNode: null })
       }
 
+      /** A branch the reader can open in the discussion panel, not a lookup or a conclusion. */
+      function discussionBranchOf(node) {
+        if (node === null || node === undefined) return null
+        return (discussion?.branches ?? []).find((branch) => branch.branchId === node.id) ?? null
+      }
+
+      function isDiscussionSurface(node) {
+        if (node === null || node === undefined) return false
+        // `kind === 'discussion'` covers the moment just after creation, before
+        // the refreshed branch list has the new id. A vocabulary branch is stored
+        // as a knowledge node, so it is recognised from the branch list instead.
+        if (node.kind === 'discussion') return true
+        return discussionBranchOf(node) !== null
+      }
+
+      /**
+       * The floating control opens the discussion panel.
+       *
+       * With no branch on this sentence it still starts the first-question dialog.
+       * With one, it opens that branch in the panel and leaves the sentence where
+       * it is. Pressing it again closes the panel and returns to the main branch.
+       */
+      function toggleDiscussionPanel() {
+        if (isDiscussionSurface(selectedNode)) {
+          closeDiscussion()
+          return
+        }
+        const here = (discussion?.branches ?? []).filter((branch) => branch.anchorId === anchorId)
+        if (here.length === 0) {
+          openBranchDialog(null, null)
+          return
+        }
+        const current = here.find((branch) => branch.branchId === selectedNode?.id) ?? here[0]
+        pickNode(branchNode(current))
+      }
+
       function returnToAnalysis() {
         const point = returnPoint.current
         setKnowledgeOpen(false)
@@ -5679,10 +6198,9 @@ window.__ModuleLoader__.load({
       }
 
       /**
-       * `clampNavCamera(next)`: the world may slide until its far edge reaches the
-       * stage's margin, and it may never start past the top-left margin. Without the
-       * clamp a centre-anchored zoom can push the card column off the stage entirely,
-       * which reads as "zoom broke the layout" rather than as a moved camera.
+       * `clampNavCamera(next)`: the map can be dragged until only a grip of it remains
+       * on the stage. A cap at the top-left margin made a map that already fits
+       * impossible to move, which is what a press-and-drag felt like.
        */
       function clampNavCamera(next) {
         const stage = navStage.current
@@ -5692,12 +6210,15 @@ window.__ModuleLoader__.load({
         if (box.width < 1 || box.height < 1) return next
         const width = world.width * next.scale
         const height = world.height * next.scale
-        const minX = Math.min(18, box.width - width - 18)
-        const minY = Math.min(20, box.height - height - 20)
+        const grip = 72
+        const minX = grip - width
+        const maxX = Math.max(minX, box.width - grip)
+        const minY = grip - height
+        const maxY = Math.max(minY, box.height - grip)
         return {
           scale: next.scale,
-          x: Math.max(minX, Math.min(18, next.x)),
-          y: Math.max(minY, Math.min(20, next.y)),
+          x: Math.min(maxX, Math.max(minX, next.x)),
+          y: Math.min(maxY, Math.max(minY, next.y)),
         }
       }
 
@@ -5819,6 +6340,102 @@ window.__ModuleLoader__.load({
         stageSize.current = { width: box.width, height: box.height }
       }
 
+      /**
+       * Drag the route frame by its top bar. The bar moves the panel itself;
+       * the stage underneath still pans the map. Geometry is written on the
+       * element so the reading column can take the width back while it floats.
+       */
+      function placeRoutePanel(panel, workspace, left, top, width, height) {
+        const host = workspace.getBoundingClientRect()
+        const grip = 72
+        const maxLeft = Math.max(8, host.width - grip)
+        const minLeft = Math.min(8, grip - width)
+        const maxTop = Math.max(0, host.height - 28)
+        const nextLeft = Math.min(maxLeft, Math.max(minLeft, left))
+        const nextTop = Math.min(maxTop, Math.max(0, top))
+        panel.style.position = 'absolute'
+        panel.style.left = `${Math.round(nextLeft)}px`
+        panel.style.top = `${Math.round(nextTop)}px`
+        panel.style.width = `${Math.round(width)}px`
+        panel.style.height = `${Math.round(height)}px`
+        panel.style.right = 'auto'
+        panel.style.bottom = 'auto'
+        panel.style.transform = 'none'
+        panel.style.margin = '0'
+        panel.style.zIndex = '16'
+        workspace.dataset.route = 'floating'
+        navDrag.panel = { left: nextLeft, top: nextTop, width, height }
+      }
+
+      function onRouteGripDown(event) {
+        if (event.button !== 0) return
+        const handle = event.currentTarget
+        const panel = handle.closest?.('.navigation')
+        const workspace = panel?.parentElement
+        if (panel == null || workspace == null) return
+        const box = panel.getBoundingClientRect()
+        const host = workspace.getBoundingClientRect()
+        const grip = {
+          id: event.pointerId,
+          originX: event.clientX,
+          originY: event.clientY,
+          left: box.left - host.left,
+          top: box.top - host.top,
+          width: box.width,
+          height: box.height,
+          moved: false,
+          handle,
+          panel,
+          workspace,
+        }
+        navDrag.grip = grip
+        // The bar is only a few dozen pixels tall. Once the pointer leaves it,
+        // a listener on the bar itself stops seeing the drag, so the panel
+        // freezes under the cursor. The document still hears the move.
+        const move = (ev) => {
+          if (navDrag.grip !== grip || ev.pointerId !== grip.id) return
+          onRouteGripMove(ev)
+        }
+        const up = (ev) => {
+          if (ev.pointerId !== grip.id) return
+          if (typeof document !== 'undefined') {
+            document.removeEventListener('pointermove', move)
+            document.removeEventListener('pointerup', up)
+            document.removeEventListener('pointercancel', up)
+          }
+          onRouteGripUp(ev)
+        }
+        if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
+          document.addEventListener('pointermove', move)
+          document.addEventListener('pointerup', up)
+          document.addEventListener('pointercancel', up)
+        }
+        handle.setPointerCapture?.(event.pointerId)
+        event.preventDefault()
+        event.stopPropagation()
+      }
+
+      function onRouteGripMove(event) {
+        const grip = navDrag.grip
+        if (grip == null || grip.id !== event.pointerId) return
+        const dx = event.clientX - grip.originX
+        const dy = event.clientY - grip.originY
+        if (!grip.moved) {
+          if (Math.abs(dx) + Math.abs(dy) <= 3) return
+          grip.moved = true
+          grip.handle?.classList?.add('dragging')
+        }
+        if (grip.panel == null || grip.workspace == null) return
+        placeRoutePanel(grip.panel, grip.workspace, grip.left + dx, grip.top + dy, grip.width, grip.height)
+      }
+
+      function onRouteGripUp(event) {
+        const grip = navDrag.grip
+        if (grip == null || grip.id !== event.pointerId) return
+        grip.handle?.classList?.remove('dragging')
+        navDrag.grip = null
+      }
+
       function onNavPointerDown(event) {
         if (event.button !== 0) return
         // Record the press only. The stage must NOT take pointer capture here:
@@ -5834,14 +6451,14 @@ window.__ModuleLoader__.load({
         if (drag === null || drag.id !== event.pointerId) return
         const dx = event.clientX - drag.x
         const dy = event.clientY - drag.y
-        if (Math.abs(dx) + Math.abs(dy) > 3) {
+        // A click wobbles by a pixel or two. Hold the camera until the press is
+        // clearly a drag, then apply the whole movement so the map does not jump.
+        if (!drag.moved) {
+          if (Math.abs(dx) + Math.abs(dy) <= 3) return
           drag.moved = true
-          if (!drag.captured) {
-            // Dragging has started: now capture, so the pan keeps receiving
-            // moves even after the pointer leaves the stage.
-            drag.captured = true
-            event.currentTarget.setPointerCapture?.(event.pointerId)
-          }
+          drag.captured = true
+          event.currentTarget.setPointerCapture?.(event.pointerId)
+          event.currentTarget.classList?.add('panning')
         }
         drag.x = event.clientX
         drag.y = event.clientY
@@ -5851,6 +6468,7 @@ window.__ModuleLoader__.load({
       function onNavPointerUp(event) {
         const drag = navDrag.current
         if (drag === null || drag.id !== event.pointerId) return
+        event.currentTarget.classList?.remove('panning')
         // Keep the "moved" flag until after the click handler has seen it.
         setTimeout(() => { navDrag.current = null }, 0)
       }
@@ -5883,7 +6501,7 @@ window.__ModuleLoader__.load({
           if (pending?.passageId === passage.id) {
             const sentences = (nextSegmentation?.paragraphs ?? []).flatMap((paragraph) => paragraph.sentences ?? [])
             const byId = sentences.find((sentence) => sentence.id === pending.anchorId)
-            const exactById = byId?.text === pending.anchorText ? byId : null
+            const exactById = pending.directoryJump === true || byId?.text === pending.anchorText ? byId : null
             const exactMatches = pending.anchorText === '' ? [] : sentences.filter((sentence) => sentence.text === pending.anchorText)
             const exact = exactById ?? (exactMatches.length === 1 ? exactMatches[0] : null)
             const sourceRevision = Number.isSafeInteger(passage.sourceRevision) ? passage.sourceRevision : 1
@@ -5895,6 +6513,7 @@ window.__ModuleLoader__.load({
             }
           }
           setAnchorId(nextAnchorId)
+          if (/^p[0-9]+\.s[0-9]+$/u.test(nextAnchorId)) closeDirectoryForSentence()
           setDrafts({})
         } catch (cause) {
           if (!currentRead(passage.id, request)) return
@@ -5906,6 +6525,7 @@ window.__ModuleLoader__.load({
       }, [getSegmentation, listAnalysis, t])
 
       useEffect(() => {
+        directorySize.pinned = false
         readingLoadedFor.current = null
         discussionLoadedFor.current = null
         setSelectedNode(null)
@@ -5954,6 +6574,7 @@ window.__ModuleLoader__.load({
         }
         if (message === '' && point.sourceChanged) message = 'resumeRelocated'
         setAnchorId(point.restoreAnchorId)
+        if (isSentenceAnchorId(point.restoreAnchorId)) closeDirectoryForSentence()
         setSelectedNode(restoredNode)
         setResumeMessage(message)
         ignorePositionScrollUntil.current = Date.now() + 350
@@ -6201,6 +6822,7 @@ window.__ModuleLoader__.load({
       // through the next read rather than mislabeled as cancelled.
       useEffect(() => () => {
         const discussionController = askAbortRef.current
+        if (discussionController?.operationId && typeof cancelWork === 'function') void cancelWork({ kind: 'ask', requestId: discussionController.operationId }).catch(() => {})
         discussionController?.abort()
         const controller = analysisAbortRef.current
         if (controller === null || controller === undefined) return
@@ -6214,10 +6836,10 @@ window.__ModuleLoader__.load({
 
       // One tick per second while a run is on, so elapsed time stays visible.
       useEffect(() => {
-        if (!analysisBusy) return undefined
+        if (!analysisBusy && !(batchProgress?.active > 0)) return undefined
         const timer = setInterval(() => setAnalysisTick((tick) => tick + 1), 1000)
         return () => clearInterval(timer)
-      }, [analysisBusy])
+      }, [analysisBusy, batchProgress?.active])
 
       useEffect(() => {
         if (!askBusy) return undefined
@@ -6263,7 +6885,7 @@ window.__ModuleLoader__.load({
           run.stage('analysisStageRequesting')
           const pendingCall = analyseParagraph({
             passageId, paragraphId, backend, model,
-            reasoningEffort: null, operationId,
+            reasoningEffort: analysisEffort, operationId,
           }, run.controller.signal)
           run.stage('analysisStageReceiving')
           const value = unwrap(await pendingCall, t)
@@ -6320,20 +6942,27 @@ window.__ModuleLoader__.load({
         setAnalysisContextDialog(null)
       }
 
+      /**
+       * Fetch the material fingerprint. A preview the gate accepts is returned
+       * and not shown: the same click continues into generation. Only a preview
+       * the reader must change, or a failed request, opens the dialog.
+       */
       async function openAnalysisContextPreview() {
-        if (activePassage === null || !isSentenceAnchorId(anchorId)) return
+        if (activePassage === null || !isSentenceAnchorId(anchorId)) return null
         const passageId = activePassage.id
         const passageRequestId = passageRequest.current
         const sentenceId = anchorId
         const requestId = ++analysisContextRequestRef.current
-        setAnalysisContextDialog({ passageId, anchorId: sentenceId, status: 'loading', preview: null, error: '' })
         try {
           const preview = unwrap(await previewAnalysisContext({ passageId, anchorId: sentenceId }), t)
-          if (analysisContextRequestRef.current !== requestId || !currentRead(passageId, passageRequestId) || focusedAnchor.current !== sentenceId) return
+          if (analysisContextRequestRef.current !== requestId || !currentRead(passageId, passageRequestId) || focusedAnchor.current !== sentenceId) return null
+          if (preview?.ok === true && typeof preview.fingerprint === 'string') return preview
           setAnalysisContextDialog({ passageId, anchorId: sentenceId, status: 'ready', preview, error: '' })
+          return null
         } catch (cause) {
-          if (analysisContextRequestRef.current !== requestId || !currentRead(passageId, passageRequestId) || focusedAnchor.current !== sentenceId) return
+          if (analysisContextRequestRef.current !== requestId || !currentRead(passageId, passageRequestId) || focusedAnchor.current !== sentenceId) return null
           setAnalysisContextDialog({ passageId, anchorId: sentenceId, status: 'failed', preview: null, error: String(cause?.message ?? cause) })
+          return null
         }
       }
 
@@ -6367,10 +6996,22 @@ window.__ModuleLoader__.load({
 
       /** Generate the analysis only from the exact materials the reader reviewed. */
       async function analyseCurrent(confirmedContext = null) {
+        const batch = batchQueueRef.current
+        if (batch && batch.queue.snapshot().active > 0) {
+          if (batch.passageId === activePassage?.id) batch.queue.prioritize(anchorId.split('.')[0])
+          return
+        }
         if (activePassage === null || backend === '' || model === '') return
-        if (confirmedContext === null) { await openAnalysisContextPreview(); return }
-        if (confirmedContext.ok !== true || typeof confirmedContext.fingerprint !== 'string'
-          || confirmedContext.anchorId !== anchorId) return
+        const reviewed = confirmedContext !== null && typeof confirmedContext === 'object'
+          && confirmedContext.ok === true && typeof confirmedContext.fingerprint === 'string'
+        if (!reviewed) {
+          const preview = await openAnalysisContextPreview()
+          if (preview?.ok === true && typeof preview.fingerprint === 'string' && preview.anchorId === anchorId) {
+            await analyseCurrent(preview)
+          }
+          return
+        }
+        if (confirmedContext.anchorId !== anchorId) return
         closeAnalysisContextPreview()
         if (analysisBusyRef.current) return
         const passageId = activePassage.id
@@ -6392,7 +7033,7 @@ window.__ModuleLoader__.load({
           run.stage('analysisStageRequesting')
           const pendingCall = analyseSentence({
             passageId, anchorId, backend, model,
-            reasoningEffort: null, operationId,
+            reasoningEffort: analysisEffort, operationId,
             paragraphIds: confirmedContext.includedParagraphIds,
             expectedFingerprint: confirmedContext.fingerprint,
           }, run.controller.signal)
@@ -6618,20 +7259,25 @@ window.__ModuleLoader__.load({
        */
       function passageComposer(extraButtons = []) {
         return h('form', { className: 'passageComposer', onSubmit: submit },
-          locationFields(draftLocation, setDraftLocation),
+          locationFields(draftLocation, (value) => {
+            const oldAuto = nextPassageTitle(`${draftLocation.book} · ${draftLocation.chapter}`, [], draftLocation.number)
+            if (title === oldAuto || title === '') setTitle(value.book ? nextPassageTitle(`${value.book} · ${value.chapter}`, [], value.number) : '')
+            setDraftLocation(value); setPreview(null); setError('')
+          }),
+          h('p', { className: 'hint' }, '段落序号填写首段编号。可粘贴多个自然段，段间以空行分隔；段内换行保留。保存后自动连续解析，可随时暂停。'),
           h('label', { className: 'kbField' },
             h('span', null, t('titleField')),
             h('input', {
               value: title, maxLength: 120, disabled: busy, 'aria-label': t('titleField'),
               placeholder: t('titlePlaceholder'),
-              onChange: (event) => { setTitle(event.target.value); setPreview(null); setStatus('') },
+              onChange: (event) => { setTitle(event.target.value); setPreview(null); setStatus(''); setError('') },
             })),
           h('label', { className: 'kbField' },
             h('span', null, t('source')),
             h('textarea', {
               rows: 8, value: sourceText, disabled: busy, autoFocus: switcherOpen, 'aria-label': t('source'),
               placeholder: t('sourcePlaceholder'),
-              onChange: (event) => { setSourceText(event.target.value); setPreview(null); setStatus('') },
+              onChange: (event) => { setSourceText(normalizeParagraphInput(event.target.value)); setPreview(null); setStatus(''); setError('') },
             })),
           preview === null || preview.unavailable ? null : h('div', { className: 'previewDetail' },
             h('p', { className: 'policyNote' }, format(t, 'previewSummary', {
@@ -6641,8 +7287,8 @@ window.__ModuleLoader__.load({
             // The split itself, paragraph by paragraph: a count whose boundaries
             // the reader cannot see is not a preview. The Host sends the blocks
             // and the damage flags; both are rendered here.
-            (preview.blocks ?? []).map((block) => h('div', { key: block.id, className: 'previewBlock' },
-              h('span', { className: 'kbLabel' }, format(t, 'previewBlockMeta', { id: block.id, sentences: block.sentences })),
+            (preview.blocks ?? []).map((block, index) => h('div', { key: block.id, className: 'previewBlock' },
+              h('span', { className: 'kbLabel' }, format(t, 'previewBlockMeta', { id: `第 ${startNumber + index} 段 · ${block.id}`, sentences: block.sentences })),
               (block.sentenceDetails ?? []).length > 0
                 ? block.sentenceDetails.map((sentence) => h('div', { key: sentence.id, className: 'previewSentence' },
                   h('span', { className: 'kbLabel' }, format(t, 'previewSentenceMeta', {
@@ -6837,7 +7483,9 @@ window.__ModuleLoader__.load({
             setError(format(t, 'previewRefused', { reason: value.reason }))
             return
           }
-          setContextPreview({ ...value, previewIdentity: identityKey })
+          const compiled = { ...value, previewIdentity: identityKey, previewId }
+          setContextPreview(compiled)
+          return compiled
         } catch (cause) {
           if (!mine()) return
           setError(format(t, 'generationUnavailable', { reason: String(cause?.message ?? cause) }))
@@ -6855,21 +7503,28 @@ window.__ModuleLoader__.load({
         if (run === null || controller === null || controller.signal.aborted || run.cancelPending === true) return
         setAskRun((current) => current?.runId === run.runId ? { ...current, cancelPending: true } : current)
         setAskReceipt(run.branchId, t('askCancelRequesting'))
-        // Ask cancellation is out-of-band on the Remote call. Until its terminal
-        // frame arrives, the UI says "requesting" and does not claim no answer was saved.
-        controller.abort()
+        // Revoke the Host operation before aborting this transport; persisted
+        // terminal state remains authoritative for the cancellation receipt.
+        void (async () => {
+          try {
+            const value = unwrap(await cancelWork({ kind: 'ask', requestId: run.operationId }), t)
+            if (value.accepted) controller.abort()
+            else setAskReceipt(run.branchId, '回答已完成，无法取消')
+          } catch (cause) { setAskReceipt(run.branchId, `取消未确认：${String(cause?.message ?? cause)}`); setAskRun((current) => current?.runId === run.runId ? { ...current, cancelPending: false } : current) }
+        })()
       }
 
-      async function sendTurn(target) {
+      async function sendTurn(target, override = null) {
         if (activePassage === null || backend === '' || model === '' || askBusy) return
-        const branchId = branchFor(target)
-        const question = (askDrafts[branchId] ?? '').trim()
+        const branchId = override?.branchId ?? branchFor(target)
+        const question = (override?.question ?? askDrafts[branchId] ?? '').trim()
         if (question === '') return
         if (branchId === null) { setError(t('branchFirst')); return }
         const passageId = activePassage.id
         const requestId = passageRequest.current
         const identityKey = contextPreviewIdentity(passageId, requestId, branchId, backend, model, question)
-        if (contextPreview === null || contextPreview.previewIdentity !== identityKey) {
+        const preview = override?.preview ?? contextPreview
+        if (preview === null || preview.previewIdentity !== identityKey || (override !== null && preview.previewId !== contextPreviewRequest.current)) {
           invalidateContextPreview()
           setError(t('previewAgain'))
           return
@@ -6879,9 +7534,10 @@ window.__ModuleLoader__.load({
         const controller = new AbortController()
         askAbortRef.current = controller
         const operationId = createUuid()
+        controller.operationId = operationId
         const mine = () => currentRead(passageId, requestId) && askRunSeq.current === runId
         setAskBusy(true)
-        setAskRun({ runId, startedAt: Date.now(), model, question, passageId, anchorId: target, branchId })
+        setAskRun({ runId, operationId, startedAt: Date.now(), model, question, passageId, anchorId: target, branchId })
         setAskTick(0)
         setError('')
         setAskReceipt(branchId, '')
@@ -6900,8 +7556,10 @@ window.__ModuleLoader__.load({
           passageId, branchId, question,
           backend, model, reasoningEffort: null, extras: [],
           operationId,
-          expectedFingerprint: contextPreview.fingerprint,
+          expectedFingerprint: preview.fingerprint,
         }
+        // A word query already authorizes sending; avoid showing a second confirmation.
+        if (override !== null) setContextPreview(null)
         try {
           // A streamed turn shows the answer while it is written and always ends with a
           // terminal frame; a Host that cannot stream still answers in one piece.
@@ -7060,28 +7718,7 @@ window.__ModuleLoader__.load({
        */
       
 
-      /** Clause rows with their nesting depth, and any orphan shown at the top. */
-      function clauseRows(clauses) {
-        const byParent = new Map()
-        for (const clause of clauses) {
-          const key = clause.parentId ?? ''
-          byParent.set(key, [...(byParent.get(key) ?? []), clause])
-        }
-        const rows = []
-        const seen = new Set()
-        const walk = (parentId, depth) => {
-          for (const clause of byParent.get(parentId) ?? []) {
-            if (seen.has(clause.id)) continue
-            seen.add(clause.id)
-            rows.push({ clause, depth })
-            walk(clause.id, depth + 1)
-          }
-        }
-        walk('', 0)
-        // A clause whose parent is not in the list still renders rather than vanishing.
-        for (const clause of clauses) if (!seen.has(clause.id)) rows.push({ clause, depth: 0 })
-        return rows
-      }
+
 
       
 
@@ -7296,29 +7933,21 @@ window.__ModuleLoader__.load({
         if (quote === null || quote === undefined || pane === null || !pane.contains(quote)) return
         if (!quote.contains(range.endContainer)) return
         const value = readingSelection(selection.toString())
-        if (value !== null) setSelectedWord({ text: value, anchorId })
+        if (value === null) return
+        // The button sits just above the selection, in the panel's own coordinates.
+        // The stylesheet lifts it by its own height, so the anchor is the top of
+        // the word: anchoring on the bottom parked the button on top of the word.
+        // A test renderer has no layout; the button still appears, just at a default spot.
+        let top = 88
+        let left = 28
+        const rect = range.getBoundingClientRect?.()
+        const root = rootRef.current?.getBoundingClientRect?.()
+        if (rect && root && Number.isFinite(rect.top) && Number.isFinite(root.top)) {
+          top = rect.top - root.top
+          left = Math.max(8, rect.left - root.left)
+        }
+        setSelectedWord({ text: value, anchorId, top, left })
       }
-
-
-      /**
-       * Selecting a word is the request to look it up.
-       *
-       * The reader had to select, then travel to the toolbar and press 查词 — two
-       * steps for one intention, and the press was the step people forgot. The
-       * lookup now follows the selection. It is keyed by (sentence, word) so the
-       * `mouseup` and `keyup` that both report one selection cannot look it up
-       * twice, and it is deliberately not cancelled while a turn is streaming: a
-       * lookup writes nothing and replaces the detail pane, which is what the
-       * reader just asked for.
-       */
-      useEffect(() => {
-        const mot = selectionLookup(autoLookupFor.current, selectedWord, anchorId)
-        if (mot === null) return undefined
-        autoLookupFor.current = `${anchorId}\u0000${mot}`
-        void lookupWord(mot)
-        return undefined
-        // `lookupWord` is render-scoped; the pair above is the dependency that matters.
-      }, [selectedWord, anchorId])
 
       /** The stored word and the DOM selection both belong to one sentence. */
       function clearReadingSelection() {
@@ -7338,6 +7967,7 @@ window.__ModuleLoader__.load({
           // it open hid the very detail the reader just asked to see (R7-U08). In the
           // wide layout both are visible, so nothing changes there.
           if (compact) setNavOpen(false)
+          if (isSentenceAnchorId(node.anchorId)) closeDirectoryForSentence()
           saveReadingPositionNow({ anchorId: node.anchorId, selectedNode: node })
         })
       }
@@ -7356,6 +7986,7 @@ window.__ModuleLoader__.load({
           setSelectedNode(nextNode)
           clearReadingSelection()
           if (compact) setNavOpen(false)
+          closeDirectoryForSentence()
           saveReadingPositionNow({ anchorId: sentenceId, selectedNode: nextNode })
         })
       }
@@ -7413,7 +8044,7 @@ window.__ModuleLoader__.load({
             h('button', {
               type: 'button', title: paragraph.id,
               onClick: () => guardedNavigation(() => { setAnchorId(paragraph.id); setSelectedNode(null); clearReadingSelection() }),
-            }, format(t, 'paragraphLabel', { index: index + 1 })),
+            }, format(t, 'paragraphLabel', { index: (shelf.placements[activePassage?.id]?.number ?? paragraphStarts[activePassage?.id] ?? 1) + index })),
           ),
           paragraph.sentences.map((sentence, rowIndex) => navSentenceRow(paragraph, sentence, rowIndex)),
         )
@@ -7495,13 +8126,13 @@ window.__ModuleLoader__.load({
        * role labels are mapped onto them rather than inventing a second palette.
        */
       const SYN_ROLES = [
-        [/^(主语|sujet)/iu, 'subject'],
+        [/(主语|sujet)/iu, 'subject'],
         [/^(谓语|变位动词|verbe|predicate)/iu, 'verb'],
-        [/^(直接宾语|间接宾语|宾语|objet|cod|coi)/iu, 'object'],
+        [/^(直接宾语|间接宾语|宾语|同位语|objet|cod|coi)/iu, 'object'],
         [/^(表语|attribut)/iu, 'predicative'],
-        [/^(状语|副词|circonstanciel|adverbial)/iu, 'adverbial'],
+        [/(状语|副词|circonstanciel|adverbial)/iu, 'adverbial'],
         [/^(不定式|infinitif)/iu, 'infinitive'],
-        [/^(修饰|épithète|epithete|modif)/iu, 'modifier'],
+        [/(修饰|épithète|epithete|modif)/iu, 'modifier'],
       ]
 
       function synRoleOf(role) {
@@ -7514,16 +8145,28 @@ window.__ModuleLoader__.load({
        * `span.syn-<role>` from its own stylesheet, and the prototype's invariant that the
        * markup must not change the text.
        */
-      function syntaxMarkedSentence(text, constituents) {
+      function syntaxMarkedSentence(text, constituents, clauses = []) {
         const pieces = renderConstituents(text, constituents)
         if (pieces.map((piece) => piece.text).join('') !== text) return [text]
-        return pieces.map((piece, index) => (piece.role === null || synRoleOf(piece.role) === null
-          ? piece.text
-          : h('span', {
-            key: `${piece.role}-${String(index)}`,
-            className: `syn-${synRoleOf(piece.role)}`,
-            title: piece.partOfSpeech === null ? piece.role : `${piece.role} · ${piece.partOfSpeech}`,
-          }, piece.text)))
+        const ranges = clauses.filter((clause) => clause.parentId != null || /从句/u.test(clause.role))
+        const cuts = [...new Set([0, text.length, ...ranges.flatMap((range) => [range.start, range.end])])]
+          .filter((offset) => Number.isInteger(offset) && offset >= 0 && offset <= text.length).sort((a, b) => a - b)
+        let cursor = 0
+        return pieces.flatMap((piece, index) => {
+          const start = cursor
+          cursor += piece.text.length
+          const boundaries = [start, ...cuts.filter((cut) => cut > start && cut < cursor), cursor]
+          return boundaries.slice(0, -1).map((from, part) => {
+            const to = boundaries[part + 1]
+            const role = piece.role === null ? null : synRoleOf(piece.role)
+            const classes = [role ? `syn-${role}` : '', ranges.some((range) => range.start <= from && range.end >= to) ? 'syn-clause' : ''].filter(Boolean)
+            const fragment = text.slice(from, to)
+            return classes.length === 0 ? fragment : h('span', {
+              key: `${index}-${part}`, className: classes.join(' '),
+              title: piece.partOfSpeech == null ? piece.role : `${piece.role} · ${piece.partOfSpeech}`,
+            }, fragment)
+          })
+        })
       }
 
       /**
@@ -7696,23 +8339,69 @@ window.__ModuleLoader__.load({
         return message?.messageId ?? ''
       }
 
+      /** Focus the discussion composer once the panel has painted. */
+      function focusDiscussionComposer() {
+        setTimeout(() => {
+          const field = typeof document === 'undefined' ? null : document.querySelector?.('#discussion-panel textarea')
+          field?.focus?.()
+        }, 0)
+      }
+
+      /**
+       * Open a discussion on this sentence so the reader can ask about the
+       * selection. The branch is anchored on the sentence, which is what the
+       * context compiler quotes; nothing is previewed or sent from here.
+       */
+      async function askAboutSelection() {
+        if (activePassage === null || selectedWord === null || selectedWord.anchorId !== anchorId) return
+        const selection = readingSelection(selectedWord.text)
+        if (selection === null) return
+        const excerpt = selection.replace(/\s+/gu, ' ').trim()
+        const anchor = anchorId
+        const existing = (discussion?.branches ?? []).find((branch) =>
+          branch.anchorId === anchor && branch.kind === 'discussion' && branch.parentId == null)
+        if (existing !== undefined) {
+          setSelectedNode({ ...branchNode(existing), selectionHint: excerpt })
+          clearReadingSelection()
+          focusDiscussionComposer()
+          return
+        }
+        const title = format(t, 'branchTitleDefault', { excerpt: excerpt.slice(0, 42) }).slice(0, 90)
+        const branchId = await createBranchWith({
+          title, kind: 'discussion', parentId: null, cut: null, anchorId: anchor,
+          expectedFocusedAnchor: anchor,
+        })
+        if (branchId === false || branchId === null || branchId === undefined) return
+        setSelectedNode((current) => current?.id === branchId ? { ...current, selectionHint: excerpt } : current)
+        clearReadingSelection()
+        focusDiscussionComposer()
+      }
+
       /** `lookupWord(mot)`: exact-Mot lookup — a hit is the stored entry, a miss is a miss. */
       async function lookupWord(mot) {
+        const query = lexicalMot(mot)
+        if (query === '') return
         const lookupAnchor = anchorId
         const passageId = displayedPassage.current
         const request = passageRequest.current
         const lookup = ++lookupRequest.current
+        // The compact drawer covers the reading column and marks it inert, so a
+        // result painted there cannot be seen or used. Dock the route first.
+        if (compact) setNavOpen(false)
         try {
-          const value = unwrap(await lookupMot({ mot, partOfSpeech: null }), t)
+          const value = unwrap(await lookupMot({ mot: query, partOfSpeech: null }), t)
           if (!currentRead(passageId, request) || lookup !== lookupRequest.current || focusedAnchor.current !== lookupAnchor) return
+          const phrase = /\s/u.test(query)
           setSelectedNode({
-            id: `lookup-${mot}`, anchorId, kind: 'knowledge', title: mot,
+            id: `lookup-${query}`, anchorId, kind: 'knowledge', title: query,
             status: value.found ? t('entryStored') : t('entryNotStored'),
             body: value.found
               ? (value.entries[0]?.senses?.[0]?.definition ?? '')
-              : value.candidates.length === 0
-                ? ''
-                : format(t, 'lookupMiss', { count: value.candidates.length }),
+              : phrase
+                ? format(t, 'lookupPhraseMiss', { mot: query })
+                : value.candidates.length === 0
+                  ? ''
+                  : format(t, 'lookupMiss', { count: value.candidates.length }),
             entryId: value.entries[0]?.entryId ?? null,
             // A miss keeps its candidates on the node: "N 条相关原形" without
             // names was a dead end — each candidate is a button that looks it up.
@@ -7721,8 +8410,25 @@ window.__ModuleLoader__.load({
               entryId: entry.entryId, mot: entry.mot, lemma: entry.lemma,
               label: entry.senses?.[0]?.label ?? '',
             })),
-            parentTitle: mot,
+            parentTitle: query,
           })
+          if (!value.found && typeof quickDictionary === 'function') {
+            setSelectedNode((node) => node?.id === `lookup-${query}` ? { ...node, dictionaryPending: true } : node)
+            void quickDictionary({ mot: query, partOfSpeech: null }).then((wire) => {
+              const dictionary = unwrap(wire, t)
+              if (!currentRead(passageId, request) || lookup !== lookupRequest.current || focusedAnchor.current !== lookupAnchor) return
+              setSelectedNode((node) => node?.id === `lookup-${query}`
+                ? { ...node, dictionaryPending: false, dictionary } : node)
+            }).catch(() => {
+              if (!currentRead(passageId, request) || lookup !== lookupRequest.current || focusedAnchor.current !== lookupAnchor) return
+              setSelectedNode((node) => node?.id === `lookup-${query}`
+                ? { ...node, dictionaryPending: false, dictionary: { status: 'unavailable', glosses: [] } } : node)
+            })
+          }
+          setTimeout(() => {
+            const node = typeof document === 'undefined' ? null : document.querySelector?.('.lookupResult')
+            node?.scrollIntoView?.({ block: 'nearest' })
+          }, 0)
         } catch (cause) {
           if (!currentRead(passageId, request) || lookup !== lookupRequest.current || focusedAnchor.current !== lookupAnchor) return
           setError(format(t, 'generationUnavailable', { reason: String(cause?.message ?? cause) }))
@@ -7730,7 +8436,11 @@ window.__ModuleLoader__.load({
       }
 
       function startWordDiscussion(node) {
-        if (node?.title == null || activePassage === null) return
+        if (node?.title == null || activePassage === null || askBusy || wordDiscussionPending.current) return
+        wordDiscussionPending.current = true
+        const passageId = activePassage.id
+        const readingRequest = passageRequest.current
+        const lookupId = lookupRequest.current
         const mot = node.title
         const retryKey = JSON.stringify([activePassage.id, node.anchorId, mot])
         const operations = wordBranchOperationsRef.current
@@ -7746,13 +8456,14 @@ window.__ModuleLoader__.load({
             initialQuestion: question, operationId, retryKey,
             failureMessage: t('wordDiscussionSaveFailed'), expectedFocusedAnchor: node.anchorId,
           })
-          // A miss used to cost four steps (create · preview · send · save). The
-          // branch and its question are now ready to send, so the reader reviews
-          // the compiled material and presses send — the preview guarantee is kept,
-          // the two mechanical steps in front of it are not (R7-U01).
           if (branchId === false || branchId === null || branchId === undefined) return
-          await previewTurn(node.anchorId, { branchId, question })
-        })()
+          if (!currentRead(passageId, readingRequest) || focusedAnchor.current !== node.anchorId || lookupRequest.current !== lookupId) return
+          const preview = await previewTurn(node.anchorId, { branchId, question })
+          if (preview == null || !currentRead(passageId, readingRequest) || focusedAnchor.current !== node.anchorId || lookupRequest.current !== lookupId) return
+          await sendTurn(node.anchorId, { branchId, question, preview })
+        })().catch((cause) => {
+          if (currentRead(passageId, readingRequest)) setError(String(cause?.message ?? cause))
+        }).finally(() => { wordDiscussionPending.current = false })
       }
 
       function openLexiconEntryForm(node) {
@@ -7802,7 +8513,7 @@ window.__ModuleLoader__.load({
             label, definition,
             ...(draft.fromModel === true ? { provenance: 'mixed' } : {}),
             operationId: draft.operationId,
-            passageId: draft.passageId, anchorId: draft.anchorId,
+            passageId: draft.passageId, anchorId: draft.anchorId, attachOccurrence: wordOccurs(draft.excerpt, mot),
             occurrenceNote: draft.fromModel === true
               ? format(t, 'entryAiOccurrenceNote', { messageId: draft.modelMessageId ?? '' })
               : t('entryOccurrenceNote'),
@@ -8055,7 +8766,8 @@ window.__ModuleLoader__.load({
             ),
             h('label', { className: 'kbField', htmlFor: 'entryExample' },
               h('span', null, t('entryExampleField')),
-              h('textarea', { id: 'entryExample', rows: 3, readOnly: true, value: draft.excerpt ?? '' }),
+              h('textarea', { id: 'entryExample', rows: 3, readOnly: true, value: wordOccurs(draft.excerpt, draft.mot) ? draft.excerpt : '' }),
+              h('span', { className: 'hint' }, wordOccurs(draft.excerpt, draft.mot) ? '保存时关联当前例句。' : '当前句不含该词，保存时不关联例句。'),
             ),
             h('label', { className: 'kbField', htmlFor: 'entryForms' },
               h('span', null, t('relatedFormsField')),
@@ -8385,6 +9097,7 @@ window.__ModuleLoader__.load({
                   audioCalls: {
                     list: listInflectionAudio,
                     synthesize: synthesizeInflectionAudio,
+                    cancel: (request) => cancelWork({ ...request, kind: 'inflection' }),
                     select: selectInflectionAudio,
                     readAsset: readInflectionAudioAsset,
                   },
@@ -8403,6 +9116,12 @@ window.__ModuleLoader__.load({
             h('h2', null, node.title),
             h('p', { className: 'hint' }, node.status),
             h('div', { className: 'answer' }, node.body ?? ''),
+            node.dictionaryPending ? h('p', { role: 'status', className: 'hint' }, t('dictionaryLoading')) : null,
+            node.dictionary == null ? null : h('section', { className: 'dictionaryBrief', 'aria-label': t('dictionaryFound') },
+              h('p', { className: 'sectionLabel' }, t(node.dictionary.status === 'found' ? 'dictionaryFound' : node.dictionary.status === 'not-found' ? 'dictionaryMissing' : 'dictionaryUnavailable')),
+              (node.dictionary.glosses ?? []).map((gloss, index) => h('p', { key: index }, `${gloss.partOfSpeech} · ${gloss.text}`)),
+              node.dictionary.sourceUrl ? h('a', { href: node.dictionary.sourceUrl, target: '_blank', rel: 'noopener noreferrer' }, t('dictionarySource')) : null,
+            ),
             // Every candidate the lookup returned is named and clickable: the
             // exact-Mot rule never merges them, so the reader opens each one.
             candidates.length === 0 ? null : h('div', null,
@@ -8416,10 +9135,10 @@ window.__ModuleLoader__.load({
             // and the panel's real next steps are named rather than implied.
             node.miss === true ? h('p', { className: 'hint' }, t('lookupMissAdvice')) : null,
             h('div', { className: 'inlineActions' },
-              node.miss === true ? h('button', {
-                className: 'small', type: 'button', disabled: askBusy,
+              h('button', {
+                className: 'small', type: 'button', disabled: askBusy || wordDiscussionPending.current || backend === '' || model === '',
                 onClick: () => startWordDiscussion(node),
-              }, t('lookupAskWord')) : null,
+              }, t('lookupAskWord')),
               node.miss === true ? h('button', {
                 className: 'small', type: 'button',
                 onClick: () => openLexiconEntryForm(node),
@@ -8455,6 +9174,9 @@ window.__ModuleLoader__.load({
             }, t('backToSourceDiscussion')),
           )
         }
+        // A discussion branch is drawn in its own panel. The reading column stays
+        // on the sentence, so closing the panel is what returns to the main branch.
+        if (isDiscussionSurface(node)) return detailReading()
         return h('div', null, syntaxLegend(), discussionNode(node))
       }
 
@@ -8535,6 +9257,9 @@ window.__ModuleLoader__.load({
                 h('div', { className: 'kbLabel' }, t('contextPromptLabel')),
                 h('pre', { className: 'previewPrompt' }, contextPreview.prompt ?? ''),
               ))),
+          node.selectionHint
+            ? h('p', { className: 'hint selectionAskHint' }, format(t, 'selectionAskHint', { selection: node.selectionHint }))
+            : null,
           h('textarea', {
             className: 'draft',
             value: askDrafts[node.id] ?? '', disabled: askBusy,
@@ -8572,7 +9297,7 @@ window.__ModuleLoader__.load({
           ),
           streamText === ''
             ? null
-            : h('pre', { className: 'streamText', role: 'status', 'aria-live': 'polite' }, streamText),
+            : h('pre', { className: 'streamText', role: 'status', 'aria-live': 'polite' }, visibleStreamText(streamText)),
           (askReceipts[node.id] ?? '') === '' ? null : h('p', { className: 'status', role: 'status' }, askReceipts[node.id]),
         )
       }
@@ -8660,7 +9385,7 @@ window.__ModuleLoader__.load({
        * puts it.
        */
       function detailReading() {
-        return h('div', null, sentenceAnalysis?.kind === 'found' ? syntaxLegend() : null, detailReadingBody())
+        return detailReadingBody()
       }
 
       function detailReadingBody() {
@@ -8672,7 +9397,7 @@ window.__ModuleLoader__.load({
           // thing they had just done. The hint belongs to paragraph/passage anchors.
           return h('div', { className: 'empty' },
             isSentence
-              ? h('div', { className: 'quote' }, syntaxMarkedSentence(sentenceText(anchorId), []))
+              ? null
               : h('div', { className: 'quote' }, t('analysisNeedsSentence')),
             isSentence
               ? h('p', { className: 'hint' }, t('notAnalysed'))
@@ -8680,14 +9405,16 @@ window.__ModuleLoader__.load({
           )
         }
         return h('div', { className: 'analysisView' },
+          syntaxColour && !(found.constituents ?? []).some((item) => ['subject', 'verb', 'object', 'predicative', 'infinitive'].includes(synRoleOf(item.role))) ? h('p', { className: 'hint syntaxMissing' }, '当前结果只有片段结构；重新解析可补充主语、动词等配色范围。') : null,
           h('h2', { className: 'detailTitle' }, t('analysisTitle')),
-          h('span', { className: 'tag' }, found.status === 'reviewed' ? t('statusReviewed') : t('statusDraft')),
-          h('div', { className: 'quote' },
-            syntaxMarkedSentence(found.text, found.constituents)),
+          syntaxLegend(),
+          (sentenceAnalysis.hints ?? []).some(hint => hint.startsWith('部分解析')) ? h('p', { className: 'hint analysisPartial', role: 'status' }, '部分解析已保存，尚未完成。未确认的成分不显示配色，重新解析可补充。') : null,
+          (sentenceAnalysis.hints ?? []).length ? h('details', { className: 'analysisHints' },
+            h('summary', null, `解析提示 · ${sentenceAnalysis.hints.length}`),
+            sentenceAnalysis.hints.map((hint, index) => h('p', { className: 'hint', key: index }, hint))) : null,
+
           h('div', { className: 'sectionLabel' }, t('sentenceTranslationLabel')),
           h('div', { className: 'answer' }, found.translation),
-          h('div', { className: 'sectionLabel' }, t('partBackbone')),
-          h('div', { className: 'backbone' }, found.backbone),
           h('div', { className: 'sectionLabel' }, t('partStructure')),
           h('div', { className: 'answer' }, structureAnswer(found)),
         )
@@ -8701,22 +9428,113 @@ window.__ModuleLoader__.load({
       }
 
       /**
-       * `结构与说明`: the prototype shows the clause structure and the explanations in one
-       * labelled section, so the plugin's richer parts are folded in rather than given
-       * their own headings.
+       * `结构与说明` is a reading of the constituents: role, the French span, and a
+       * short Chinese gloss. Idiom and rhetoric stay a short aside. Older analyses
+       * stored those as long essays and have no gloss; the essays stay available
+       * under a disclosure instead of filling the column.
        */
+      function syntaxFragment(found, item) {
+        if (!syntaxColour) return item.text
+        const constituents = (found.constituents ?? []).filter((span) => span.end > item.start && span.start < item.end).map((span) => ({
+          ...span, start: Math.max(span.start, item.start) - item.start, end: Math.min(span.end, item.end) - item.start,
+        }))
+        const clauses = (found.clauses ?? []).filter((span) => span.end > item.start && span.start < item.end).map((span) => ({
+          ...span, start: Math.max(span.start, item.start) - item.start, end: Math.min(span.end, item.end) - item.start,
+        }))
+        return syntaxMarkedSentence(item.text, constituents, clauses)
+      }
+
+      function syntaxReferencedText(found, value) {
+        if (!syntaxColour || typeof value !== 'string' || !value) return value
+        const source = found.text ?? ''
+        // Only reuse source-backed ranges. Chinese prose and paraphrases stay intact.
+        const trimmed = value.replace(/[.!?;。！？；]+$/u, '')
+        const offset = source.indexOf(trimmed)
+        if (trimmed && offset >= 0 && source.indexOf(trimmed, offset + 1) < 0) {
+          return [syntaxFragment(found, { text: trimmed, start: offset, end: offset + trimmed.length }), value.slice(trimmed.length)]
+        }
+        const candidates = [...(found.constituents ?? []), ...(found.clauses ?? [])]
+          .filter((item) => typeof item.text === 'string' && /[A-Za-zÀ-ÖØ-öø-ÿ]/u.test(item.text)
+            && source.slice(item.start, item.end) === item.text
+            && source.indexOf(item.text) === source.lastIndexOf(item.text))
+          .sort((left, right) => right.text.length - left.text.length)
+        const result = []
+        let plainStart = 0
+        for (let cursor = 0; cursor < value.length;) {
+          const match = candidates.find((item) => value.startsWith(item.text, cursor)
+            && !/[A-Za-zÀ-ÖØ-öø-ÿ]/u.test(value[cursor - 1] ?? '')
+            && !/[A-Za-zÀ-ÖØ-öø-ÿ]/u.test(value[cursor + item.text.length] ?? ''))
+          if (!match) { cursor++; continue }
+          if (cursor > plainStart) result.push(value.slice(plainStart, cursor))
+          result.push(syntaxFragment(found, match))
+          cursor += match.text.length
+          plainStart = cursor
+        }
+        if (plainStart < value.length) result.push(value.slice(plainStart))
+        return result
+      }
+
       function structureAnswer(found) {
-        const rows = []
-        for (const { clause, depth } of clauseRows(found.clauses)) {
-          rows.push(h('p', { key: clause.id, className: 'structureClause', style: { marginLeft: `${depth * 14}px` } },
-            h('span', { className: 'branchKind' }, clause.role), ' ', clause.text))
+        const noteArticle = (explanation) => h('article', {
+          key: explanation.id,
+          className: `structureNote kind-${explanation.kind}`,
+        },
+          h('h3', { className: 'noteKind' }, t(`certainty_${explanation.kind}`)),
+          h('p', null, syntaxReferencedText(found, explanation.text)))
+        const constituents = [...(found.constituents ?? [])]
+          .filter((item) => item !== null && typeof item.text === 'string')
+          .sort((left, right) => left.start - right.start || left.end - right.end)
+        const readingUnits = constituents.filter((item) => !constituents.some((outer) => outer !== item && outer.start <= item.start && outer.end >= item.end && outer.end - outer.start > item.end - item.start && (outer.gloss ?? '').trim() !== ''))
+        const glossed = constituents.some((item) => typeof item.gloss === 'string' && item.gloss.trim() !== '')
+        const notes = found.explanations ?? []
+        // A gloss already says what the span means. A syntax essay would repeat it
+        // at length, so it drops behind the disclosure. Rhetoric and context stay.
+        const extensions = glossed ? notes.filter((item) => item.kind !== 'syntax') : []
+        const legacyNotes = glossed ? notes.filter((item) => item.kind === 'syntax') : notes
+        const componentTable = (items) => items.length === 0 ? null : h('table', { className: 'structureComponents', 'aria-label': '句子成分说明' },
+          h('thead', null, h('tr', null, h('th', null, '成分'), h('th', null, '原文'), h('th', null, '作用'))),
+          h('tbody', null, items.map((item) => h('tr', { key: item.id },
+            h('td', null, item.role),
+            h('td', { className: 'componentSource' }, syntaxFragment(found, item), h('div', { className: 'componentMobileGloss' }, syntaxReferencedText(found, item.gloss ?? ''))),
+            h('td', { className: 'componentGloss' }, syntaxReferencedText(found, item.gloss ?? ''))))))
+        const structural = readingUnits.filter((item) => /主句|从句/u.test(item.role) && !/引导词|连词|代词/u.test(item.role))
+        const units = structural.length ? readingUnits : []
+        const plan = backboneStructure(found)
+        const renderUnit = (node) => {
+          const exact = constituents.find((item) => item.start === node.start && item.end === node.end && item.gloss?.trim())
+          const own = constituents.filter((item) => item.start >= node.start && item.end <= node.end
+            && synRoleOf(item.role) && !node.children.some((child) => item.start >= child.start && item.end <= child.end))
+          return h('li', { key: node.id, className: `structureClause${/主句|main|principale/iu.test(node.role) ? ' primaryClause' : ''}` },
+            h('div', { className: 'structureUnitHeading' },
+              h('span', { className: 'branchKind' }, node.role),
+              node.core.some((piece) => piece.omitted) ? h('span', { className: 'structureSimplified' }, '主干简化 · 下层从句另列') : null),
+            h('p', { className: 'constituentSource' }, node.core.map((piece, index) => piece.omitted
+              ? h('span', { key: `omitted-${index}`, className: 'structureOmission', 'aria-label': '省略下层从句' }, '…')
+              : syntaxFragment(found, piece))),
+            exact ? h('p', { className: 'constituentGloss' }, syntaxReferencedText(found, exact.gloss)) : null,
+            node.children.length ? h('ol', { className: 'structureNested' }, node.children.map(renderUnit)) : null,
+            own.length ? h('details', { className: 'structureComponentDetails' },
+              h('summary', null, '成分与说明'), componentTable(own)) : null)
         }
-        for (const explanation of found.explanations) {
-          rows.push(h('p', { key: explanation.id, className: 'structureNote' },
-            h('span', { className: 'noteKind' }, t(`certainty_${explanation.kind}`)), ' ', explanation.text))
+        const rows = plan.length ? plan.map(renderUnit) : units.map((item) => h('li', {
+          key: item.id, className: 'structureClause',
+        }, h('span', { className: 'branchKind' }, item.role),
+          h('p', { className: 'constituentSource' }, syntaxFragment(found, item)),
+          item.gloss ? h('p', { className: 'constituentGloss' }, syntaxReferencedText(found, item.gloss)) : null))
+        const extensionNodes = extensions.map(noteArticle)
+        const legacyNodes = legacyNotes.map(noteArticle)
+        if (rows.length === 0 && constituents.length === 0 && extensionNodes.length === 0 && legacyNodes.length === 0) {
+          return h('p', { className: 'missingSection' }, t('noStructureYet'))
         }
-        if (rows.length === 0) rows.push(h('p', { key: 'empty', className: 'missingSection' }, t('noStructureYet')))
-        return rows
+        return h('div', { className: 'structureBody' },
+          rows.length || !found.backbone ? null : h('div', { className: 'backbone' }, syntaxReferencedText(found, found.backbone)),
+          rows.length === 0 ? componentTable(constituents) : h('ol', { className: 'structureClauses' }, rows),
+          extensionNodes.length === 0 ? null : h('div', { className: 'structureExtensions' },
+            h('div', { className: 'sectionLabel' }, t('structureExtension')),
+            extensionNodes),
+          legacyNodes.length === 0 ? null : h('details', { className: 'structureLegacy' },
+            h('summary', null, t('structureLegacy')),
+            h('div', { className: 'structureLegacyBody' }, legacyNodes)))
       }
 
       
@@ -8759,7 +9577,28 @@ window.__ModuleLoader__.load({
         const sentenceAudio = focusedSentence === null || segmentation === null
           ? null
           : sentenceSpeechSource(passage, segmentation, focusedSentence)
+        const discussionOpen = isDiscussionSurface(selectedNode)
+        const selectionHere = selectedWord !== null && selectedWord.anchorId === anchorId
         return h('div', { className: 'fr-root bookLayout', ref: rootRef, 'data-chrome': insideDesktopWindow() ? 'desktop' : 'web', 'data-directory': directoryOpen ? 'open' : 'closed' },
+          selectionHere ? h('div', {
+            className: 'selectionLookup',
+            style: {
+              top: Number.isFinite(selectedWord.top) ? selectedWord.top : 88,
+              left: Number.isFinite(selectedWord.left) ? selectedWord.left : 28,
+            },
+            // Keep the selection. A press that clears it unmounts this bar
+            // before the click arrives, which is what made 查词 feel dead.
+            onMouseDown: (event) => { event.preventDefault() },
+          },
+            h('button', {
+              type: 'button',
+              onClick: () => { void askAboutSelection() },
+            }, t('selectionAsk')),
+            h('button', {
+              type: 'button',
+              onClick: () => { void lookupWord(selectedWord.text) },
+            }, t('lookupWord')),
+          ) : null,
           h('header', { className: 'top compactTop' },
             h('div', { className: 'topLeft' },
               h('div', { className: 'brand', title: t('panel') },
@@ -8814,9 +9653,34 @@ window.__ModuleLoader__.load({
             knowledgeOpen ? null : h('button', {
               className: 'discussFab', type: 'button',
               disabled: anchorId === '',
-              'aria-label': t('addBranchShort'), title: t('addBranchShort'),
-              onClick: () => openBranchDialog(null, null),
-            }, '＋'),
+              'aria-expanded': discussionOpen ? 'true' : 'false',
+              'aria-controls': 'discussion-panel',
+              'aria-label': discussionOpen ? '收起讨论' : '打开讨论', title: discussionOpen ? '收起讨论' : '打开讨论',
+              onClick: () => toggleDiscussionPanel(),
+            }, h('svg', { viewBox: '0 0 24 24', width: 23, height: 23, fill: 'none', stroke: 'currentColor', strokeWidth: 1.7, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': 'true' },
+              h('path', { d: 'M20 11.5a8.5 8.5 0 0 1-8.5 8.5 9.3 9.3 0 0 1-3.8-.8L3 21l1.5-4.6A8.5 8.5 0 1 1 20 11.5Z' }),
+              h('path', { d: 'M7.5 9.5h8M7.5 13h5.5' })), h('span', { className: 'discussFabLabel' }, '讨论')),
+            discussionOpen ? h('aside', {
+              className: 'discussionPanel', id: 'discussion-panel',
+              role: 'dialog', 'aria-modal': 'false', 'aria-labelledby': 'discussionPanelTitle',
+            },
+              h('header', { className: 'discussionPanelHead' },
+                h('strong', { id: 'discussionPanelTitle' }, discussionBranchOf(selectedNode)?.title ?? selectedNode.title),
+                h('button', {
+                  className: 'small', type: 'button',
+                  onClick: () => openBranchDialog(null, null, selectedNode.anchorId),
+                }, t('addBranchShort')),
+                h('button', {
+                  className: 'small quiet', type: 'button',
+                  'aria-label': t('closeDiscussion'), title: t('closeDiscussion'),
+                  onClick: closeDiscussion,
+                }, '✕'),
+              ),
+              h('div', { className: 'discussionPanelBody' },
+                discussionNode(selectedNode),
+                h('div', { className: 'composer' }, composerBody(selectedNode)),
+              ),
+            ) : null,
             h('aside', {
               className: `navigation${navOpen ? '' : ' closed'}`, id: 'reading-route',
               'aria-label': t('navTitle'),
@@ -8832,7 +9696,16 @@ window.__ModuleLoader__.load({
                 if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus() }
               },
             },
-              h('div', { className: 'sheetHandle', 'aria-hidden': 'true' }),
+              h('button', {
+                type: 'button',
+                className: 'sheetHandle',
+                'aria-label': t('navDragHandle'),
+                title: t('navDragHandle'),
+                onPointerDown: onRouteGripDown,
+                onPointerMove: onRouteGripMove,
+                onPointerUp: onRouteGripUp,
+                onPointerCancel: onRouteGripUp,
+              }),
               h('div', { className: 'navHead' },
                 h('strong', null, t('navTitle')),
                 h('div', { className: 'controls' },
@@ -8911,8 +9784,8 @@ window.__ModuleLoader__.load({
               // on, what stage it is at, how long it has been going, and that it
               // can be cancelled.
               h('div', { className: 'detailScroll', ref: detailScrollRef, onScroll: queueReadingPosition },
-                readingSource(),
                 knowledgeOpen ? null : h('div', { className: 'sentenceWorkspace' },
+              h('div', { className: 'readerToolbar', role: 'group', 'aria-label': '句子阅读工具' },
               h('div', { className: 'paneHead' },
                 h('div', { className: 'sentenceControls' },
                   h('button', {
@@ -8926,56 +9799,73 @@ window.__ModuleLoader__.load({
                   }, '→'),
                 ),
                 h('div', { className: 'focusTools' },
-                  // A discussion is something the reader opened, so it is something
-                  // they can close: the ✕ returns to the main branch (the analysis
-                  // view) instead of leaving them inside a branch they cannot leave.
-                  selectedNode?.kind === 'discussion' ? h('button', {
-                    className: 'small quiet', type: 'button',
-                    'aria-label': t('closeDiscussion'), title: t('closeDiscussion'),
-                    onClick: closeDiscussion,
-                  }, '✕') : null,
                   h('button', {
                     className: 'quiet small', type: 'button', onClick: focusNavigation,
                   }, t('locateNavigation')),
                 ),
               ),
+              h('div', { className: 'batchAnalysis' },
+                h('div', { className: 'batchControls' },
+                  h('button', { type: 'button', className: 'small batchProgressButton',
+                    disabled: analysisBusy || !backend || !model || (batchProgress?.stopped && batchProgress.active > 0),
+                    onClick: () => {
+                      const progress = batchProgress?.passageId === passage.id ? batchProgress : null
+                      if (progress && !progress.stopped && progress.tasks.some((task) => task.state === 'queued' || task.state === 'running')) stopBatch()
+                      else if (progress && progress.done === progress.total && progress.failed === 0) setBatchProgress({ ...progress, showDetails: !progress.showDetails })
+                      else { pausedBatches.current.delete(batchKey()); void startBatch() }
+                    },
+                  }, batchProgress?.passageId !== passage.id ? '自动解析 · 准备中'
+                    : batchProgress.stopped && batchProgress.active > 0 ? `正在暂停 · ${batchProgress.done}/${batchProgress.total} 段` : batchProgress.stopped ? `继续解析 · ${batchProgress.done}/${batchProgress.total} 段`
+                    : batchProgress.done === batchProgress.total && batchProgress.failed === 0 ? `解析完成 · ${batchProgress.done}/${batchProgress.total} 段`
+                    : batchProgress.tasks.some((task) => task.state === 'queued' || task.state === 'running') ? `暂停解析 · ${batchProgress.done}/${batchProgress.total} 段`
+                    : `重试解析 · ${batchProgress.done}/${batchProgress.total} 段`),
+                  batchProgress?.passageId === passage.id && (batchProgress.stopped || batchProgress.active > 0 || batchProgress.failed > 0) ? h('span', { role: 'status', className: 'batchStatus' },
+                    batchProgress.stopped ? batchProgress.active > 0 ? '正在停止后台请求' : '已暂停' : batchProgress.active > 0 ? batchProgress.runningSentences?.includes(anchorId) ? `当前第 ${sentenceOrdinal(anchorId)} 句正在解析${batchProgress.runningSentences.length > 1 ? ` · 后台另有 ${batchProgress.runningSentences.length - 1} 句` : ''}` : `后台正在解析 ${batchProgress.runningSentences?.length ?? 0} 句 · 已用时 ${Math.floor((Date.now() - (batchQueueRef.current?.startedAt ?? Date.now())) / 1000)} 秒` : batchProgress.failed ? `${batchProgress.failed} 段需要重试` : '已完成') : null),
+                (batchProgress?.passageId === passage.id ? batchProgress.tasks : []).filter((task) => task.error && task.state === 'failed').map((task) => h('p', { key: task.id, className: 'error' }, `${task.id}: ${task.error}`)),
+                batchProgress?.passageId === passage.id && batchProgress.showDetails ? h('p', { className: 'hint' }, `共 ${batchProgress.total} 个自然段，完成 ${batchProgress.done}，失败 ${batchProgress.failed}`) : null),
               h('div', { className: 'readingActions', id: 'readingActions' },
                 // The handler takes an optional confirmed preview; a raw click event
                 // must never occupy that parameter or the click dies before the
                 // preview request (F01). Wrap so the call carries no argument.
                 h('button', {
                   id: 'start', className: 'primary small', type: 'button',
-                  disabled: analysisBusy || backend === '' || model === '' || !isSentenceAnchorId(anchorId),
+                  disabled: analysisBusy || backend === '' || model === '' || !isSentenceAnchorId(anchorId) || batchProgress?.active > 0,
                   onClick: () => { void analyseCurrent() },
-                }, analysisBusy ? t('analyzing') : sentenceAnalysis?.kind === 'found' ? t('reanalyseSentence') : t('analyseTop')),
+                }, batchProgress?.active > 0 && batchProgress.passageId === passage.id ? batchProgress.stopped ? '正在停止解析' : batchProgress.runningSentences?.includes(anchorId) ? '当前句解析中' : sentenceAnalysis?.kind === 'found' ? '重新解析' : '等待自动解析' : analysisBusy ? t('analyzing') : sentenceAnalysis?.kind === 'found' ? t('reanalyseSentence') : t('analyseTop')),
                 h('span', {
                   className: 'selectedWord',
                   title: selectedWord !== null && selectedWord.anchorId !== anchorId
                     ? format(t, 'selectedWordFrom', { index: sentenceOrdinal(selectedWord.anchorId) })
                     : undefined,
                 }, selectedWord !== null && selectedWord.anchorId === anchorId ? selectedWord.text : ''),
-                h('button', {
+                // Once a word in this sentence is selected, 查词 is the button that
+                // appears on the selection. This one only opens the typed-lookup
+                // dialog, and only while nothing in the current sentence is selected.
+                selectionHere ? null : h('button', {
                   className: 'small', type: 'button',
-                  // `openLookup()`: a selected word is looked up straight away; only an
-                  // empty selection opens the dialog. A word from another sentence is
-                  // never acted on: the selection is cleared when the focus moves.
-                  onClick: () => {
-                    if (selectedWord !== null && selectedWord.anchorId === anchorId) {
-                      void lookupWord(selectedWord.text)
-                      return
-                    }
-                    setLookupInput('')
-                    setLookupOpen(true)
-                  },
+                  onClick: () => { setLookupInput(''); setLookupOpen(true) },
                 }, t('lookupWord')),
                 h('button', {
                   className: `small${syntaxColour ? ' syntaxActive' : ''}`, type: 'button',
                   'aria-pressed': syntaxColour ? 'true' : 'false',
                   onClick: () => setSyntaxColour((on) => !on),
                 }, t('syntaxToggle')),
+                sentenceAudio === null ? null : h(AudioControls, {
+                  key: `sentence-audio-${sentenceAudio.sentenceId}`,
+                  t, kind: 'sentence', source: sentenceAudio,
+                  calls: {
+                    list: listSentenceAudio,
+                    synthesize: synthesizeSentenceAudio,
+                    cancel: (request) => cancelWork({ ...request, kind: 'sentence' }),
+                    select: selectSentenceAudio,
+                    readAsset: readSentenceAudioAsset,
+                  },
+                }),
+              ),
+              h('div', { className: 'sentenceMeta' },
                 h('details', { className: 'analysisSettings' },
                   h('summary', { title: format(t, 'analysisModelSummary', { backend: selectedBackendLabel, model: selectedModelLabel }) },
-                    format(t, 'analysisModelSummary', { backend: selectedBackendLabel, model: selectedModelLabel })),
+                    `模型 · ${selectedModelLabel}`),
                   h('label', { className: 'analysisSettingField' },
                     h('span', null, t('backendLabel')),
                     h('select', {
@@ -9007,20 +9897,21 @@ window.__ModuleLoader__.load({
                       ? [h('option', { key: 'no-model', value: '' }, t('noModels'))]
                       : models.map((entry) => h('option', { key: entry.id, value: entry.id }, entry.name))),
                   ),
+                  analysisEfforts.length > 0 ? h('label', { className: 'analysisSettingField' },
+                    h('span', null, '思考'),
+                    h('select', { className: 'modelSelect', 'aria-label': '解析思考模式',
+                      value: analysisEffort ?? '', disabled: analysisBusy || askBusy || batchProgress?.active > 0,
+                      onChange: (event) => {
+                        const choice = event.target.value
+                        const next = { ...analysisEffortPreferences, [model]: choice }
+                        setAnalysisEffortPreferences(next)
+                        try { localStorage.setItem('french-close-reading/analysis-efforts', JSON.stringify(next)) } catch {}
+                      },
+                    }, h('option', { value: '' }, '推荐设置'),
+                    analysisEfforts.map((effort) => h('option', { key: effort, value: effort },
+                      ['none', 'off'].includes(effort) ? '关闭思考' : effort === 'high' ? '开启思考 · high' : effort))),
+                  ) : null,
                 ),
-                // 发音 belongs to the sentence the toolbar is about: the same
-                // source key the Host fingerprints, so switching sentences shows
-                // that sentence's takes and never the previous one's.
-                sentenceAudio === null ? null : h(AudioControls, {
-                  key: `sentence-audio-${sentenceAudio.sentenceId}`,
-                  t, kind: 'sentence', source: sentenceAudio,
-                  calls: {
-                    list: listSentenceAudio,
-                    synthesize: synthesizeSentenceAudio,
-                    select: selectSentenceAudio,
-                    readAsset: readSentenceAudioAsset,
-                  },
-                }),
               ),
               h('div', { className: 'branchStrip', id: 'branchStrip' },
                 (discussion?.branches ?? [])
@@ -9029,13 +9920,14 @@ window.__ModuleLoader__.load({
                     key: branch.branchId,
                     className: `small${selectedNode?.id === branch.branchId ? ' active' : ''}`,
                     type: 'button',
-                    // Clicking a branch selects it: its messages and composer
-                    // appear in the detail pane. This strip only switches branches;
-                    // creating one belongs to the panel's ＋ control.
+                    // Clicking a branch opens it in the discussion panel. The strip
+                    // only switches branches; the sentence stays in the reading column.
                     onClick: () => pickNode(branchNode(branch)),
                   }, branch.title)),
               ),
                 ),
+                ),
+                readingSource(),
                 analysisRun === null ? null : h('div', { className: 'runStatus', role: 'status' },
                   h('span', null, format(t, 'analysisStageElapsed', {
                     stage: t(analysisRun.stage ?? 'analysisStage'),
@@ -9048,16 +9940,9 @@ window.__ModuleLoader__.load({
                 ),
                 error === '' || switcherOpen || locationDialog ? null : errorBlock(t, error, setError),
                 !feedbackVisible || analysisError === '' ? null : h('p', { className: 'error', role: 'alert' }, analysisError),
-                !feedbackVisible || analysisStatus === '' ? null : h('p', { className: 'hint', role: 'status' }, analysisStatus),
+                !feedbackVisible || analysisStatus === '' ? null : h('p', { className: 'hint analysisReceipt', role: 'status', title: analysisStatus }, sentenceAnalysis?.kind === 'found' && analysisError === '' ? '解析已更新' : analysisStatus),
                 detailContent()),
-              // The composer belongs to discussion branches, including vocabulary
-              // discussions whose route node is visually styled as a knowledge node.
-              selectedNode !== null && !knowledgeOpen && (
-                selectedNode.kind === 'discussion'
-                || (discussion?.branches ?? []).some((branch) => branch.branchId === selectedNode.id && branch.kind === 'vocabulary')
-              )
-                ? h('div', { className: 'composer' }, composerBody(selectedNode))
-                : null,
+              // The composer lives in the discussion panel, not under the sentence.
             ),
           ),
         )
@@ -9139,6 +10024,8 @@ window.__ModuleLoader__.load({
           analyseParagraph: (request, signal) => (signal === undefined
             ? api.analyseParagraph(request)
             : api.analyseParagraph(request, signal)),
+          renamePassage: (request) => api.renamePassage(request),
+          cancelWork: (request) => api.cancelWork(request),
           cancelAnalysis: (request) => api.cancelAnalysis(request),
           publishAnalysis: (request) => api.publishAnalysis(request),
           listLexiconSources: (request) => api.listLexiconSources(request),
@@ -9151,7 +10038,7 @@ window.__ModuleLoader__.load({
           fetchConjugation: (request) => api.fetchConjugation(request),
           // The audio surface. Synthesis is the reader's own press, so it takes the
           // caller's AbortSignal the way the other cancellable calls do: aborting it
-          // is the only cancel there is — the Host declares no cancel endpoint.
+          // is paired with explicit Host cancellation to fence durable writes.
           synthesizeSentenceAudio: (request, signal) => (signal === undefined
             ? api.synthesizeSentenceAudio(request)
             : api.synthesizeSentenceAudio(request, signal)),
@@ -9173,6 +10060,7 @@ window.__ModuleLoader__.load({
           ask: (request, signal) => (signal === undefined ? api.ask(request) : api.ask(request, signal)),
           streamAsk: (request, signal) => (signal === undefined ? api.streamAsk(request) : api.streamAsk(request, signal)),
           listDiscussion: (request) => api.listDiscussion(request),
+          quickDictionary: (request) => api.quickDictionary(request),
           lookupMot: (request) => api.lookupMot(request),
           createLexiconEntry: (request) => api.createLexiconEntry(request),
           recordConclusion: (request) => api.recordConclusion(request),

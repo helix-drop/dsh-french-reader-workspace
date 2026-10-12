@@ -4,7 +4,7 @@ import type {
   RemoteStreamHandle,
   TypertRemoteContribution,
 } from '@deepseek-ai/dsh-typert-protocol'
-import type { AddBranchRequest, AddBranchValue, AdoptTranslationRequest, AdoptTranslationValue, AnalyseParagraphRequest, AnalyseParagraphResult, AnalyseSentenceRequest, AnalyseSentenceResult, AnalysisCoverageValue, ArchivePassageRequest, ArchivePassageValue, AskFrame, AskRequest, AskResult, CancelAnalysisRequest, CancelAnalysisValue, ConjugationRequest, CreateBranchRequest, CreateBranchValue, CreateLexiconEntryRequest, CreateLexiconEntryValue, CreatePassageRequest, CreatePassageValue, CreateSelectionRequest, CreateSelectionValue, DiscussionView, ExportLibraryRequest, ExportLibraryValue, ExportPassagesValue, FetchConjugationValue, FetchLexiconSourceRequest, FetchLexiconSourceValue, GetPassageRequest, GetPassageValue, GetSegmentationRequest, GetSegmentationValue, ImportLibraryRequest, ImportLibraryValue, ImportPreviewValue, InflectionAudioListValue, LexiconLookup, ListAnalysisRequest, ListAnalysisValue, ListBackendModelsRequest, ListBackendModelsValue, ListBackendsRequest, ListBackendsValue, ListDiscussionRequest, ListGrammarRequest, ListGrammarValue, ListInflectionAudioRequest, ListLexiconRequest, ListLexiconSourcesRequest, ListLexiconSourcesValue, ListLexiconValue, ListPassagesRequest, ListPassagesValue, ListSentenceAudioRequest, LookupMotRequest, MergeGrammarEntriesRequest, MergeGrammarEntriesValue, PreviewAnalysisContextRequest, PreviewAnalysisContextValue, PreviewAskRequest, PreviewAskValue, PreviewImportRequest, PublishAnalysisRequest, PublishAnalysisValue, PutSentenceAnalysisRequest, PutSentenceAnalysisValue, ReadAnalysisCoverageRequest, ReadConjugationValue, ReadContextRequest, ReadContextValue, ReadInflectionAudioAssetRequest, ReadInflectionAudioAssetValue, ReadSentenceAnalysisRequest, ReadSentenceAnalysisValue, ReadSentenceAudioAssetRequest, ReadSentenceAudioAssetValue, RecordConclusionRequest, RecordConclusionValue, RenderLexiconRequest, RenderLexiconValue, ResolveGrammarRequest, ResolveGrammarValue, RestorePassageRequest, RestorePassageValue, SaveTranslationRequest, SaveTranslationValue, SelectInflectionAudioRequest, SelectInflectionAudioValue, SelectSentenceAudioRequest, SelectSentenceAudioValue, SentenceAudioListValue, SetBranchStateRequest, SetBranchStateValue, SetGrammarMasteryRequest, SetGrammarMasteryValue, SynthesizeInflectionAudioRequest, SynthesizeInflectionAudioValue, SynthesizeSentenceAudioRequest, SynthesizeSentenceAudioValue } from '@local/french-close-reading/types'
+import type { AddBranchRequest, AddBranchValue, AdoptTranslationRequest, AdoptTranslationValue, AnalyseParagraphRequest, AnalyseParagraphResult, AnalyseSentenceRequest, AnalyseSentenceResult, AnalysisCoverageValue, ArchivePassageRequest, ArchivePassageValue, AskFrame, AskRequest, AskResult, CancelAnalysisRequest, CancelAnalysisValue, ConjugationRequest, CreateBranchRequest, CreateBranchValue, CreateLexiconEntryRequest, CreateLexiconEntryValue, CreatePassageRequest, CreatePassageValue, CreateSelectionRequest, CreateSelectionValue, DiscussionView, ExportLibraryRequest, ExportLibraryValue, ExportPassagesValue, FetchConjugationValue, FetchLexiconSourceRequest, FetchLexiconSourceValue, GetPassageRequest, GetPassageValue, GetSegmentationRequest, GetSegmentationValue, ImportLibraryRequest, ImportLibraryValue, ImportPreviewValue, InflectionAudioListValue, LexiconLookup, ListAnalysisRequest, ListAnalysisValue, ListBackendModelsRequest, ListBackendModelsValue, ListBackendsRequest, ListBackendsValue, ListDiscussionRequest, ListGrammarRequest, ListGrammarValue, ListInflectionAudioRequest, ListLexiconRequest, ListLexiconSourcesRequest, ListLexiconSourcesValue, ListLexiconValue, ListPassagesRequest, ListPassagesValue, ListSentenceAudioRequest, LookupMotRequest, MergeGrammarEntriesRequest, MergeGrammarEntriesValue, PreviewAnalysisContextRequest, PreviewAnalysisContextValue, PreviewAskRequest, PreviewAskValue, PreviewImportRequest, PublishAnalysisRequest, PublishAnalysisValue, PutSentenceAnalysisRequest, PutSentenceAnalysisValue, QuickDictionaryValue, ReadAnalysisCoverageRequest, ReadConjugationValue, ReadContextRequest, ReadContextValue, ReadInflectionAudioAssetRequest, ReadInflectionAudioAssetValue, ReadSentenceAnalysisRequest, ReadSentenceAnalysisValue, ReadSentenceAudioAssetRequest, ReadSentenceAudioAssetValue, RecordConclusionRequest, RecordConclusionValue, RenderLexiconRequest, RenderLexiconValue, ResolveGrammarRequest, ResolveGrammarValue, RestorePassageRequest, RestorePassageValue, SaveTranslationRequest, SaveTranslationValue, SelectInflectionAudioRequest, SelectInflectionAudioValue, SelectSentenceAudioRequest, SelectSentenceAudioValue, SentenceAudioListValue, SetBranchStateRequest, SetBranchStateValue, SetGrammarMasteryRequest, SetGrammarMasteryValue, SynthesizeInflectionAudioRequest, SynthesizeInflectionAudioValue, SynthesizeSentenceAudioRequest, SynthesizeSentenceAudioValue } from '@local/french-close-reading/types'
 
 declare module '@deepseek-ai/dsh-typert-protocol' {
   interface TypertRemoteNamespace$6672656e6368526561646572 {
@@ -15,6 +15,7 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     archivePassage: (request: ArchivePassageRequest, signal?: AbortSignal) => Promise<RemoteResult<ArchivePassageValue>>
     ask: (request: AskRequest, signal?: AbortSignal) => Promise<RemoteResult<AskResult>>
     cancelAnalysis: (request: CancelAnalysisRequest, signal?: AbortSignal) => Promise<RemoteResult<CancelAnalysisValue>>
+    cancelWork: (request: { kind: 'sentence' | 'inflection' | 'ask'; requestId: string; }, signal?: AbortSignal) => Promise<RemoteResult<{ accepted: boolean; settled: boolean; }>>
     createBranch: (request: CreateBranchRequest, signal?: AbortSignal) => Promise<RemoteResult<CreateBranchValue>>
     createLexiconEntry: (request: CreateLexiconEntryRequest, signal?: AbortSignal) => Promise<RemoteResult<CreateLexiconEntryValue>>
     createPassage: (request: CreatePassageRequest, signal?: AbortSignal) => Promise<RemoteResult<CreatePassageValue>>
@@ -44,6 +45,7 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     previewImport: (request: PreviewImportRequest, signal?: AbortSignal) => Promise<RemoteResult<ImportPreviewValue>>
     publishAnalysis: (request: PublishAnalysisRequest, signal?: AbortSignal) => Promise<RemoteResult<PublishAnalysisValue>>
     putSentenceAnalysis: (request: PutSentenceAnalysisRequest, signal?: AbortSignal) => Promise<RemoteResult<PutSentenceAnalysisValue>>
+    quickDictionary: (request: LookupMotRequest, signal?: AbortSignal) => Promise<RemoteResult<QuickDictionaryValue>>
     readAnalysisCoverage: (request: ReadAnalysisCoverageRequest, signal?: AbortSignal) => Promise<RemoteResult<AnalysisCoverageValue>>
     readConjugation: (request: ConjugationRequest, signal?: AbortSignal) => Promise<RemoteResult<ReadConjugationValue>>
     readContext: (request: ReadContextRequest, signal?: AbortSignal) => Promise<RemoteResult<ReadContextValue>>
@@ -51,6 +53,7 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     readSentenceAnalysis: (request: ReadSentenceAnalysisRequest, signal?: AbortSignal) => Promise<RemoteResult<ReadSentenceAnalysisValue>>
     readSentenceAudioAsset: (request: ReadSentenceAudioAssetRequest, signal?: AbortSignal) => Promise<RemoteResult<ReadSentenceAudioAssetValue>>
     recordConclusion: (request: RecordConclusionRequest, signal?: AbortSignal) => Promise<RemoteResult<RecordConclusionValue>>
+    renamePassage: (request: { passageId: string; expectedTitle: string; title: string; sourceRevision: number; }, signal?: AbortSignal) => Promise<RemoteResult<{ updated: boolean; }>>
     renderLexicon: (request: RenderLexiconRequest, signal?: AbortSignal) => Promise<RemoteResult<RenderLexiconValue>>
     resolveGrammarCandidate: (request: ResolveGrammarRequest, signal?: AbortSignal) => Promise<RemoteResult<ResolveGrammarValue>>
     restorePassage: (request: RestorePassageRequest, signal?: AbortSignal) => Promise<RemoteResult<RestorePassageValue>>
@@ -71,6 +74,7 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     'frenchReader/archivePassage': (request: ArchivePassageRequest, signal?: AbortSignal) => Promise<RemoteResult<ArchivePassageValue>>
     'frenchReader/ask': (request: AskRequest, signal?: AbortSignal) => Promise<RemoteResult<AskResult>>
     'frenchReader/cancelAnalysis': (request: CancelAnalysisRequest, signal?: AbortSignal) => Promise<RemoteResult<CancelAnalysisValue>>
+    'frenchReader/cancelWork': (request: { kind: 'sentence' | 'inflection' | 'ask'; requestId: string; }, signal?: AbortSignal) => Promise<RemoteResult<{ accepted: boolean; settled: boolean; }>>
     'frenchReader/createBranch': (request: CreateBranchRequest, signal?: AbortSignal) => Promise<RemoteResult<CreateBranchValue>>
     'frenchReader/createLexiconEntry': (request: CreateLexiconEntryRequest, signal?: AbortSignal) => Promise<RemoteResult<CreateLexiconEntryValue>>
     'frenchReader/createPassage': (request: CreatePassageRequest, signal?: AbortSignal) => Promise<RemoteResult<CreatePassageValue>>
@@ -100,6 +104,7 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     'frenchReader/previewImport': (request: PreviewImportRequest, signal?: AbortSignal) => Promise<RemoteResult<ImportPreviewValue>>
     'frenchReader/publishAnalysis': (request: PublishAnalysisRequest, signal?: AbortSignal) => Promise<RemoteResult<PublishAnalysisValue>>
     'frenchReader/putSentenceAnalysis': (request: PutSentenceAnalysisRequest, signal?: AbortSignal) => Promise<RemoteResult<PutSentenceAnalysisValue>>
+    'frenchReader/quickDictionary': (request: LookupMotRequest, signal?: AbortSignal) => Promise<RemoteResult<QuickDictionaryValue>>
     'frenchReader/readAnalysisCoverage': (request: ReadAnalysisCoverageRequest, signal?: AbortSignal) => Promise<RemoteResult<AnalysisCoverageValue>>
     'frenchReader/readConjugation': (request: ConjugationRequest, signal?: AbortSignal) => Promise<RemoteResult<ReadConjugationValue>>
     'frenchReader/readContext': (request: ReadContextRequest, signal?: AbortSignal) => Promise<RemoteResult<ReadContextValue>>
@@ -107,6 +112,7 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     'frenchReader/readSentenceAnalysis': (request: ReadSentenceAnalysisRequest, signal?: AbortSignal) => Promise<RemoteResult<ReadSentenceAnalysisValue>>
     'frenchReader/readSentenceAudioAsset': (request: ReadSentenceAudioAssetRequest, signal?: AbortSignal) => Promise<RemoteResult<ReadSentenceAudioAssetValue>>
     'frenchReader/recordConclusion': (request: RecordConclusionRequest, signal?: AbortSignal) => Promise<RemoteResult<RecordConclusionValue>>
+    'frenchReader/renamePassage': (request: { passageId: string; expectedTitle: string; title: string; sourceRevision: number; }, signal?: AbortSignal) => Promise<RemoteResult<{ updated: boolean; }>>
     'frenchReader/renderLexicon': (request: RenderLexiconRequest, signal?: AbortSignal) => Promise<RemoteResult<RenderLexiconValue>>
     'frenchReader/resolveGrammarCandidate': (request: ResolveGrammarRequest, signal?: AbortSignal) => Promise<RemoteResult<ResolveGrammarValue>>
     'frenchReader/restorePassage': (request: RestorePassageRequest, signal?: AbortSignal) => Promise<RemoteResult<RestorePassageValue>>

@@ -117,7 +117,7 @@ test('an HTTP 200 with only site chrome is not success', () => {
   })
   assert.equal(verdict.ok, false)
   assert.equal(verdict.outcome, 'body-missing')
-  assert.match(verdict.claim, /按训练数据回退/u)
+  assert.match(verdict.claim, /本次未取得可用资料/u)
 
   assert.equal(isStubBody('Portail lexical'), true)
   assert.equal(isStubBody('CNRTL — Portail lexical — Accueil'), true)
@@ -145,7 +145,7 @@ test('each failure mode is named, and an unusable response never claims a source
       kind: 'cnrtl', section: 'etymology', url: null, httpStatus: null, body: '', ...overrides,
     })
     assert.equal(record.ok, false)
-    assert.match(record.note, /回退|截断/u, 'the record states the fallback instead of claiming success')
+    assert.match(record.note, /未取得可用资料|截断/u, 'the record states the fallback instead of claiming success')
   }
 
   const good = toSourceRecord({

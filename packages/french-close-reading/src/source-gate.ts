@@ -49,18 +49,18 @@ export function judgeSource(fetch: SourceFetch): SourceVerdict {
       ok: false,
       outcome: 'http-error',
       reason: `http-${String(fetch.httpStatus)}`,
-      claim: '未取得该来源，按训练数据回退',
+      claim: '未取得该来源，本次未取得可用资料',
     }
   }
   if (fetch.parseFailed === true) {
-    return { ok: false, outcome: 'parse-failed', reason: 'parse-failed', claim: '该来源解析失败，按训练数据回退' }
+    return { ok: false, outcome: 'parse-failed', reason: 'parse-failed', claim: '该来源解析失败，本次未取得可用资料' }
   }
   if (fetch.entryFound === false) {
-    return { ok: false, outcome: 'not-found', reason: 'entry-not-found', claim: '该来源没有对应词条，按训练数据回退' }
+    return { ok: false, outcome: 'not-found', reason: 'entry-not-found', claim: '该来源没有对应词条，本次未取得可用资料' }
   }
   if (isStubBody(fetch.body)) {
     // The measured CNRTL case: 200, page chrome only, no usable body.
-    return { ok: false, outcome: 'body-missing', reason: 'body-missing', claim: '该来源未返回可用正文，按训练数据回退' }
+    return { ok: false, outcome: 'body-missing', reason: 'body-missing', claim: '该来源未返回可用正文，本次未取得可用资料' }
   }
   if (fetch.truncated === true) {
     return { ok: false, outcome: 'truncated', reason: 'truncated', claim: '该来源内容被截断，不作为完整依据' }

@@ -83,9 +83,9 @@ test('a missing translation is an error, not an empty field', () => {
   assert.equal(report.errors.some((error) => error.includes('缺少译文')), true)
 })
 
-test('an analysis with no clause structure is refused', () => {
+test('missing clause detail is a hint rather than a storage failure', () => {
   const report = validateSentenceAnalysis(goodAnalysis({ clauses: [] }), SENTENCE)
-  assert.equal(report.errors.some((error) => error.includes('没有从句结构')), true)
+  assert.equal(report.hints.some((hint) => hint.includes('尚无句子结构')), true)
 })
 
 test('a range that runs past the sentence is named, not rendered', () => {
@@ -95,14 +95,14 @@ test('a range that runs past the sentence is named, not rendered', () => {
   assert.equal(report.errors.some((error) => error.includes('超出句子长度')), true)
 })
 
-test('a word-bearing gap between constituents is an error', () => {
+test('a word-bearing gap between constituents is a hint', () => {
   const analysis = goodAnalysis()
   // "notre jardin" is covered by no constituent any more: the gap must be named
   // with its text rather than quietly counted as analysed.
   analysis.constituents = analysis.constituents.filter((item) => !['直接宾语', '关系从句'].includes(item.role))
   const report = validateSentenceAnalysis(analysis, SENTENCE)
-  const gap = report.errors.find((error) => error.includes('未被分析的原文片段'))
-  assert.ok(gap !== undefined, 'the uncovered text is named as an error')
+  const gap = report.hints.find((error) => error.includes('未被分析的原文片段'))
+  assert.ok(gap !== undefined, 'the uncovered text is named as a hint')
   assert.match(gap, /notre jardin/u, 'the gap names the words it contains')
 })
 
@@ -238,8 +238,8 @@ test('coverage counts what is missing, failed and stale instead of claiming comp
   const coverage = analysisCoverage(anchors, analyses)
   assert.deepEqual(coverage.missing, ['p1.s3'], 'a sentence with no analysis is missing, not covered')
   assert.deepEqual(coverage.stale, ['p1.s4'], 'an analysis of other text is stale, not covered')
-  assert.deepEqual(coverage.failed, ['p1.s2'], 'an analysis with errors is failed, not covered')
-  assert.deepEqual(coverage.covered, ['p1.s1'])
+  assert.deepEqual(coverage.failed, [], 'incomplete detail does not invalidate source alignment')
+  assert.deepEqual(coverage.covered, ['p1.s1', 'p1.s2'])
   assert.equal(coverage.perSentence.length, 2, 'a stale analysis is not re-validated as if current')
 })
 

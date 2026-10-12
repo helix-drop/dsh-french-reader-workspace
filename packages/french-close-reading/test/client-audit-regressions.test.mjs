@@ -34,7 +34,7 @@ test('understood is sent with the Host-supported status value', () => {
 })
 
 test('discussion turns expose elapsed time, preserve the question, and pass cancellation signals', () => {
-  const send = section('async function sendTurn(target)', 'async function receiveStream')
+  const send = section('async function sendTurn(target, override = null)', 'async function receiveStream')
   assert.ok(send.includes('streamAsk(request, controller.signal)'))
   assert.ok(send.includes('ask(request, controller.signal)'))
   assert.ok(send.includes('question, passageId, anchorId: target, branchId'))

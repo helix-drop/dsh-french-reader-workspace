@@ -129,13 +129,11 @@ export function checkCoverage(sentence, constituents) {
             errors.push(`漏掉从句：「${clause.text}」（位置 ${String(clause.start)}–${String(clause.end)}）`);
         }
     }
-    // One constituent spanning the whole sentence is a summary, not an analysis —
-    // but only when the sentence really does contain more than one clause.
+    // One constituent spanning several clauses is a summary. Fewer constituents
+    // than punctuation units is not: a clause or a major phrase is the reading
+    // unit, and splitting each one into subject and verb is what the pane rejects.
     if (clauses.length > 1 && ordered.length === 1) {
-        hints.push('整句只有一条成分，等于没有拆分：请按从句/词组分别解析');
-    }
-    if (clauses.length > ordered.length) {
-        hints.push(`句子有 ${String(clauses.length)} 个从句单位，成分只有 ${String(ordered.length)} 条`);
+        hints.push('整句只有一条成分，等于没有拆分：请按从句或主要词组分别解析，不要拆成单个词');
     }
     return { errors, hints, clauses };
 }

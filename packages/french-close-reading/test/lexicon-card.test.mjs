@@ -73,7 +73,7 @@ test('a 200 response with only site chrome is recorded as a failed fetch', async
   assert.equal(chrome.detail.recorded, true)
   assert.equal(chrome.detail.ok, false, 'HTTP 200 alone is not success')
   assert.equal(chrome.detail.outcome, 'body-missing')
-  assert.match(chrome.detail.note, /按训练数据回退/u)
+  assert.match(chrome.detail.note, /本次未取得可用资料/u)
 
   const good = await tool.execute({
     action: 'lexiconSource', entryId, section: 'etymology', kind: 'cnrtl',

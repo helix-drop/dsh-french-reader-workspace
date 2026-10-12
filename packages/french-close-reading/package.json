@@ -5,7 +5,8 @@
   "description": "French passage close-reading workspace for DeepSeek Harness",
   "type": "module",
   "scripts": {
-    "test": "node --test test/*.test.mjs"
+    "test": "node --test test/*.test.mjs",
+    "debug": "node debug/server.mjs"
   },
   "main": "lib/index.js",
   "types": "lib/index.d.ts",
@@ -117,7 +118,11 @@
     "lib/limits.js",
     "lib/limits.d.ts",
     "lib/source-fetch.js",
-    "lib/source-fetch.d.ts"
+    "lib/source-fetch.d.ts",
+    "lib/quick-dictionary.js",
+    "lib/quick-dictionary.d.ts",
+    "lib/analysis-reception.js",
+    "lib/analysis-reception.d.ts"
   ],
   "dependencies": {
     "zod": "4.4.3"

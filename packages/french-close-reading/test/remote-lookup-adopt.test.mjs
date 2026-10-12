@@ -203,3 +203,15 @@ test('adoptTranslation refuses malformed requests and reports an unknown variant
   assert.equal(unknown.adopted, false)
   assert.equal(unknown.reason, 'translation-unknown')
 })
+
+test('an unrelated manually queried word can be saved without attaching the current reading sentence', async () => {
+  const { controller } = await withPassage()
+  const saved = await controller.createLexiconEntryRemote({
+    mot: 'ouvrait', partOfSpeech: '动词', lemma: 'ouvrir', forms: [], label: '打开', definition: '未完成过去时',
+    operationId: uuid(), passageId: ids.passage, anchorId: 'p1.s1', occurrenceNote: '手动查询', attachOccurrence: false,
+  }, signal())
+  assert.equal(saved.kind, 'created')
+  assert.equal(saved.occurrence.kind, 'not-attempted')
+  const value = await controller.lookupMotRemote({ mot: 'ouvrait', partOfSpeech: null }, signal())
+  assert.equal(value.entries[0].occurrences.length, 0)
+})

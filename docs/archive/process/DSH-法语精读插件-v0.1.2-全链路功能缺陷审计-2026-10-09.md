@@ -1,3 +1,5 @@
+> **已归档（2026-10-10）。** 这是开发过程记录，不是当前说明。 当前说明见 [插件 README](../../../packages/french-close-reading/README.md)。 本批目录见 [归档索引](../README.md)。
+
 # DSH 法语精读插件 v0.1.2：重新开展的全链路功能缺陷审计
 
 **审计基线**：`helix-drop/dsh-french-reader-workspace`，`main`，提交 `067c275d150c749ef9e04a57aeb18738c53d45d3`（2026-10-09）。

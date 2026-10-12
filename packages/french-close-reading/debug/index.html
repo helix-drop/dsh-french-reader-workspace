@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>法语精读 · 浏览器调试</title>
+  <style>
+    html, body { height: 100%; margin: 0; background: #f5f4f0; }
+    #app { height: 100%; }
+    #fcr-debug-bar {
+      position: fixed; z-index: 40; top: 6px; left: 50%;
+      transform: translateX(-50%);
+      display: flex; align-items: center; gap: 8px;
+      padding: 4px 8px 4px 12px;
+      background: #fffefa; color: #253c38;
+      border: 1px solid #e0e5dd; border-radius: 999px;
+      font: 12px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      box-shadow: 0 6px 16px #0002;
+    }
+    #fcr-debug-bar button {
+      font: inherit; cursor: pointer;
+      border: 1px solid #e0e5dd; background: #fffefa; color: #253c38;
+      border-radius: 999px; padding: 4px 10px;
+    }
+    #fcr-debug-bar button[aria-pressed="true"] { background: #326952; color: #fffefa; border-color: #326952; }
+    @media (max-width: 760px) {
+      #fcr-debug-bar { top: auto; bottom: 8px; left: 8px; transform: none; }
+    }
+    .fcr-debug-lights {
+      position: fixed; z-index: 40; top: 18px; left: 14px;
+      display: flex; gap: 8px; pointer-events: none;
+    }
+    .fcr-debug-lights span { width: 12px; height: 12px; border-radius: 50%; background: #ff5f57; }
+    .fcr-debug-lights span:nth-child(2) { background: #febc2e; }
+    .fcr-debug-lights span:nth-child(3) { background: #28c840; }
+    .fcr-debug-closed, .fcr-debug-fail {
+      box-sizing: border-box; min-height: 100%;
+      display: grid; place-items: center; align-content: center; gap: 12px;
+      padding: 32px; color: #253c38;
+      font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    .fcr-debug-closed button, .fcr-debug-fail button {
+      font: inherit; cursor: pointer; border: 1px solid #326952; background: #326952; color: #fffefa;
+      border-radius: 8px; padding: 8px 14px;
+    }
+  </style>
+</head>
+<body>
+  <div id="app"></div>
+  <script src="/vendor/react.production.min.js"></script>
+  <script src="/vendor/react-dom.production.min.js"></script>
+  <script src="/boot.js"></script>
+  <script src="/client.js"></script>
+</body>
+</html>

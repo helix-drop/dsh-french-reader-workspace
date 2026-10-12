@@ -99,8 +99,8 @@ export declare const TranslationSchema: z.ZodObject<{
         excerpt: z.ZodString;
     }, z.core.$strict>>>;
     source: z.ZodDefault<z.ZodEnum<{
-        user: "user";
         ai: "ai";
+        user: "user";
     }>>;
     note: z.ZodDefault<z.ZodString>;
     language: z.ZodString;
@@ -173,8 +173,8 @@ export declare const AnalysisSchema: z.ZodObject<{
             excerpt: z.ZodString;
         }, z.core.$strict>>>;
         source: z.ZodDefault<z.ZodEnum<{
-            user: "user";
             ai: "ai";
+            user: "user";
         }>>;
         note: z.ZodDefault<z.ZodString>;
         language: z.ZodString;
@@ -228,9 +228,9 @@ export declare const RunIntentSchema: z.ZodObject<{
     module: z.ZodDefault<z.ZodNullable<z.ZodString>>;
     pitfall: z.ZodDefault<z.ZodString>;
     status: z.ZodEnum<{
-        failed: "failed";
         pending: "pending";
         applied: "applied";
+        failed: "failed";
     }>;
     appliedId: z.ZodNullable<z.ZodString>;
     detail: z.ZodNullable<z.ZodString>;
@@ -278,9 +278,9 @@ export declare const RunSchema: z.ZodObject<{
         module: z.ZodDefault<z.ZodNullable<z.ZodString>>;
         pitfall: z.ZodDefault<z.ZodString>;
         status: z.ZodEnum<{
-            failed: "failed";
             pending: "pending";
             applied: "applied";
+            failed: "failed";
         }>;
         appliedId: z.ZodNullable<z.ZodString>;
         detail: z.ZodNullable<z.ZodString>;
@@ -321,9 +321,9 @@ export declare const RunsSchema: z.ZodObject<{
             module: z.ZodDefault<z.ZodNullable<z.ZodString>>;
             pitfall: z.ZodDefault<z.ZodString>;
             status: z.ZodEnum<{
-                failed: "failed";
                 pending: "pending";
                 applied: "applied";
+                failed: "failed";
             }>;
             appliedId: z.ZodNullable<z.ZodString>;
             detail: z.ZodNullable<z.ZodString>;
@@ -408,8 +408,8 @@ export declare const LexiconEntrySchema: z.ZodObject<{
         createdAt: z.ZodString;
     }, z.core.$strict>>;
     provenance: z.ZodEnum<{
-        user: "user";
         ai: "ai";
+        user: "user";
         mixed: "mixed";
     }>;
     status: z.ZodEnum<{
@@ -614,10 +614,10 @@ export declare const ConjugationDatasetRecordSchema: z.ZodObject<{
     source: z.ZodString;
     sourceVersion: z.ZodString;
     fetchStatus: z.ZodEnum<{
+        failed: "failed";
         ok: "ok";
         partial: "partial";
         "rate-limited": "rate-limited";
-        failed: "failed";
         "no-forms": "no-forms";
     }>;
     failure: z.ZodDefault<z.ZodNullable<z.ZodString>>;
@@ -918,9 +918,9 @@ export declare const GenerationJobSchema: z.ZodObject<{
     model: z.ZodString;
     status: z.ZodEnum<{
         failed: "failed";
-        cancelled: "cancelled";
         running: "running";
         succeeded: "succeeded";
+        cancelled: "cancelled";
         interrupted: "interrupted";
     }>;
     phase: z.ZodOptional<z.ZodNullable<z.ZodString>>;
@@ -929,10 +929,10 @@ export declare const GenerationJobSchema: z.ZodObject<{
     firstTextDeltaMs: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
     partialText: z.ZodDefault<z.ZodString>;
     finish: z.ZodDefault<z.ZodNullable<z.ZodEnum<{
+        error: "error";
+        cancelled: "cancelled";
         stop: "stop";
         "max-tokens": "max-tokens";
-        cancelled: "cancelled";
-        error: "error";
     }>>>;
     failure: z.ZodDefault<z.ZodNullable<z.ZodString>>;
     resolvedModel: z.ZodDefault<z.ZodNullable<z.ZodString>>;
@@ -945,6 +945,8 @@ export declare const GenerationJobSchema: z.ZodObject<{
     startedAt: z.ZodString;
     updatedAt: z.ZodString;
     finishedAt: z.ZodDefault<z.ZodNullable<z.ZodString>>;
+    effectiveMaxTokens: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
+    effectiveReasoningEffort: z.ZodOptional<z.ZodNullable<z.ZodString>>;
 }, z.core.$strict>;
 export type StoredGenerationJob = z.infer<typeof GenerationJobSchema>;
 declare const PassageRecordSchema: z.ZodDiscriminatedUnion<[z.ZodObject<{
@@ -1001,8 +1003,8 @@ declare const PassageRecordSchema: z.ZodDiscriminatedUnion<[z.ZodObject<{
                 excerpt: z.ZodString;
             }, z.core.$strict>>>;
             source: z.ZodDefault<z.ZodEnum<{
-                user: "user";
                 ai: "ai";
+                user: "user";
             }>>;
             note: z.ZodDefault<z.ZodString>;
             language: z.ZodString;
@@ -1062,9 +1064,9 @@ declare const PassageRecordSchema: z.ZodDiscriminatedUnion<[z.ZodObject<{
                 module: z.ZodDefault<z.ZodNullable<z.ZodString>>;
                 pitfall: z.ZodDefault<z.ZodString>;
                 status: z.ZodEnum<{
-                    failed: "failed";
                     pending: "pending";
                     applied: "applied";
+                    failed: "failed";
                 }>;
                 appliedId: z.ZodNullable<z.ZodString>;
                 detail: z.ZodNullable<z.ZodString>;
@@ -1134,8 +1136,8 @@ declare const PassageRecordSchema: z.ZodDiscriminatedUnion<[z.ZodObject<{
             createdAt: z.ZodString;
         }, z.core.$strict>>;
         provenance: z.ZodEnum<{
-            user: "user";
             ai: "ai";
+            user: "user";
             mixed: "mixed";
         }>;
         status: z.ZodEnum<{
@@ -1314,10 +1316,10 @@ declare const PassageRecordSchema: z.ZodDiscriminatedUnion<[z.ZodObject<{
                     resolvedModel: z.ZodDefault<z.ZodNullable<z.ZodString>>;
                     attempt: z.ZodDefault<z.ZodNumber>;
                     status: z.ZodEnum<{
-                        partial: "partial";
                         failed: "failed";
-                        cancelled: "cancelled";
                         draft: "draft";
+                        partial: "partial";
+                        cancelled: "cancelled";
                         complete: "complete";
                     }>;
                     failure: z.ZodDefault<z.ZodNullable<z.ZodString>>;
@@ -1449,9 +1451,9 @@ declare const PassageRecordSchema: z.ZodDiscriminatedUnion<[z.ZodObject<{
         model: z.ZodString;
         status: z.ZodEnum<{
             failed: "failed";
-            cancelled: "cancelled";
             running: "running";
             succeeded: "succeeded";
+            cancelled: "cancelled";
             interrupted: "interrupted";
         }>;
         phase: z.ZodOptional<z.ZodNullable<z.ZodString>>;
@@ -1460,10 +1462,10 @@ declare const PassageRecordSchema: z.ZodDiscriminatedUnion<[z.ZodObject<{
         firstTextDeltaMs: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
         partialText: z.ZodDefault<z.ZodString>;
         finish: z.ZodDefault<z.ZodNullable<z.ZodEnum<{
+            error: "error";
+            cancelled: "cancelled";
             stop: "stop";
             "max-tokens": "max-tokens";
-            cancelled: "cancelled";
-            error: "error";
         }>>>;
         failure: z.ZodDefault<z.ZodNullable<z.ZodString>>;
         resolvedModel: z.ZodDefault<z.ZodNullable<z.ZodString>>;
@@ -1476,6 +1478,8 @@ declare const PassageRecordSchema: z.ZodDiscriminatedUnion<[z.ZodObject<{
         startedAt: z.ZodString;
         updatedAt: z.ZodString;
         finishedAt: z.ZodDefault<z.ZodNullable<z.ZodString>>;
+        effectiveMaxTokens: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
+        effectiveReasoningEffort: z.ZodOptional<z.ZodNullable<z.ZodString>>;
     }, z.core.$strict>;
 }, z.core.$strict>, z.ZodObject<{
     kind: z.ZodLiteral<"conjugationDataset">;
@@ -1486,10 +1490,10 @@ declare const PassageRecordSchema: z.ZodDiscriminatedUnion<[z.ZodObject<{
         source: z.ZodString;
         sourceVersion: z.ZodString;
         fetchStatus: z.ZodEnum<{
+            failed: "failed";
             ok: "ok";
             partial: "partial";
             "rate-limited": "rate-limited";
-            failed: "failed";
             "no-forms": "no-forms";
         }>;
         failure: z.ZodDefault<z.ZodNullable<z.ZodString>>;
@@ -1660,8 +1664,8 @@ declare const PassageRecordSchema: z.ZodDiscriminatedUnion<[z.ZodObject<{
         field: z.ZodString;
         text: z.ZodString;
         author: z.ZodEnum<{
-            user: "user";
             ai: "ai";
+            user: "user";
             mixed: "mixed";
         }>;
         reason: z.ZodDefault<z.ZodNullable<z.ZodString>>;
@@ -1699,6 +1703,7 @@ declare const PassageRecordSchema: z.ZodDiscriminatedUnion<[z.ZodObject<{
                 text: z.ZodString;
                 clauseId: z.ZodDefault<z.ZodNullable<z.ZodString>>;
                 partOfSpeech: z.ZodDefault<z.ZodNullable<z.ZodString>>;
+                gloss: z.ZodDefault<z.ZodString>;
             }, z.core.$strict>>;
             morphology: z.ZodArray<z.ZodObject<{
                 id: z.ZodString;
@@ -1726,8 +1731,8 @@ declare const PassageRecordSchema: z.ZodDiscriminatedUnion<[z.ZodObject<{
                 end: z.ZodDefault<z.ZodNullable<z.ZodNumber>>;
             }, z.core.$strict>>;
             provenance: z.ZodEnum<{
-                user: "user";
                 ai: "ai";
+                user: "user";
                 mixed: "mixed";
             }>;
             status: z.ZodEnum<{
@@ -1737,6 +1742,29 @@ declare const PassageRecordSchema: z.ZodDiscriminatedUnion<[z.ZodObject<{
             revision: z.ZodNumber;
             createdAt: z.ZodString;
             updatedAt: z.ZodString;
+            cacheIdentity: z.ZodOptional<z.ZodString>;
+            reception: z.ZodOptional<z.ZodObject<{
+                protocolVersion: z.ZodNumber;
+                state: z.ZodEnum<{
+                    partial: "partial";
+                    complete: "complete";
+                }>;
+                issues: z.ZodArray<z.ZodObject<{
+                    kind: z.ZodEnum<{
+                        clause: "clause";
+                        constituent: "constituent";
+                        explanation: "explanation";
+                    }>;
+                    index: z.ZodNumber;
+                    role: z.ZodString;
+                    text: z.ZodString;
+                    reason: z.ZodString;
+                }, z.core.$strip>>;
+                recoveredRanges: z.ZodNumber;
+                tokenRanges: z.ZodNumber;
+                receivedClauses: z.ZodNumber;
+                receivedConstituents: z.ZodNumber;
+            }, z.core.$strip>>;
         }, z.core.$strict>>;
     }, z.core.$strict>;
 }, z.core.$strict>, z.ZodObject<{
@@ -1829,7 +1857,7 @@ export declare const FRENCH_READER_DOMAIN: {
                         end: number;
                         excerpt: string;
                     } | null;
-                    source: "user" | "ai";
+                    source: "ai" | "user";
                     note: string;
                     language: string;
                     text: string;
@@ -1877,7 +1905,7 @@ export declare const FRENCH_READER_DOMAIN: {
                         level: string | null;
                         module: string | null;
                         pitfall: string;
-                        status: "failed" | "pending" | "applied";
+                        status: "pending" | "applied" | "failed";
                         appliedId: string | null;
                         detail: string | null;
                     }[];
@@ -1940,7 +1968,7 @@ export declare const FRENCH_READER_DOMAIN: {
                     operationId: string;
                     createdAt: string;
                 }[];
-                provenance: "user" | "ai" | "mixed";
+                provenance: "ai" | "user" | "mixed";
                 status: "draft" | "reviewed";
                 revision: number;
                 operationId: string;
@@ -2082,7 +2110,7 @@ export declare const FRENCH_READER_DOMAIN: {
                             model: string;
                             resolvedModel: string | null;
                             attempt: number;
-                            status: "partial" | "failed" | "cancelled" | "draft" | "complete";
+                            status: "failed" | "draft" | "partial" | "cancelled" | "complete";
                             failure: string | null;
                             usage: {
                                 inputTokens: number | null;
@@ -2180,10 +2208,10 @@ export declare const FRENCH_READER_DOMAIN: {
                 anchorId: string | null;
                 backend: string;
                 model: string;
-                status: "failed" | "cancelled" | "running" | "succeeded" | "interrupted";
+                status: "failed" | "running" | "succeeded" | "cancelled" | "interrupted";
                 attempt: number;
                 partialText: string;
-                finish: "stop" | "max-tokens" | "cancelled" | "error" | null;
+                finish: "error" | "cancelled" | "stop" | "max-tokens" | null;
                 failure: string | null;
                 resolvedModel: string | null;
                 usage: {
@@ -2198,6 +2226,8 @@ export declare const FRENCH_READER_DOMAIN: {
                 phase?: string | null | undefined;
                 modelCallMs?: number | null | undefined;
                 firstTextDeltaMs?: number | null | undefined;
+                effectiveMaxTokens?: number | null | undefined;
+                effectiveReasoningEffort?: string | null | undefined;
             };
         } | {
             kind: "conjugationDataset";
@@ -2207,7 +2237,7 @@ export declare const FRENCH_READER_DOMAIN: {
                 lemma: string;
                 source: string;
                 sourceVersion: string;
-                fetchStatus: "ok" | "partial" | "rate-limited" | "failed" | "no-forms";
+                fetchStatus: "failed" | "ok" | "partial" | "rate-limited" | "no-forms";
                 failure: string | null;
                 missingForms: string[];
                 dataset: {
@@ -2305,7 +2335,7 @@ export declare const FRENCH_READER_DOMAIN: {
                         lemma: string;
                         tense: string;
                         formKind: "finite" | "compound-infinitive" | "participle";
-                        person: 1 | 2 | 6 | 5 | 3 | 4 | null;
+                        person: 1 | 2 | 5 | 3 | 4 | 6 | null;
                         form: string;
                         utterance: string;
                         language: string;
@@ -2342,7 +2372,7 @@ export declare const FRENCH_READER_DOMAIN: {
                 targetId: string;
                 field: string;
                 text: string;
-                author: "user" | "ai" | "mixed";
+                author: "ai" | "user" | "mixed";
                 reason: string | null;
                 replacesId: string | null;
                 createdAt: string;
@@ -2378,6 +2408,7 @@ export declare const FRENCH_READER_DOMAIN: {
                         text: string;
                         clauseId: string | null;
                         partOfSpeech: string | null;
+                        gloss: string;
                     }[];
                     morphology: {
                         id: string;
@@ -2399,11 +2430,27 @@ export declare const FRENCH_READER_DOMAIN: {
                         start: number | null;
                         end: number | null;
                     }[];
-                    provenance: "user" | "ai" | "mixed";
+                    provenance: "ai" | "user" | "mixed";
                     status: "draft" | "reviewed";
                     revision: number;
                     createdAt: string;
                     updatedAt: string;
+                    cacheIdentity?: string | undefined;
+                    reception?: {
+                        protocolVersion: number;
+                        state: "partial" | "complete";
+                        issues: {
+                            kind: "clause" | "constituent" | "explanation";
+                            index: number;
+                            role: string;
+                            text: string;
+                            reason: string;
+                        }[];
+                        recoveredRanges: number;
+                        tokenRanges: number;
+                        receivedClauses: number;
+                        receivedConstituents: number;
+                    } | undefined;
                 }[];
             };
         } | {

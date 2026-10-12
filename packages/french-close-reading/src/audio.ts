@@ -836,6 +836,7 @@ export async function synthesizeSpeech(
     const result = backend.kind === 'live'
       ? await synthesizeWithLive(verdict.text, config, backend, apiKey, link, deps)
       : await synthesizeWithTts(verdict.text, config, backend, apiKey, link, deps)
+    assertNotAborted(link)
     return result
   } finally {
     link.dispose()

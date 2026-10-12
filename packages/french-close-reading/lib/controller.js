@@ -32,6 +32,7 @@ var __esDecorate = (this && this.__esDecorate) || function (ctor, descriptorIn, 
     if (target) Object.defineProperty(target, contextIn.name, descriptor);
     done = true;
 };
+import { QuickDictionary } from "./quick-dictionary.js";
 import { Remote, RemoteError, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol';
 import { z } from 'zod';
 import { previewImport } from "./import-preview.js";
@@ -46,7 +47,7 @@ import { extractGrammarPoints, } from "./answer-extraction.js";
 import { answerForLemma, mergeDataset, missingPersons, readConjugationRecord, writeConjugationDataset, } from "./conjugation-store.js";
 import { fetchConjugationDataset } from "./conjugation-fetch.js";
 import { beginGenerationJob, finishGenerationJob, listGenerationJobs as listStoredGenerationJobs, readGenerationJob, reconcileGenerationJobs, recordFirstTextDelta, recordGenerationPhase, recordGenerationProgress, } from "./generation-store.js";
-import { DshLlmBackend, } from "./generation.js";
+import { DshLlmBackend, ANALYSIS_OUTPUT_TOKENS, } from "./generation.js";
 import { ANCHOR_ID_PATTERN, adoptionsKey, analysisKey, GRAMMAR_STORE_KEY, grammarKey, BRANCH_KINDS, EXCERPT_CHARACTERS, FRENCH_READER_DOMAIN, MAX_BRANCH_BODY_CHARACTERS, MAX_BRANCHES, MAX_BRANCH_TITLE_CHARACTERS, MAX_PASSAGES, MAX_PAGE_SIZE, MAX_SOURCE_CHARACTERS, MAX_TITLE_CHARACTERS, MAX_TRANSLATION_CHARACTERS, runsKey, segmentsKey, LEXICON_INDEX_KEY, lexiconKey, SELECTION_GAP, selectionAnchorId, selectionKey, segmentsKeyFor, sourceKey, TRANSLATION_SOURCES, } from "./domain.js";
 import { findAnchor, isKnownAnchor, PASSAGE_ANCHOR_ID, segmentSource, SEGMENTATION_REVISION, } from "./segmentation.js";
 import { AudioSynthesisError, DEFAULT_MAX_CHARACTERS, audioCapabilities, bytesToBase64, isInputRejection, resolveAudioConfiguration, synthesizeSpeech, } from "./audio.js";
@@ -175,6 +176,7 @@ const createLexiconEntryRequestSchema = z.object({
     passageId: z.string().uuid(),
     anchorId: anchorIdSchema,
     occurrenceNote: z.string().trim().min(1).max(500),
+    attachOccurrence: z.boolean().optional(),
 }).strict();
 const createLexiconOccurrenceValueSchema = z.object({
     kind: z.enum(['appended', 'already-appended', 'not-attempted', 'failed']),
@@ -236,6 +238,7 @@ const analyseSentenceRequestSchema = z.object({
 }).strict();
 async function analysisContextFingerprint(input) {
     const serialized = JSON.stringify({
+        analysisFormat: 'source-anchors-v3-budget-and-syntax',
         passageId: input.passageId,
         sourceRevision: input.sourceRevision,
         segmentationRevision: input.segmentationRevision,
@@ -418,6 +421,7 @@ function linkAbortSignals(signals) {
 let FrenchReaderController = (() => {
     let _classSuper = TypertRemoteService;
     let _instanceExtraInitializers = [];
+    let _renamePassageRemote_decorators;
     let _listPassages_decorators;
     let _listArchivedPassages_decorators;
     let _getPassage_decorators;
@@ -456,11 +460,13 @@ let FrenchReaderController = (() => {
     let _saveTranslation_decorators;
     let _addBranch_decorators;
     let _listAnalysis_decorators;
+    let _quickDictionaryRemote_decorators;
     let _lookupMotRemote_decorators;
     let _createLexiconEntryRemote_decorators;
     let _adoptTranslationRemote_decorators;
     let _readConjugationRemote_decorators;
     let _fetchConjugationRemote_decorators;
+    let _cancelWorkRemote_decorators;
     let _synthesizeSentenceAudioRemote_decorators;
     let _listSentenceAudioRemote_decorators;
     let _selectSentenceAudioRemote_decorators;
@@ -475,6 +481,7 @@ let FrenchReaderController = (() => {
     return class FrenchReaderController extends _classSuper {
         static {
             const _metadata = typeof Symbol === "function" && Symbol.metadata ? Object.create(_classSuper[Symbol.metadata] ?? null) : void 0;
+            _renamePassageRemote_decorators = [Remote('renamePassage')];
             _listPassages_decorators = [Remote('listPassages')];
             _listArchivedPassages_decorators = [Remote('listArchivedPassages')];
             _getPassage_decorators = [Remote('getPassage')];
@@ -513,11 +520,13 @@ let FrenchReaderController = (() => {
             _saveTranslation_decorators = [Remote('saveTranslation')];
             _addBranch_decorators = [Remote('addBranch')];
             _listAnalysis_decorators = [Remote('listAnalysis')];
+            _quickDictionaryRemote_decorators = [Remote('quickDictionary')];
             _lookupMotRemote_decorators = [Remote('lookupMot')];
             _createLexiconEntryRemote_decorators = [Remote('createLexiconEntry')];
             _adoptTranslationRemote_decorators = [Remote('adoptTranslation')];
             _readConjugationRemote_decorators = [Remote('readConjugation')];
             _fetchConjugationRemote_decorators = [Remote('fetchConjugation')];
+            _cancelWorkRemote_decorators = [Remote('cancelWork')];
             _synthesizeSentenceAudioRemote_decorators = [Remote('synthesizeSentenceAudio')];
             _listSentenceAudioRemote_decorators = [Remote('listSentenceAudio')];
             _selectSentenceAudioRemote_decorators = [Remote('selectSentenceAudio')];
@@ -529,6 +538,7 @@ let FrenchReaderController = (() => {
             _streamAsk_decorators = [Remote({ mode: 'stream' })];
             _exportLibraryRemote_decorators = [Remote('exportLibrary')];
             _importLibraryRemote_decorators = [Remote('importLibrary')];
+            __esDecorate(this, null, _renamePassageRemote_decorators, { kind: "method", name: "renamePassageRemote", static: false, private: false, access: { has: obj => "renamePassageRemote" in obj, get: obj => obj.renamePassageRemote }, metadata: _metadata }, null, _instanceExtraInitializers);
             __esDecorate(this, null, _listPassages_decorators, { kind: "method", name: "listPassages", static: false, private: false, access: { has: obj => "listPassages" in obj, get: obj => obj.listPassages }, metadata: _metadata }, null, _instanceExtraInitializers);
             __esDecorate(this, null, _listArchivedPassages_decorators, { kind: "method", name: "listArchivedPassages", static: false, private: false, access: { has: obj => "listArchivedPassages" in obj, get: obj => obj.listArchivedPassages }, metadata: _metadata }, null, _instanceExtraInitializers);
             __esDecorate(this, null, _getPassage_decorators, { kind: "method", name: "getPassage", static: false, private: false, access: { has: obj => "getPassage" in obj, get: obj => obj.getPassage }, metadata: _metadata }, null, _instanceExtraInitializers);
@@ -567,11 +577,13 @@ let FrenchReaderController = (() => {
             __esDecorate(this, null, _saveTranslation_decorators, { kind: "method", name: "saveTranslation", static: false, private: false, access: { has: obj => "saveTranslation" in obj, get: obj => obj.saveTranslation }, metadata: _metadata }, null, _instanceExtraInitializers);
             __esDecorate(this, null, _addBranch_decorators, { kind: "method", name: "addBranch", static: false, private: false, access: { has: obj => "addBranch" in obj, get: obj => obj.addBranch }, metadata: _metadata }, null, _instanceExtraInitializers);
             __esDecorate(this, null, _listAnalysis_decorators, { kind: "method", name: "listAnalysis", static: false, private: false, access: { has: obj => "listAnalysis" in obj, get: obj => obj.listAnalysis }, metadata: _metadata }, null, _instanceExtraInitializers);
+            __esDecorate(this, null, _quickDictionaryRemote_decorators, { kind: "method", name: "quickDictionaryRemote", static: false, private: false, access: { has: obj => "quickDictionaryRemote" in obj, get: obj => obj.quickDictionaryRemote }, metadata: _metadata }, null, _instanceExtraInitializers);
             __esDecorate(this, null, _lookupMotRemote_decorators, { kind: "method", name: "lookupMotRemote", static: false, private: false, access: { has: obj => "lookupMotRemote" in obj, get: obj => obj.lookupMotRemote }, metadata: _metadata }, null, _instanceExtraInitializers);
             __esDecorate(this, null, _createLexiconEntryRemote_decorators, { kind: "method", name: "createLexiconEntryRemote", static: false, private: false, access: { has: obj => "createLexiconEntryRemote" in obj, get: obj => obj.createLexiconEntryRemote }, metadata: _metadata }, null, _instanceExtraInitializers);
             __esDecorate(this, null, _adoptTranslationRemote_decorators, { kind: "method", name: "adoptTranslationRemote", static: false, private: false, access: { has: obj => "adoptTranslationRemote" in obj, get: obj => obj.adoptTranslationRemote }, metadata: _metadata }, null, _instanceExtraInitializers);
             __esDecorate(this, null, _readConjugationRemote_decorators, { kind: "method", name: "readConjugationRemote", static: false, private: false, access: { has: obj => "readConjugationRemote" in obj, get: obj => obj.readConjugationRemote }, metadata: _metadata }, null, _instanceExtraInitializers);
             __esDecorate(this, null, _fetchConjugationRemote_decorators, { kind: "method", name: "fetchConjugationRemote", static: false, private: false, access: { has: obj => "fetchConjugationRemote" in obj, get: obj => obj.fetchConjugationRemote }, metadata: _metadata }, null, _instanceExtraInitializers);
+            __esDecorate(this, null, _cancelWorkRemote_decorators, { kind: "method", name: "cancelWorkRemote", static: false, private: false, access: { has: obj => "cancelWorkRemote" in obj, get: obj => obj.cancelWorkRemote }, metadata: _metadata }, null, _instanceExtraInitializers);
             __esDecorate(this, null, _synthesizeSentenceAudioRemote_decorators, { kind: "method", name: "synthesizeSentenceAudioRemote", static: false, private: false, access: { has: obj => "synthesizeSentenceAudioRemote" in obj, get: obj => obj.synthesizeSentenceAudioRemote }, metadata: _metadata }, null, _instanceExtraInitializers);
             __esDecorate(this, null, _listSentenceAudioRemote_decorators, { kind: "method", name: "listSentenceAudioRemote", static: false, private: false, access: { has: obj => "listSentenceAudioRemote" in obj, get: obj => obj.listSentenceAudioRemote }, metadata: _metadata }, null, _instanceExtraInitializers);
             __esDecorate(this, null, _selectSentenceAudioRemote_decorators, { kind: "method", name: "selectSentenceAudioRemote", static: false, private: false, access: { has: obj => "selectSentenceAudioRemote" in obj, get: obj => obj.selectSentenceAudioRemote }, metadata: _metadata }, null, _instanceExtraInitializers);
@@ -587,9 +599,13 @@ let FrenchReaderController = (() => {
         }
         domain = __runInitializers(this, _instanceExtraInitializers);
         writeTail = Promise.resolve();
+        latestSentenceAttempts = new Map();
         activeAnalyses = new Map();
         queuedAnalysisCancellations = new Map();
         /** Every synthesis currently in flight, keyed by the caller's request id. */
+        workCancellations = new Map();
+        activeAsks = new Map();
+        completedWork = new Set();
         audioInFlight = new Map();
         /**
          * The newest request started for each source fingerprint.
@@ -619,6 +635,17 @@ let FrenchReaderController = (() => {
             Object.defineProperty(this, STATE, {
                 value: { ctx, backends },
                 enumerable: false, writable: false, configurable: false,
+            });
+        }
+        async renamePassageRemote(request, signal) {
+            const input = z.object({ passageId: z.string().uuid(), expectedTitle: z.string(), title: z.string().trim().min(1).max(120), sourceRevision: z.number().int().positive() }).strict().parse(request);
+            return this.serialize(async () => {
+                signal.throwIfAborted();
+                const passage = this.readPassage(input.passageId);
+                if (!passage || passage.title !== input.expectedTitle || passage.sourceRevision !== input.sourceRevision)
+                    return { updated: false };
+                await this.table().put(input.passageId, { kind: 'passage', recordVersion: 1, payload: { ...passage, title: input.title, updatedAt: new Date().toISOString() } });
+                return { updated: true };
             });
         }
         async listPassages(request, signal) {
@@ -810,6 +837,9 @@ let FrenchReaderController = (() => {
             return {
                 kind: 'found',
                 analysis: {
+                    cacheIdentity: analysis.cacheIdentity,
+                    sourceRevision: analysis.sourceRevision,
+                    segmentationRevision: analysis.segmentationRevision,
                     anchorId: analysis.anchorId,
                     text: analysis.text,
                     translation: analysis.translation,
@@ -821,6 +851,7 @@ let FrenchReaderController = (() => {
                     constituents: analysis.constituents.map((item) => ({
                         id: item.id, role: item.role, start: item.start, end: item.end,
                         text: item.text, clauseId: item.clauseId, partOfSpeech: item.partOfSpeech,
+                        gloss: item.gloss ?? '',
                     })),
                     morphology: analysis.morphology.map((item) => ({
                         id: item.id, form: item.form, lemma: item.lemma, partOfSpeech: item.partOfSpeech,
@@ -2077,12 +2108,27 @@ let FrenchReaderController = (() => {
          * it allowed to see" survives a restart. A failure stores a failed attempt
          * rather than an empty turn.
          */
-        async ask(input, signal, 
-        /**
-         * Called with each delta as the provider produces it. The generation job records
-         * progress either way; this is how a streamed turn shows it while it arrives.
-         */
-        observe) {
+        async ask(input, callerSignal, observe) {
+            const controller = new AbortController();
+            const forward = () => controller.abort();
+            if (callerSignal.aborted || this.cancelledWork('ask', input.operationId))
+                forward();
+            else
+                callerSignal.addEventListener('abort', forward, { once: true });
+            if (this.activeAsks.has(input.operationId))
+                return { ok: false, reason: 'already-running' };
+            this.activeAsks.set(input.operationId, controller);
+            try {
+                return await this.askInternal(input, controller.signal, observe);
+            }
+            finally {
+                callerSignal.removeEventListener('abort', forward);
+                this.activeAsks.delete(input.operationId);
+                this.completeWork('ask', input.operationId);
+            }
+        }
+        /** Reports each provider delta while the generation job records progress. */
+        async askInternal(input, signal, observe) {
             const backend = this.backends().find((entry) => entry.id === input.backend);
             if (backend === undefined)
                 return { ok: false, reason: 'backend-unknown' };
@@ -2181,6 +2227,7 @@ let FrenchReaderController = (() => {
             };
             let outcome;
             try {
+                signal.throwIfAborted();
                 outcome = await backend.generate({ backend: backend.id, model: input.model, reasoningEffort: input.reasoningEffort ?? undefined }, {
                     system: renderSystem(), prompt: renderPrompt(manifest), signal, onDelta,
                     onFirstTextDelta: (elapsedMs) => {
@@ -2191,6 +2238,9 @@ let FrenchReaderController = (() => {
             catch (error) {
                 outcome = { text: '', resolvedModel: null, usage: null, finish: 'error', failure: String(error) };
             }
+            if (signal.aborted)
+                outcome = { text: partial, resolvedModel: outcome.resolvedModel, usage: outcome.usage, finish: 'cancelled', failure: 'cancelled' };
+            this.completeWork('ask', input.operationId);
             // Whatever the streaming buffer missed is still the answer the provider sent.
             if (partial.length < outcome.text.length && outcome.text.startsWith(partial))
                 partial = outcome.text;
@@ -2459,6 +2509,18 @@ let FrenchReaderController = (() => {
                 };
             });
         }
+        quickDictionary = new QuickDictionary();
+        async quickDictionaryRemote(request, signal) {
+            const parsed = lookupMotRequestSchema.safeParse(request);
+            if (!parsed.success)
+                throw badRequest('Invalid dictionary request', parsed.error.issues);
+            const web = stateOf(this).ctx.get('web');
+            const fetchPage = web === undefined ? undefined : async (url, pageSignal) => {
+                const response = await web.fetch({ url }, pageSignal);
+                return { statusCode: response.statusCode, body: response.body, truncated: response.truncated };
+            };
+            return this.quickDictionary.lookup(parsed.data.mot, fetchPage, signal);
+        }
         /**
          * Exact-Mot lookup, as the reader's own act.
          *
@@ -2532,6 +2594,8 @@ let FrenchReaderController = (() => {
                         occurrence: { kind: 'not-attempted', reason: null },
                     };
                 }
+                if (input.attachOccurrence === false)
+                    return { kind: created.created ? 'created' : 'exists', entryId: created.entryId, occurrence: { kind: 'not-attempted', reason: 'example-not-selected' } };
                 let occurrence;
                 try {
                     const appended = await appendLexiconOccurrence(this.table(), {
@@ -2732,6 +2796,32 @@ let FrenchReaderController = (() => {
             }
             return rows.sort((left, right) => right.fetchedAt.localeCompare(left.fetchedAt));
         }
+        async cancelWorkRemote(request, signal) {
+            signal.throwIfAborted();
+            const parsed = z.object({ kind: z.enum(['sentence', 'inflection', 'ask']), requestId: z.string().uuid() }).parse(request);
+            const key = `${parsed.kind}/${parsed.requestId}`;
+            if (this.completedWork.has(key))
+                return { accepted: false, settled: true };
+            for (const [id, expires] of this.workCancellations)
+                if (expires < Date.now())
+                    this.workCancellations.delete(id);
+            if (this.workCancellations.size >= 512)
+                this.workCancellations.delete(this.workCancellations.keys().next().value);
+            this.workCancellations.set(key, Date.now() + 600_000);
+            if (parsed.kind === 'ask')
+                this.activeAsks.get(parsed.requestId)?.abort();
+            else
+                this.audioInFlight.get(audioRequestKey(parsed.kind, parsed.requestId))?.controller.abort();
+            return { accepted: true, settled: false };
+        }
+        cancelledWork(kind, id) {
+            return (this.workCancellations.get(`${kind}/${id}`) ?? 0) > Date.now();
+        }
+        completeWork(kind, id) {
+            if (this.completedWork.size >= 512)
+                this.completedWork.delete(this.completedWork.values().next().value);
+            this.completedWork.add(`${kind}/${id}`);
+        }
         // --- audio surface: reading one sentence, or one form, aloud --------------
         /**
          * Synthesize one sentence, and append the take it produces.
@@ -2756,6 +2846,27 @@ let FrenchReaderController = (() => {
             return this.synthesizeSentenceAudio(parsed.data, signal);
         }
         async synthesizeSentenceAudio(input, signal) {
+            const key = audioRequestKey('sentence', input.requestId);
+            if (this.audioInFlight.has(key))
+                return { kind: 'generating', requestId: input.requestId };
+            const controller = new AbortController();
+            const forward = () => controller.abort();
+            if (signal.aborted || this.cancelledWork('sentence', input.requestId))
+                forward();
+            else
+                signal.addEventListener('abort', forward, { once: true });
+            this.audioInFlight.set(key, { requestId: input.requestId, sourceKey: sentenceAudioSourceKey(input.source), controller });
+            try {
+                return await this.synthesizeSentenceAudioInternal(input, controller.signal);
+            }
+            finally {
+                signal.removeEventListener('abort', forward);
+                this.audioInFlight.delete(key);
+            }
+        }
+        async synthesizeSentenceAudioInternal(input, signal) {
+            if (this.cancelledWork('sentence', input.requestId) || signal.aborted)
+                return { kind: 'cancelled', requestId: input.requestId };
             const configuration = this.audioConfiguration();
             if (configuration.state === 'unconfigured') {
                 return { kind: 'unconfigured', reason: configuration.reason, message: configuration.detail };
@@ -2771,9 +2882,6 @@ let FrenchReaderController = (() => {
                 return { kind: 'replayed', take: toSentenceAudioTakeView(replayed, replayed.takeId === stored.selectedTakeId) };
             }
             // The same request id, already running: report it instead of queueing it twice.
-            if (this.audioInFlight.has(audioRequestKey('sentence', input.requestId))) {
-                return { kind: 'generating', requestId: input.requestId };
-            }
             if (input.action === 'generate') {
                 // A cache hit means the *same* reading, not merely the same identifiers:
                 // a stored take whose text differs is a different sentence's audio.
@@ -2846,6 +2954,27 @@ let FrenchReaderController = (() => {
             return this.synthesizeInflectionAudio(parsed.data, signal);
         }
         async synthesizeInflectionAudio(input, signal) {
+            const key = audioRequestKey('inflection', input.requestId);
+            if (this.audioInFlight.has(key))
+                return { kind: 'generating', requestId: input.requestId };
+            const controller = new AbortController();
+            const forward = () => controller.abort();
+            if (signal.aborted || this.cancelledWork('inflection', input.requestId))
+                forward();
+            else
+                signal.addEventListener('abort', forward, { once: true });
+            this.audioInFlight.set(key, { requestId: input.requestId, sourceKey: inflectionAudioSourceKey(input.source), controller });
+            try {
+                return await this.synthesizeInflectionAudioInternal(input, controller.signal);
+            }
+            finally {
+                signal.removeEventListener('abort', forward);
+                this.audioInFlight.delete(key);
+            }
+        }
+        async synthesizeInflectionAudioInternal(input, signal) {
+            if (this.cancelledWork('inflection', input.requestId) || signal.aborted)
+                return { kind: 'cancelled', requestId: input.requestId };
             const configuration = this.audioConfiguration();
             if (configuration.state === 'unconfigured') {
                 return { kind: 'unconfigured', reason: configuration.reason, message: configuration.detail };
@@ -2859,9 +2988,6 @@ let FrenchReaderController = (() => {
             const replayed = stored.takes.find((take) => take.requestId === input.requestId);
             if (replayed !== undefined) {
                 return { kind: 'replayed', take: toInflectionAudioTakeView(replayed, replayed.takeId === stored.selectedTakeId) };
-            }
-            if (this.audioInFlight.has(audioRequestKey('inflection', input.requestId))) {
-                return { kind: 'generating', requestId: input.requestId };
             }
             if (input.action === 'generate') {
                 // The fingerprint is `formId|inflectionRevision`, so two readings of one
@@ -2924,7 +3050,7 @@ let FrenchReaderController = (() => {
         async runSentenceSynthesis(input, configuration, voice, sourceKey, signal) {
             const controller = new AbortController();
             const forward = () => controller.abort();
-            if (signal.aborted)
+            if (signal.aborted || this.cancelledWork('sentence', input.requestId))
                 forward();
             else
                 signal.addEventListener('abort', forward, { once: true });
@@ -2934,7 +3060,15 @@ let FrenchReaderController = (() => {
             try {
                 const result = await synthesizeSpeech({ kind: 'sentence', text: input.source.text, language: input.source.language }, configuration, controller.signal, this.audioTransport());
                 const take = buildSentenceAudioTake(input, configuration, voice, result);
-                const appended = await this.serialize(() => appendSentenceAudioTake(this.table(), take));
+                const appended = await this.serialize(() => {
+                    if (controller.signal.aborted || this.cancelledWork('sentence', input.requestId))
+                        throw new AudioSynthesisError('cancelled', '音频合成已取消');
+                    return appendSentenceAudioTake(this.table(), take, () => {
+                        if (controller.signal.aborted || this.cancelledWork('sentence', input.requestId))
+                            throw new AudioSynthesisError('cancelled', '音频合成已取消');
+                        this.completeWork('sentence', input.requestId);
+                    });
+                });
                 const current = this.audioNewestRequest.get(sourceKey) === input.requestId;
                 if (current) {
                     await this.serialize(() => selectSentenceAudioTake(this.table(), input.source, appended.take.takeId));
@@ -2953,7 +3087,7 @@ let FrenchReaderController = (() => {
         async runInflectionSynthesis(input, configuration, voice, sourceKey, signal) {
             const controller = new AbortController();
             const forward = () => controller.abort();
-            if (signal.aborted)
+            if (signal.aborted || this.cancelledWork('inflection', input.requestId))
                 forward();
             else
                 signal.addEventListener('abort', forward, { once: true });
@@ -2963,7 +3097,15 @@ let FrenchReaderController = (() => {
             try {
                 const result = await synthesizeSpeech({ kind: 'inflection', text: input.source.utterance, language: input.source.language }, configuration, controller.signal, this.audioTransport());
                 const take = buildInflectionAudioTake(input, configuration, voice, result);
-                const appended = await this.serialize(() => appendInflectionAudioTake(this.table(), take));
+                const appended = await this.serialize(() => {
+                    if (controller.signal.aborted || this.cancelledWork('inflection', input.requestId))
+                        throw new AudioSynthesisError('cancelled', '音频合成已取消');
+                    return appendInflectionAudioTake(this.table(), take, () => {
+                        if (controller.signal.aborted || this.cancelledWork('inflection', input.requestId))
+                            throw new AudioSynthesisError('cancelled', '音频合成已取消');
+                        this.completeWork('inflection', input.requestId);
+                    });
+                });
                 const current = this.audioNewestRequest.get(sourceKey) === input.requestId;
                 if (current) {
                     await this.serialize(() => selectInflectionAudioTake(this.table(), input.source, appended.take.takeId));
@@ -3200,11 +3342,15 @@ let FrenchReaderController = (() => {
                 return { ok: false, reason: 'cancelled' };
             if (prepared === 'duplicate')
                 return { ok: false, reason: 'operation-already-running' };
+            this.latestSentenceAttempts.set(`${input.passageId}/${input.anchorId}`, input.operationId);
             try {
                 return await this.runSentenceAnalysis(input, prepared.signal, prepared.active);
             }
             finally {
                 this.finishAnalysisOperation(input.operationId, prepared);
+                const key = `${input.passageId}/${input.anchorId}`;
+                if (this.latestSentenceAttempts.get(key) === input.operationId)
+                    this.latestSentenceAttempts.delete(key);
             }
         }
         async runSentenceAnalysis(input, signal, active) {
@@ -3261,6 +3407,8 @@ let FrenchReaderController = (() => {
                 return { ok: false, reason: 'analysis-context-stale', hints: ['材料已变化，请重新预览并确认。'] };
             }
             const currentParagraph = context.candidates.find((candidate) => candidate.relation === 'current');
+            const attemptKey = `${passage.id}/${sentence.id}`;
+            const attempt = input.operationId;
             const prompt = analysisPrompt({
                 sentence: sentence.text,
                 anchorId: sentence.id,
@@ -3300,7 +3448,7 @@ let FrenchReaderController = (() => {
                     // discussion system prompt (renderSystem) asks for a grammar block
                     // after the answer — the two cannot be mixed into one call.
                     {
-                        system: renderAnalysisSystem(), prompt, signal,
+                        system: renderAnalysisSystem(), prompt, signal, maxTokens: ANALYSIS_OUTPUT_TOKENS,
                         onFirstTextDelta: (elapsedMs) => {
                             queueWrite((current) => recordFirstTextDelta(this.table(), current, elapsedMs));
                         },
@@ -3342,6 +3490,7 @@ let FrenchReaderController = (() => {
                     return { ok: false, reason: 'cancelled', failure: outcome.failure };
                 }
                 const parsed = parseAnalysisReply(outcome.text, {
+                    allowPartial: true,
                     passageId: passage.id,
                     anchorId: sentence.id,
                     text: sentence.text,
@@ -3384,11 +3533,18 @@ let FrenchReaderController = (() => {
                     // Cancellation and commit have one linearization point. Until this line,
                     // the explicit cancel endpoint may revoke the operation. Once the durable
                     // write starts, it returns `too-late` instead of promising rollback.
+                    if (this.latestSentenceAttempts.get(attemptKey) !== attempt)
+                        return { stored: false, superseded: true };
                     active.phase = 'committing';
-                    return putSentenceAnalysis(this.table(), parsed.analysis, sentence.text);
+                    return putSentenceAnalysis(this.table(), { ...parsed.analysis,
+                        cacheIdentity: JSON.stringify([input.backend, input.model, input.reasoningEffort ?? null, fingerprint]),
+                    }, sentence.text);
                 });
                 if ('cancelled' in stored && stored.cancelled === true) {
                     return { ok: false, reason: 'cancelled', failure: outcome.failure };
+                }
+                if ('superseded' in stored && stored.superseded === true) {
+                    return { ok: false, reason: 'operation-superseded', failure: '已有较新的解析请求，旧结果未写入。' };
                 }
                 if ('revised' in stored && stored.revised === true) {
                     return {
@@ -3435,6 +3591,8 @@ let FrenchReaderController = (() => {
                     modelCallMs: outcome?.modelCallMs,
                     firstTextDeltaMs: outcome?.firstTextDeltaMs,
                     partialText: outcome?.text ?? receivedText,
+                    effectiveMaxTokens: outcome?.effectiveMaxTokens,
+                    effectiveReasoningEffort: outcome?.effectiveReasoningEffort,
                 }));
             }
             catch {
@@ -4463,6 +4621,7 @@ function toSummary(record) {
         title: record.title,
         excerpt: record.sourceText.replace(/\s+/gu, ' ').slice(0, 180),
         characterCount: [...record.sourceText].length,
+        paragraphCount: segmentSource(record.sourceText).length,
         sourceRevision: record.sourceRevision,
         createdAt: record.createdAt,
         updatedAt: record.updatedAt,

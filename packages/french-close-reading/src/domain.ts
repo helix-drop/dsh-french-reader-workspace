@@ -725,6 +725,8 @@ export const GenerationJobSchema = z.object({
   startedAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
   finishedAt: z.string().datetime().nullable().default(null),
+  effectiveMaxTokens: z.number().int().positive().nullable().optional(),
+  effectiveReasoningEffort: z.string().max(40).nullable().optional(),
 }).strict()
 
 export type StoredGenerationJob = z.infer<typeof GenerationJobSchema>

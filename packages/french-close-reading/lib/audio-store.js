@@ -74,7 +74,7 @@ revisionOf) {
     return { kind: 'ok', take };
 }
 /* --------------------------------------------------------------- sentence --- */
-export async function appendSentenceAudioTake(table, take) {
+export async function appendSentenceAudioTake(table, take, beforeCommit = () => { }) {
     const sourceKey = sentenceAudioSourceKey(take.source);
     const recordKey = await sentenceAudioRecordKey(sourceKey);
     const existing = readSentenceAudioStore(table, recordKey);
@@ -84,6 +84,7 @@ export async function appendSentenceAudioTake(table, take) {
         : (existing?.takes ?? []).find((entry) => entry.takeId === take.takeId)
             ?? (existing?.takes ?? []).find((entry) => entry.requestId === take.requestId)
             ?? take;
+    beforeCommit();
     await table.put(recordKey, {
         kind: 'sentenceAudioTake',
         recordVersion: 1,
@@ -136,7 +137,7 @@ export function newestSentenceAudioTake(list, wanted, agrees) {
     return newestMatching(list.takes, wanted, agrees);
 }
 /* ------------------------------------------------------------- inflection --- */
-export async function appendInflectionAudioTake(table, take) {
+export async function appendInflectionAudioTake(table, take, beforeCommit = () => { }) {
     const sourceKey = inflectionAudioSourceKey(take.source);
     const recordKey = await inflectionAudioRecordKey(sourceKey);
     const existing = readInflectionAudioStore(table, recordKey);
@@ -146,6 +147,7 @@ export async function appendInflectionAudioTake(table, take) {
         : (existing?.takes ?? []).find((entry) => entry.takeId === take.takeId)
             ?? (existing?.takes ?? []).find((entry) => entry.requestId === take.requestId)
             ?? take;
+    beforeCommit();
     await table.put(recordKey, {
         kind: 'inflectionAudioTake',
         recordVersion: 1,

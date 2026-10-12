@@ -1,3 +1,4 @@
+import type { QuickDictionaryValue } from './types.ts';
 import type { Context } from '@deepseek-ai/cordis';
 import type { Domain } from '@deepseek-ai/dsh-storage-domain';
 import { TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol';
@@ -26,9 +27,13 @@ export interface AudioRuntimeOptions {
 export declare class FrenchReaderController extends TypertRemoteService {
     private readonly domain;
     private writeTail;
+    private readonly latestSentenceAttempts;
     private readonly activeAnalyses;
     private readonly queuedAnalysisCancellations;
     /** Every synthesis currently in flight, keyed by the caller's request id. */
+    private readonly workCancellations;
+    private readonly activeAsks;
+    private readonly completedWork;
     private readonly audioInFlight;
     /**
      * The newest request started for each source fingerprint.
@@ -44,6 +49,14 @@ export declare class FrenchReaderController extends TypertRemoteService {
     /** The one storage table this plugin owns; the store modules take it as data. */
     private table;
     constructor(ctx: Context, domain: Domain<typeof FRENCH_READER_DOMAIN>, backends?: GenerationBackend[] | null, audio?: AudioRuntimeOptions | null);
+    renamePassageRemote(request: {
+        passageId: string;
+        expectedTitle: string;
+        title: string;
+        sourceRevision: number;
+    }, signal: AbortSignal): Promise<{
+        updated: boolean;
+    }>;
     listPassages(request: ListPassagesRequest, signal: AbortSignal): Promise<ListPassagesValue>;
     listArchivedPassages(request: ListPassagesRequest, signal: AbortSignal): Promise<ListPassagesValue>;
     getPassage(request: GetPassageRequest, signal: AbortSignal): Promise<GetPassageValue>;
@@ -411,12 +424,9 @@ export declare class FrenchReaderController extends TypertRemoteService {
      * it allowed to see" survives a restart. A failure stores a failed attempt
      * rather than an empty turn.
      */
-    ask(input: AskInput, signal: AbortSignal, 
-    /**
-     * Called with each delta as the provider produces it. The generation job records
-     * progress either way; this is how a streamed turn shows it while it arrives.
-     */
-    observe?: (delta: string) => void): Promise<AskResult>;
+    ask(input: AskInput, callerSignal: AbortSignal, observe?: (delta: string) => void): Promise<AskResult>;
+    /** Reports each provider delta while the generation job records progress. */
+    private askInternal;
     /**
      * File one answered turn's grammar points.
      *
@@ -489,6 +499,8 @@ export declare class FrenchReaderController extends TypertRemoteService {
         note?: string;
         stored?: boolean;
     }>;
+    private readonly quickDictionary;
+    quickDictionaryRemote(request: LookupMotRequest, signal: AbortSignal): Promise<QuickDictionaryValue>;
     /**
      * Exact-Mot lookup, as the reader's own act.
      *
@@ -544,6 +556,15 @@ export declare class FrenchReaderController extends TypertRemoteService {
         fetchStatus: string;
         fetchedAt: string;
     }[];
+    cancelWorkRemote(request: {
+        kind: 'sentence' | 'inflection' | 'ask';
+        requestId: string;
+    }, signal: AbortSignal): Promise<{
+        accepted: boolean;
+        settled: boolean;
+    }>;
+    private cancelledWork;
+    private completeWork;
     /**
      * Synthesize one sentence, and append the take it produces.
      *
@@ -561,6 +582,7 @@ export declare class FrenchReaderController extends TypertRemoteService {
      */
     synthesizeSentenceAudioRemote(request: SynthesizeSentenceAudioRequest, signal: AbortSignal): Promise<SynthesizeSentenceAudioValue>;
     synthesizeSentenceAudio(input: SynthesizeSentenceAudioRequest, signal: AbortSignal): Promise<SynthesizeSentenceAudioValue>;
+    private synthesizeSentenceAudioInternal;
     listSentenceAudioRemote(request: ListSentenceAudioRequest, signal: AbortSignal): Promise<SentenceAudioListValue>;
     listSentenceAudio(input: ListSentenceAudioRequest, signal: AbortSignal): Promise<SentenceAudioListValue>;
     selectSentenceAudioRemote(request: SelectSentenceAudioRequest, signal: AbortSignal): Promise<SelectSentenceAudioValue>;
@@ -574,6 +596,7 @@ export declare class FrenchReaderController extends TypertRemoteService {
      */
     synthesizeInflectionAudioRemote(request: SynthesizeInflectionAudioRequest, signal: AbortSignal): Promise<SynthesizeInflectionAudioValue>;
     synthesizeInflectionAudio(input: SynthesizeInflectionAudioRequest, signal: AbortSignal): Promise<SynthesizeInflectionAudioValue>;
+    private synthesizeInflectionAudioInternal;
     listInflectionAudioRemote(request: ListInflectionAudioRequest, signal: AbortSignal): Promise<InflectionAudioListValue>;
     selectInflectionAudioRemote(request: SelectInflectionAudioRequest, signal: AbortSignal): Promise<SelectInflectionAudioValue>;
     readInflectionAudioAssetRemote(request: ReadInflectionAudioAssetRequest, signal: AbortSignal): Promise<ReadInflectionAudioAssetValue>;

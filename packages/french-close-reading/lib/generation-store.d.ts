@@ -66,6 +66,8 @@ export declare function finishGenerationJob(table: RecordTable, job: StoredGener
     modelCallMs?: number | null;
     firstTextDeltaMs?: number | null;
     partialText?: string;
+    effectiveMaxTokens?: number | null;
+    effectiveReasoningEffort?: string | null;
 }): Promise<StoredGenerationJob>;
 /**
  * Reconcile jobs left running by a previous Host lifetime.

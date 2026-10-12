@@ -396,3 +396,16 @@ test('the library grammar tab carries the pending candidates, clearly sectioned'
   assert.match(text, /待审候选/u, 'the pending section is titled as itself')
   assert.match(text, /que 作关系代词/u, 'and the candidate is listed in it')
 })
+
+test('a partial generated analysis visibly stays incomplete while its translation remains readable', async () => {
+  const { component, props, react } = await mountPanel(new Map([
+    [10, passage], [16, segmentation], [18, 'p1.s1'],
+    [36, {kind:'found',analysis:{anchorId:'p1.s1',text:passage.sourceText,translation:'读者并未排除一种解释。',backbone:'',clauses:[],constituents:[],morphology:[],explanations:[],provenance:'ai',status:'draft',revision:1},errors:[],hints:['部分解析已保存，尚未完成；未确认的成分不参与原文高亮。']}],
+  ]))
+  react.__enter(true)
+  const tree = renderPage(component, props, react)
+  const nodes = collectNodes(tree, react, node => node.props?.className === 'hint analysisPartial')
+  assert.equal(nodes.length, 1)
+  assert.equal(nodes[0].props.role, 'status')
+  assert.ok(collectText(tree, react).includes('读者并未排除一种解释。'))
+})

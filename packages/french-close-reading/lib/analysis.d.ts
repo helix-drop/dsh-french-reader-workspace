@@ -12,6 +12,7 @@
  * - every part of the sentence is accounted for by some constituent, or the gap is
  *   named with its text;
  * - a single constituent spanning several clauses is a summary, not an analysis;
+ *   a constituent is a clause or a major phrase, not each word;
  * - a judgement is labelled as a syntactic fact, a contextual reading, a
  *   rhetorical interpretation, or something still to be verified — so "Foucault
  *   means this" is never displayed with the same certainty as "the subject is X".
@@ -49,6 +50,7 @@ export declare const ConstituentSchema: z.ZodObject<{
     text: z.ZodString;
     clauseId: z.ZodDefault<z.ZodNullable<z.ZodString>>;
     partOfSpeech: z.ZodDefault<z.ZodNullable<z.ZodString>>;
+    gloss: z.ZodDefault<z.ZodString>;
 }, z.core.$strict>;
 export type StoredConstituent = z.infer<typeof ConstituentSchema>;
 /** One word's morphology: lemma, part of speech, tense, agreement. */
@@ -112,6 +114,7 @@ export declare const SentenceAnalysisSchema: z.ZodObject<{
         text: z.ZodString;
         clauseId: z.ZodDefault<z.ZodNullable<z.ZodString>>;
         partOfSpeech: z.ZodDefault<z.ZodNullable<z.ZodString>>;
+        gloss: z.ZodDefault<z.ZodString>;
     }, z.core.$strict>>;
     morphology: z.ZodArray<z.ZodObject<{
         id: z.ZodString;
@@ -139,8 +142,8 @@ export declare const SentenceAnalysisSchema: z.ZodObject<{
         end: z.ZodDefault<z.ZodNullable<z.ZodNumber>>;
     }, z.core.$strict>>;
     provenance: z.ZodEnum<{
-        user: "user";
         ai: "ai";
+        user: "user";
         mixed: "mixed";
     }>;
     status: z.ZodEnum<{
@@ -150,6 +153,29 @@ export declare const SentenceAnalysisSchema: z.ZodObject<{
     revision: z.ZodNumber;
     createdAt: z.ZodString;
     updatedAt: z.ZodString;
+    cacheIdentity: z.ZodOptional<z.ZodString>;
+    reception: z.ZodOptional<z.ZodObject<{
+        protocolVersion: z.ZodNumber;
+        state: z.ZodEnum<{
+            complete: "complete";
+            partial: "partial";
+        }>;
+        issues: z.ZodArray<z.ZodObject<{
+            kind: z.ZodEnum<{
+                clause: "clause";
+                constituent: "constituent";
+                explanation: "explanation";
+            }>;
+            index: z.ZodNumber;
+            role: z.ZodString;
+            text: z.ZodString;
+            reason: z.ZodString;
+        }, z.core.$strip>>;
+        recoveredRanges: z.ZodNumber;
+        tokenRanges: z.ZodNumber;
+        receivedClauses: z.ZodNumber;
+        receivedConstituents: z.ZodNumber;
+    }, z.core.$strip>>;
 }, z.core.$strict>;
 export type StoredSentenceAnalysis = z.infer<typeof SentenceAnalysisSchema>;
 /** One whole-passage analysis version: the overall translation plus per-sentence rows. */
@@ -193,6 +219,7 @@ export declare const SentenceAnalysesSchema: z.ZodObject<{
             text: z.ZodString;
             clauseId: z.ZodDefault<z.ZodNullable<z.ZodString>>;
             partOfSpeech: z.ZodDefault<z.ZodNullable<z.ZodString>>;
+            gloss: z.ZodDefault<z.ZodString>;
         }, z.core.$strict>>;
         morphology: z.ZodArray<z.ZodObject<{
             id: z.ZodString;
@@ -220,8 +247,8 @@ export declare const SentenceAnalysesSchema: z.ZodObject<{
             end: z.ZodDefault<z.ZodNullable<z.ZodNumber>>;
         }, z.core.$strict>>;
         provenance: z.ZodEnum<{
-            user: "user";
             ai: "ai";
+            user: "user";
             mixed: "mixed";
         }>;
         status: z.ZodEnum<{
@@ -231,6 +258,29 @@ export declare const SentenceAnalysesSchema: z.ZodObject<{
         revision: z.ZodNumber;
         createdAt: z.ZodString;
         updatedAt: z.ZodString;
+        cacheIdentity: z.ZodOptional<z.ZodString>;
+        reception: z.ZodOptional<z.ZodObject<{
+            protocolVersion: z.ZodNumber;
+            state: z.ZodEnum<{
+                complete: "complete";
+                partial: "partial";
+            }>;
+            issues: z.ZodArray<z.ZodObject<{
+                kind: z.ZodEnum<{
+                    clause: "clause";
+                    constituent: "constituent";
+                    explanation: "explanation";
+                }>;
+                index: z.ZodNumber;
+                role: z.ZodString;
+                text: z.ZodString;
+                reason: z.ZodString;
+            }, z.core.$strip>>;
+            recoveredRanges: z.ZodNumber;
+            tokenRanges: z.ZodNumber;
+            receivedClauses: z.ZodNumber;
+            receivedConstituents: z.ZodNumber;
+        }, z.core.$strip>>;
     }, z.core.$strict>>;
 }, z.core.$strict>;
 export type StoredSentenceAnalyses = z.infer<typeof SentenceAnalysesSchema>;

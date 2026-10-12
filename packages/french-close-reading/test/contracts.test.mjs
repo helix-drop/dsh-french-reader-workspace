@@ -37,19 +37,19 @@ test('strict Host and Client Remote contracts expose the same endpoints', () => 
   const host = hostTypert.invocations.map((item) => item.id).sort()
   const client = clientRemote.descriptors.map((item) => item.id).sort()
   assert.deepEqual(client, host)
-  assert.equal(host.length, 54)
+  assert.equal(host.length, 57)
   for (const invocation of hostTypert.invocations) {
     assert.equal(invocation.namespace, 'frenchReader')
     assert.equal(invocation.result.mode, 'strict')
     assert.ok(invocation.parameters.every((parameter) => parameter.codec.mode === 'strict'))
   }
   assert.deepEqual(clientRemote.descriptors.map((item) => item.method).sort(), [
-    'addBranch', 'adoptTranslation', 'analyseParagraph', 'analyseSentence', 'archivePassage', 'ask', 'cancelAnalysis', 'createBranch', 'createLexiconEntry', 'createPassage',
+    'addBranch', 'adoptTranslation', 'analyseParagraph', 'analyseSentence', 'archivePassage', 'ask', 'cancelAnalysis', 'cancelWork', 'createBranch', 'createLexiconEntry', 'createPassage',
     'createSelection', 'exportLibrary', 'exportPassages', 'fetchConjugation', 'fetchLexiconSource', 'getPassage',
     'getSegmentation', 'importLibrary', 'listAnalysis', 'listArchivedPassages', 'listBackendModels', 'listBackends', 'listDiscussion',
     'listGrammar', 'listInflectionAudio', 'listLexicon', 'listLexiconSources', 'listPassages', 'listSentenceAudio', 'lookupMot', 'mergeGrammarEntries',
-    'previewAnalysisContext', 'previewAsk', 'previewImport', 'publishAnalysis', 'putSentenceAnalysis', 'readAnalysisCoverage',
-    'readConjugation', 'readContext', 'readInflectionAudioAsset', 'readSentenceAnalysis', 'readSentenceAudioAsset', 'recordConclusion',
+    'previewAnalysisContext', 'previewAsk', 'previewImport', 'publishAnalysis', 'putSentenceAnalysis', 'quickDictionary', 'readAnalysisCoverage',
+    'readConjugation', 'readContext', 'readInflectionAudioAsset', 'readSentenceAnalysis', 'readSentenceAudioAsset', 'recordConclusion', 'renamePassage',
     'renderLexicon', 'resolveGrammarCandidate', 'restorePassage', 'saveTranslation', 'selectInflectionAudio', 'selectSentenceAudio',
     'setBranchState', 'setGrammarMastery', 'streamAsk',
     'synthesizeInflectionAudio', 'synthesizeSentenceAudio',
@@ -134,4 +134,17 @@ test('invalid source is rejected before storage mutation', async () => {
   )
   assert.equal(table.size, 0)
   assert.equal(writes(), 0)
+})
+
+test('renumbering an automatic title preserves source and refuses a stale concurrent title edit', async () => {
+  const { controller } = fixture()
+  const value = await controller.createPassage(firstRequest, signal())
+  const request = { passageId: firstRequest.id, expectedTitle: value.passage.title, title: 'Lecture · 段落 12', sourceRevision: value.passage.sourceRevision }
+  assert.deepEqual(await controller.renamePassageRemote(request, signal()), { updated: true })
+  const saved = (await controller.getPassage({ id: firstRequest.id }, signal())).passage
+  assert.equal(saved.title, request.title)
+  assert.equal(saved.sourceText, value.passage.sourceText)
+  assert.equal(saved.sourceRevision, value.passage.sourceRevision)
+  assert.deepEqual(await controller.renamePassageRemote({ ...request, title: 'stale' }, signal()), { updated: false })
+  assert.equal((await controller.getPassage({ id: firstRequest.id }, signal())).passage.title, request.title)
 })

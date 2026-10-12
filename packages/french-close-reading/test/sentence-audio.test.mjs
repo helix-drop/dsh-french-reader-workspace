@@ -557,3 +557,31 @@ test('the key is read from config or the environment and never stored or returne
   assert.equal(JSON.stringify(value).includes(KEY), false)
   assert.equal(recordsJson(backing).includes(KEY), false, 'no stored record carries the key')
 })
+
+test('explicit audio cancellation aborts the provider and prevents a late successful response from storing a take', async () => {
+  let resolve, started, providerSignal
+  const ready = new Promise((done) => { started = done })
+  const fetchImpl = async (_url, init) => { providerSignal = init.signal; started(); return new Promise((done) => { resolve = done }) }
+  const { controller } = await openAudio({ fetchImpl })
+  const request = sentenceRequest()
+  const running = controller.synthesizeSentenceAudio(request, signal())
+  await ready
+  assert.deepEqual(await controller.cancelWorkRemote({ kind: 'sentence', requestId: request.requestId }, signal()), { accepted: true, settled: false })
+  assert.equal(providerSignal.aborted, true)
+  resolve(jsonResponse(ttsPayload(pcmBytes())))
+  assert.equal((await running).kind, 'cancelled')
+  assert.equal((await listOf(controller)).takes.length, 0)
+})
+
+test('audio cancellation before registration is retained; a committed take rejects late cancellation', async () => {
+  const { controller } = await openAudio({ fetchImpl: fetchStub(() => jsonResponse(ttsPayload())).impl })
+  const cancelled = sentenceRequest()
+  await controller.cancelWorkRemote({ kind: 'sentence', requestId: cancelled.requestId }, signal())
+  assert.equal((await controller.synthesizeSentenceAudio(cancelled, signal())).kind, 'cancelled')
+  assert.equal((await listOf(controller)).takes.length, 0)
+  const completed = sentenceRequest()
+  const result = await controller.synthesizeSentenceAudio(completed, signal())
+  assert.equal(result.kind, 'ready')
+  assert.deepEqual(await controller.cancelWorkRemote({ kind: 'sentence', requestId: completed.requestId }, signal()), { accepted: false, settled: true })
+  assert.equal((await listOf(controller)).takes.length, 1)
+})

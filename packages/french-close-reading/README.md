@@ -1,6 +1,6 @@
 # French Close Reading · Milestone 0
 
-2026-10-08 前端更新见 [前端改动与后端接线说明](../../FRONTEND_CHANGES.md)，涵盖书籍目录、阅读页布局、段落接续、路线控制及本地元数据的持久化范围。
+书籍目录、阅读位置和段落接续写在本机 localStorage，键名见下文「浏览器调试入口」。2026-10-08 的接线说明，以及其后的复测、审计和交接，已归档到 [docs/archive](../../docs/archive/README.md)。没进仓库的本机笔记在 `<本机工作区>/archive/french-close-reading/`。
 
 A DSH Host/Client plugin for reading French passages. The first vertical slice is deliberately small: create a passage, retrieve it through a generated Typert Remote API, and export the saved originals. Source text is immutable after creation; later stages will add paragraph/sentence segmentation, translations, grammar analysis, branches, and knowledge records without merging sibling discussion branches.
 
@@ -73,6 +73,30 @@ Consequences, all enforced by `test/client-bundle.test.mjs` and `test/manifest.t
 
 From this workspace root, run `pnpm install --ignore-scripts`, `pnpm build`, then `pnpm --filter @local/french-close-reading test`. The build typechecks the Host face and emits strict Host/Client Remote descriptors. The sibling `packages/typert-protocol` package is a build-only type-identity bridge for the standalone generator; it is excluded from the pnpm workspace and plugin bundle, so the linked plugin resolves the real `0.2.0-rc.2` protocol peer. It must not be installed into a DSH profile.
 
+## 浏览器调试入口
+
+桌面宿主会把未知路径交给 DSH 自己的页面，所以调试页不挂在 `127.0.0.1:19387` 上。`debug/server.mjs` 在本机另开一页，铺满同一份 `client.js`，只把 `frenchReader` 调用转到已经开着的桌面宿主。它不启动第二个 DSH，也不使用 `dsh web` 那个没有本插件的 web profile。
+
+先让 DeepSeek Harness 桌面版保持运行。在本包目录执行：
+
+```bash
+npm run debug
+```
+
+等价命令是 `node debug/server.mjs`。默认地址是 `http://127.0.0.1:19487/`，可以用 `FCR_DEBUG_PORT` 换端口；端口被占用时换一个即可。这个地址可以收藏，没有每次启动都变的口令。刷新页面就会重新载入当前的 `client.js`，不必先构建。React 18.3.1 的 UMD 在 `debug/vendor/`，调试页不用 StrictMode。
+
+启动前会用桌面宿主已有的浏览器会话试一次 `listPassages`。宿主没开、会话读不到或被拒绝时，进程直接退出，不会监听。会话只从 `~/.dsh/.credentials.yaml` 的 `client-connection/browser-session` 读出并留在进程内存里（可用 `DSH_HOME` 指向别的主目录），不会写到文件，也不会打印出来。
+
+和在桌面里打开面板相比：
+
+- 只代理 `POST /api/frenchReader/<method>`。其它路径和命名空间返回 404。请求体必须是宿主那份 `client-request`。代理不转发浏览器的 `Origin` 和 `Cookie`。
+- 书架分组、上次阅读位置、段落接续和模型选择写在这个调试源自己的 `localStorage` 里，键分别是 `french-close-reading/bookshelf-v1`、`french-close-reading/last-position-v1`、`french-close-reading/continuations`、`french-close-reading/model`。端口算进源，所以调试页第一次打开是空书架。段落、解析和讨论仍是桌面宿主上的同一份，未归类下列出宿主里的段落。
+- `streamAsk` 在调试页里改成调用一次普通 `ask`，只交出一个完成帧，增量文字不会逐段出现。其它流式方法会报「调试入口还不能流转」。
+- 底部开关「Mac 顶栏遮挡」设置 `globalThis.__FCR_DEBUG_DESKTOP__`，用来排练桌面窗口的上 52px、左 84px 留白。状态记在 `french-close-reading/debug-desktop-chrome`。正式宿主不会设置这个标志。桌面里要看到同一份 `client.js`，重新打开插件面板即可。
+- 只监听 `127.0.0.1`。本机其它进程仍能经这个代理调用法语精读接口。
+
+`node --test test/debug-entry.test.mjs` 覆盖会话读取、cookie 往返、路径限制和一次转发。
+
 ## Verification plan
 
 1. Install the built local bundle through DSH's Plugin Manager.
@@ -80,4 +104,22 @@ From this workspace root, run `pnpm install --ignore-scripts`, `pnpm build`, the
 3. Save a passage, reload the DSH page, and confirm it remains available; use Export to keep a JSON backup.
 4. Disable/remove the bundle and confirm its panel, namespace, and open storage domain are released cleanly.
 
-This milestone does not yet provide translations, sentence-component labels, interactive phrase selection, branch isolation, vocabulary lookup, or grammar accumulation. Those remain the next implementation stages.
+The sections above describe the first slice and the host constraints that still apply. Reading, discussion, lexicon, audio, and the browser debug entry now live in this package. Dated handoffs and QA rounds are in [docs/archive](../../docs/archive/README.md), not here.
+
+## 查词流程更新（2026-10-11）
+
+查词优先显示已保存的本地词条。未命中时从维基词典获取法语词形的简短释义，词形说明直接转换为中文，其余释义由翻译工具转换为中文，并保留原始词条链接。词典与翻译请求合计最多等待 6.5 秒，成功结果在宿主内缓存六小时，缓存最多 128 项；未找到或请求失败会明确显示，不调用模型补造词典内容。
+
+点击进一步查询，当前所选模型直接结合阅读句子生成中文解释，无需再次点击发送。材料仍在宿主编译，并使用指纹检查原文版本。查询支持取消，回答保存在词汇讨论中；点击整理为词条并明确保存后才进入本地词库。
+
+连续段落解析默认启动，并发上限为 2。进度按钮可以暂停、继续或重试；当前原文保持展开，随正文正常滚动，结构片段沿用原句的语法配色。解析保存仅要求译文非空、原文引用可定位、结构引用有效及原文版本一致；成分覆盖不完整只提示，不阻止保存。模型索引错误时，唯一原文引用可纠正索引；含歧义或外来内容的引用仍拒绝。
+
+## 正式解析输出预算与思考模式（2026-10-12）
+
+逐句解析与段落队列显式请求大预算：DeepSeek-V4.1-Flash和MiMo-v2.6-flash为131072，GPT-6 Luna为128000，Gemma 4 31B为32768。预算包括适配器计入的思考token，是输出上限，不是每次必须消耗的数量。讨论功能继续使用宿主原有配置。
+
+模型设置里可选择适配器声明支持的思考等级，选择按模型保存在`french-close-reading/analysis-efforts`。已评估模型的推荐设置在其支持high时使用high；未知模型沿用宿主默认值。推荐high与显式high复用同一份完整解析，原文、材料、模型或其他思考模式变化仍会重新分析。
+
+解析接收器按词段编号和准确原文引用定位，允许明确的排版差异，歧义或缺失的结构保留为部分解析并标明待处理内容。定位校验不等于语法正确。成功任务记录实际输出上限和思考等级，便于检查正式调用配置。
+
+构建与618项测试通过，DeepSeek在真实桌面入口完成两次131072/high解析；重启、思考偏好保存和缓存复用均已核验。其他模型此次没有全量真实API复测。详见[预算与互动优化验证](../../docs/verification/plugin-output-budget-2026-10-12.md)和[解析接收器重设计](../../docs/verification/analysis-reception-redesign-2026-10-12.md)。

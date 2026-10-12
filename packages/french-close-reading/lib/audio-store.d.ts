@@ -93,7 +93,7 @@ export interface StoredAudioAsset {
     durationMs: number;
     createdAt: string;
 }
-export declare function appendSentenceAudioTake(table: RecordTable, take: StoredSentenceAudioTake): Promise<AppendTakeOutcome<StoredSentenceAudioTake>>;
+export declare function appendSentenceAudioTake(table: RecordTable, take: StoredSentenceAudioTake, beforeCommit?: () => void): Promise<AppendTakeOutcome<StoredSentenceAudioTake>>;
 export declare function listSentenceAudioTakes(table: RecordTable, source: SentenceAudioLocator): Promise<AudioTakeList<StoredSentenceAudioTake>>;
 export declare function selectSentenceAudioTake(table: RecordTable, source: SentenceAudioLocator, takeId: string): Promise<SelectTakeOutcome>;
 export declare function readSentenceAudioAsset(table: RecordTable, source: SentenceAudioLocator, takeId: string): Promise<StoredAudioAsset | null>;
@@ -102,7 +102,7 @@ export declare function newestSentenceAudioTake(list: AudioTakeList<StoredSenten
     backend: StoredSpeechBackend;
     voice: StoredAudioVoice;
 }, agrees?: (take: StoredSentenceAudioTake) => boolean): StoredSentenceAudioTake | null;
-export declare function appendInflectionAudioTake(table: RecordTable, take: StoredInflectionAudioTake): Promise<AppendTakeOutcome<StoredInflectionAudioTake>>;
+export declare function appendInflectionAudioTake(table: RecordTable, take: StoredInflectionAudioTake, beforeCommit?: () => void): Promise<AppendTakeOutcome<StoredInflectionAudioTake>>;
 export declare function listInflectionAudioTakes(table: RecordTable, source: InflectionAudioLocator): Promise<AudioTakeList<StoredInflectionAudioTake>>;
 export declare function selectInflectionAudioTake(table: RecordTable, source: InflectionAudioLocator, takeId: string): Promise<SelectTakeOutcome>;
 export declare function readInflectionAudioAsset(table: RecordTable, source: InflectionAudioLocator, takeId: string): Promise<StoredAudioAsset | null>;

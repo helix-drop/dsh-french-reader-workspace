@@ -279,7 +279,7 @@ test('every panel capability is defined and actually rendered', () => {
     ['the backend list is read', 'await listBackends({ scope: \'all\' })'],
     ['the model list is read', 'await listBackendModels({ backend: name })'],
     ['the context is previewed before sending', 'await previewAsk({'],
-    ['the preview fingerprint travels with the send', 'expectedFingerprint: contextPreview.fingerprint'],
+    ['the preview fingerprint travels with the send', 'expectedFingerprint: preview.fingerprint'],
     // The turn is sent through the stream when the Host offers one, and through the
     // unary call when it does not, so the guard tracks the call, not one branch of it.
     ['the turn is sent', 'unwrap(await ask(request, controller.signal), t)'],
@@ -308,7 +308,7 @@ test('every panel capability is defined and actually rendered', () => {
     ['a refused analysis shows the gate reason', "format(t, 'analysisRefused', { reason: value.reason, detail: value.failure ?? '' })"],
     ['the colour comes from the role token', 'color: tokenForRole(piece.role)'],
     ['explanations carry their certainty', 't(`certainty_${explanation.kind}`)'],
-    ['clauses are drawn with their nesting', 'clauseRows(found.clauses)'],
+    ['clauses are drawn with their nesting', 'backboneStructure(found)'],
     // A reader works a paragraph at a time, and the batch spends one call per
     // sentence, so the label carries the count before anything is sent.
     ['the paragraph batch is wired', 'analyseParagraph({'],

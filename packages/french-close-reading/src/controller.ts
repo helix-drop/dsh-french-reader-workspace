@@ -1,3 +1,5 @@
+import { QuickDictionary } from './quick-dictionary.ts'
+import type { QuickDictionaryValue } from './types.ts'
 import type { Context } from '@deepseek-ai/cordis'
 import type { Domain } from '@deepseek-ai/dsh-storage-domain'
 import { Remote, RemoteError, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
@@ -82,6 +84,7 @@ import {
 } from './generation-store.ts'
 import {
   DshLlmBackend,
+  ANALYSIS_OUTPUT_TOKENS,
   type GenerateOutcome,
   type GenerationBackend,
 } from './generation.ts'
@@ -445,6 +448,7 @@ const createLexiconEntryRequestSchema = z.object({
   passageId: z.string().uuid(),
   anchorId: anchorIdSchema,
   occurrenceNote: z.string().trim().min(1).max(500),
+  attachOccurrence: z.boolean().optional(),
 }).strict()
 
 const createLexiconOccurrenceValueSchema = z.object({
@@ -524,6 +528,7 @@ async function analysisContextFingerprint(input: {
   candidates: NonNullable<ReturnType<typeof selectAnalysisContext>>['candidates']
 }): Promise<string> {
   const serialized = JSON.stringify({
+    analysisFormat: 'source-anchors-v3-budget-and-syntax',
     passageId: input.passageId,
     sourceRevision: input.sourceRevision,
     segmentationRevision: input.segmentationRevision,
@@ -765,9 +770,13 @@ function linkAbortSignals(signals: readonly AbortSignal[]): { signal: AbortSigna
 /** Host service behind the generated `ctx.remote.frenchReader` namespace. */
 export class FrenchReaderController extends TypertRemoteService {
   private writeTail: Promise<void> = Promise.resolve()
+  private readonly latestSentenceAttempts = new Map<string, string>()
   private readonly activeAnalyses = new Map<string, ActiveAnalysisOperation>()
   private readonly queuedAnalysisCancellations = new Map<string, { passageId: string; expiresAt: number }>()
   /** Every synthesis currently in flight, keyed by the caller's request id. */
+  private readonly workCancellations = new Map<string, number>()
+  private readonly activeAsks = new Map<string, AbortController>()
+  private readonly completedWork = new Set<string>()
   private readonly audioInFlight = new Map<string, AudioInFlight>()
   /**
    * The newest request started for each source fingerprint.
@@ -803,6 +812,18 @@ export class FrenchReaderController extends TypertRemoteService {
     Object.defineProperty(this, STATE, {
       value: { ctx, backends } satisfies ControllerState,
       enumerable: false, writable: false, configurable: false,
+    })
+  }
+
+  @Remote('renamePassage')
+  async renamePassageRemote(request: { passageId: string; expectedTitle: string; title: string; sourceRevision: number }, signal: AbortSignal): Promise<{ updated: boolean }> {
+    const input = z.object({ passageId: z.string().uuid(), expectedTitle: z.string(), title: z.string().trim().min(1).max(120), sourceRevision: z.number().int().positive() }).strict().parse(request)
+    return this.serialize(async () => {
+      signal.throwIfAborted()
+      const passage = this.readPassage(input.passageId)
+      if (!passage || passage.title !== input.expectedTitle || passage.sourceRevision !== input.sourceRevision) return { updated: false }
+      await this.table().put(input.passageId, { kind: 'passage', recordVersion: 1, payload: { ...passage, title: input.title, updatedAt: new Date().toISOString() } })
+      return { updated: true }
     })
   }
 
@@ -1010,6 +1031,9 @@ export class FrenchReaderController extends TypertRemoteService {
     return {
       kind: 'found',
       analysis: {
+        cacheIdentity: analysis.cacheIdentity,
+        sourceRevision: analysis.sourceRevision,
+        segmentationRevision: analysis.segmentationRevision,
         anchorId: analysis.anchorId,
         text: analysis.text,
         translation: analysis.translation,
@@ -1021,6 +1045,7 @@ export class FrenchReaderController extends TypertRemoteService {
         constituents: analysis.constituents.map((item) => ({
           id: item.id, role: item.role, start: item.start, end: item.end,
           text: item.text, clauseId: item.clauseId, partOfSpeech: item.partOfSpeech,
+          gloss: item.gloss ?? '',
         })),
         morphology: analysis.morphology.map((item) => ({
           id: item.id, form: item.form, lemma: item.lemma, partOfSpeech: item.partOfSpeech,
@@ -2398,13 +2423,25 @@ export class FrenchReaderController extends TypertRemoteService {
    * it allowed to see" survives a restart. A failure stores a failed attempt
    * rather than an empty turn.
    */
-  async ask(
+  async ask(input: AskInput, callerSignal: AbortSignal, observe?: (delta: string) => void): Promise<AskResult> {
+    const controller = new AbortController()
+    const forward = (): void => controller.abort()
+    if (callerSignal.aborted || this.cancelledWork('ask', input.operationId)) forward()
+    else callerSignal.addEventListener('abort', forward, { once: true })
+    if (this.activeAsks.has(input.operationId)) return { ok: false, reason: 'already-running' }
+    this.activeAsks.set(input.operationId, controller)
+    try { return await this.askInternal(input, controller.signal, observe) }
+    finally {
+      callerSignal.removeEventListener('abort', forward)
+      this.activeAsks.delete(input.operationId)
+      this.completeWork('ask', input.operationId)
+    }
+  }
+
+  /** Reports each provider delta while the generation job records progress. */
+  private async askInternal(
     input: AskInput,
     signal: AbortSignal,
-    /**
-     * Called with each delta as the provider produces it. The generation job records
-     * progress either way; this is how a streamed turn shows it while it arrives.
-     */
     observe?: (delta: string) => void,
   ): Promise<AskResult> {
     const backend = this.backends().find((entry) => entry.id === input.backend)
@@ -2511,6 +2548,7 @@ export class FrenchReaderController extends TypertRemoteService {
 
     let outcome: GenerateOutcome
     try {
+      signal.throwIfAborted()
       outcome = await backend.generate(
         { backend: backend.id, model: input.model, reasoningEffort: input.reasoningEffort ?? undefined },
         {
@@ -2526,6 +2564,8 @@ export class FrenchReaderController extends TypertRemoteService {
     } catch (error) {
       outcome = { text: '', resolvedModel: null, usage: null, finish: 'error', failure: String(error) }
     }
+    if (signal.aborted) outcome = { text: partial, resolvedModel: outcome.resolvedModel, usage: outcome.usage, finish: 'cancelled', failure: 'cancelled' }
+    this.completeWork('ask', input.operationId)
     // Whatever the streaming buffer missed is still the answer the provider sent.
     if (partial.length < outcome.text.length && outcome.text.startsWith(partial)) partial = outcome.text
 
@@ -2839,6 +2879,20 @@ export class FrenchReaderController extends TypertRemoteService {
     })
   }
 
+  private readonly quickDictionary = new QuickDictionary()
+
+  @Remote('quickDictionary')
+  async quickDictionaryRemote(request: LookupMotRequest, signal: AbortSignal): Promise<QuickDictionaryValue> {
+    const parsed = lookupMotRequestSchema.safeParse(request)
+    if (!parsed.success) throw badRequest('Invalid dictionary request', parsed.error.issues)
+    const web = stateOf(this).ctx.get('web')
+    const fetchPage: PageFetcher | undefined = web === undefined ? undefined : async (url, pageSignal) => {
+      const response = await web.fetch({ url }, pageSignal)
+      return { statusCode: response.statusCode, body: response.body, truncated: response.truncated }
+    }
+    return this.quickDictionary.lookup(parsed.data.mot, fetchPage, signal)
+  }
+
   /**
    * Exact-Mot lookup, as the reader's own act.
    *
@@ -2916,6 +2970,7 @@ export class FrenchReaderController extends TypertRemoteService {
         }
       }
 
+      if (input.attachOccurrence === false) return { kind: created.created ? 'created' : 'exists', entryId: created.entryId, occurrence: { kind: 'not-attempted', reason: 'example-not-selected' } }
       let occurrence: CreateLexiconEntryValue['occurrence']
       try {
         const appended = await appendLexiconOccurrence(this.table(), {
@@ -3120,6 +3175,29 @@ export class FrenchReaderController extends TypertRemoteService {
     return rows.sort((left, right) => right.fetchedAt.localeCompare(left.fetchedAt))
   }
 
+  @Remote('cancelWork')
+  async cancelWorkRemote(request: { kind: 'sentence' | 'inflection' | 'ask'; requestId: string }, signal: AbortSignal): Promise<{ accepted: boolean; settled: boolean }> {
+    signal.throwIfAborted()
+    const parsed = z.object({ kind: z.enum(['sentence', 'inflection', 'ask']), requestId: z.string().uuid() }).parse(request)
+    const key = `${parsed.kind}/${parsed.requestId}`
+    if (this.completedWork.has(key)) return { accepted: false, settled: true }
+    for (const [id, expires] of this.workCancellations) if (expires < Date.now()) this.workCancellations.delete(id)
+    if (this.workCancellations.size >= 512) this.workCancellations.delete(this.workCancellations.keys().next().value!)
+    this.workCancellations.set(key, Date.now() + 600_000)
+    if (parsed.kind === 'ask') this.activeAsks.get(parsed.requestId)?.abort()
+    else this.audioInFlight.get(audioRequestKey(parsed.kind, parsed.requestId))?.controller.abort()
+    return { accepted: true, settled: false }
+  }
+
+  private cancelledWork(kind: string, id: string): boolean {
+    return (this.workCancellations.get(`${kind}/${id}`) ?? 0) > Date.now()
+  }
+
+  private completeWork(kind: string, id: string): void {
+    if (this.completedWork.size >= 512) this.completedWork.delete(this.completedWork.values().next().value!)
+    this.completedWork.add(`${kind}/${id}`)
+  }
+
   // --- audio surface: reading one sentence, or one form, aloud --------------
 
   /**
@@ -3148,10 +3226,23 @@ export class FrenchReaderController extends TypertRemoteService {
     return this.synthesizeSentenceAudio(parsed.data, signal)
   }
 
-  async synthesizeSentenceAudio(
+  async synthesizeSentenceAudio(input: SynthesizeSentenceAudioRequest, signal: AbortSignal): Promise<SynthesizeSentenceAudioValue> {
+    const key = audioRequestKey('sentence', input.requestId)
+    if (this.audioInFlight.has(key)) return { kind: 'generating', requestId: input.requestId }
+    const controller = new AbortController()
+    const forward = (): void => controller.abort()
+    if (signal.aborted || this.cancelledWork('sentence', input.requestId)) forward()
+    else signal.addEventListener('abort', forward, { once: true })
+    this.audioInFlight.set(key, { requestId: input.requestId, sourceKey: sentenceAudioSourceKey(input.source), controller })
+    try { return await this.synthesizeSentenceAudioInternal(input, controller.signal) }
+    finally { signal.removeEventListener('abort', forward); this.audioInFlight.delete(key) }
+  }
+
+  private async synthesizeSentenceAudioInternal(
     input: SynthesizeSentenceAudioRequest,
     signal: AbortSignal,
   ): Promise<SynthesizeSentenceAudioValue> {
+    if (this.cancelledWork('sentence', input.requestId) || signal.aborted) return { kind: 'cancelled', requestId: input.requestId }
     const configuration = this.audioConfiguration()
     if (configuration.state === 'unconfigured') {
       return { kind: 'unconfigured', reason: configuration.reason, message: configuration.detail }
@@ -3168,9 +3259,6 @@ export class FrenchReaderController extends TypertRemoteService {
       return { kind: 'replayed', take: toSentenceAudioTakeView(replayed, replayed.takeId === stored.selectedTakeId) }
     }
     // The same request id, already running: report it instead of queueing it twice.
-    if (this.audioInFlight.has(audioRequestKey('sentence', input.requestId))) {
-      return { kind: 'generating', requestId: input.requestId }
-    }
 
     if (input.action === 'generate') {
       // A cache hit means the *same* reading, not merely the same identifiers:
@@ -3267,10 +3355,23 @@ export class FrenchReaderController extends TypertRemoteService {
     return this.synthesizeInflectionAudio(parsed.data, signal)
   }
 
-  async synthesizeInflectionAudio(
+  async synthesizeInflectionAudio(input: SynthesizeInflectionAudioRequest, signal: AbortSignal): Promise<SynthesizeInflectionAudioValue> {
+    const key = audioRequestKey('inflection', input.requestId)
+    if (this.audioInFlight.has(key)) return { kind: 'generating', requestId: input.requestId }
+    const controller = new AbortController()
+    const forward = (): void => controller.abort()
+    if (signal.aborted || this.cancelledWork('inflection', input.requestId)) forward()
+    else signal.addEventListener('abort', forward, { once: true })
+    this.audioInFlight.set(key, { requestId: input.requestId, sourceKey: inflectionAudioSourceKey(input.source), controller })
+    try { return await this.synthesizeInflectionAudioInternal(input, controller.signal) }
+    finally { signal.removeEventListener('abort', forward); this.audioInFlight.delete(key) }
+  }
+
+  private async synthesizeInflectionAudioInternal(
     input: SynthesizeInflectionAudioRequest,
     signal: AbortSignal,
   ): Promise<SynthesizeInflectionAudioValue> {
+    if (this.cancelledWork('inflection', input.requestId) || signal.aborted) return { kind: 'cancelled', requestId: input.requestId }
     const configuration = this.audioConfiguration()
     if (configuration.state === 'unconfigured') {
       return { kind: 'unconfigured', reason: configuration.reason, message: configuration.detail }
@@ -3285,9 +3386,6 @@ export class FrenchReaderController extends TypertRemoteService {
     const replayed = stored.takes.find((take) => take.requestId === input.requestId)
     if (replayed !== undefined) {
       return { kind: 'replayed', take: toInflectionAudioTakeView(replayed, replayed.takeId === stored.selectedTakeId) }
-    }
-    if (this.audioInFlight.has(audioRequestKey('inflection', input.requestId))) {
-      return { kind: 'generating', requestId: input.requestId }
     }
 
     if (input.action === 'generate') {
@@ -3373,7 +3471,7 @@ export class FrenchReaderController extends TypertRemoteService {
   ): Promise<SynthesizeSentenceAudioValue> {
     const controller = new AbortController()
     const forward = (): void => controller.abort()
-    if (signal.aborted) forward()
+    if (signal.aborted || this.cancelledWork('sentence', input.requestId)) forward()
     else signal.addEventListener('abort', forward, { once: true })
     const flightKey = audioRequestKey('sentence', input.requestId)
     this.audioInFlight.set(flightKey, { requestId: input.requestId, sourceKey, controller })
@@ -3386,7 +3484,13 @@ export class FrenchReaderController extends TypertRemoteService {
         this.audioTransport(),
       )
       const take = buildSentenceAudioTake(input, configuration, voice, result)
-      const appended = await this.serialize(() => appendSentenceAudioTake(this.table(), take))
+      const appended = await this.serialize(() => {
+        if (controller.signal.aborted || this.cancelledWork('sentence', input.requestId)) throw new AudioSynthesisError('cancelled', '音频合成已取消')
+        return appendSentenceAudioTake(this.table(), take, () => {
+          if (controller.signal.aborted || this.cancelledWork('sentence', input.requestId)) throw new AudioSynthesisError('cancelled', '音频合成已取消')
+          this.completeWork('sentence', input.requestId)
+        })
+      })
       const current = this.audioNewestRequest.get(sourceKey) === input.requestId
       if (current) {
         await this.serialize(() => selectSentenceAudioTake(this.table(), input.source, appended.take.takeId))
@@ -3410,7 +3514,7 @@ export class FrenchReaderController extends TypertRemoteService {
   ): Promise<SynthesizeInflectionAudioValue> {
     const controller = new AbortController()
     const forward = (): void => controller.abort()
-    if (signal.aborted) forward()
+    if (signal.aborted || this.cancelledWork('inflection', input.requestId)) forward()
     else signal.addEventListener('abort', forward, { once: true })
     const flightKey = audioRequestKey('inflection', input.requestId)
     this.audioInFlight.set(flightKey, { requestId: input.requestId, sourceKey, controller })
@@ -3423,7 +3527,13 @@ export class FrenchReaderController extends TypertRemoteService {
         this.audioTransport(),
       )
       const take = buildInflectionAudioTake(input, configuration, voice, result)
-      const appended = await this.serialize(() => appendInflectionAudioTake(this.table(), take))
+      const appended = await this.serialize(() => {
+        if (controller.signal.aborted || this.cancelledWork('inflection', input.requestId)) throw new AudioSynthesisError('cancelled', '音频合成已取消')
+        return appendInflectionAudioTake(this.table(), take, () => {
+          if (controller.signal.aborted || this.cancelledWork('inflection', input.requestId)) throw new AudioSynthesisError('cancelled', '音频合成已取消')
+          this.completeWork('inflection', input.requestId)
+        })
+      })
       const current = this.audioNewestRequest.get(sourceKey) === input.requestId
       if (current) {
         await this.serialize(() => selectInflectionAudioTake(this.table(), input.source, appended.take.takeId))
@@ -3690,10 +3800,13 @@ export class FrenchReaderController extends TypertRemoteService {
     )
     if (prepared === 'cancelled') return { ok: false, reason: 'cancelled' }
     if (prepared === 'duplicate') return { ok: false, reason: 'operation-already-running' }
+    this.latestSentenceAttempts.set(`${input.passageId}/${input.anchorId}`, input.operationId)
     try {
       return await this.runSentenceAnalysis(input, prepared.signal, prepared.active)
     } finally {
       this.finishAnalysisOperation(input.operationId, prepared)
+      const key = `${input.passageId}/${input.anchorId}`
+      if (this.latestSentenceAttempts.get(key) === input.operationId) this.latestSentenceAttempts.delete(key)
     }
   }
 
@@ -3756,6 +3869,8 @@ export class FrenchReaderController extends TypertRemoteService {
       return { ok: false, reason: 'analysis-context-stale', hints: ['材料已变化，请重新预览并确认。'] }
     }
     const currentParagraph = context.candidates.find((candidate) => candidate.relation === 'current')!
+    const attemptKey = `${passage.id}/${sentence.id}`
+    const attempt = input.operationId
     const prompt = analysisPrompt({
       sentence: sentence.text,
       anchorId: sentence.id,
@@ -3796,7 +3911,7 @@ export class FrenchReaderController extends TypertRemoteService {
           // discussion system prompt (renderSystem) asks for a grammar block
           // after the answer — the two cannot be mixed into one call.
           {
-            system: renderAnalysisSystem(), prompt, signal,
+            system: renderAnalysisSystem(), prompt, signal, maxTokens: ANALYSIS_OUTPUT_TOKENS,
             onFirstTextDelta: (elapsedMs) => {
               queueWrite((current) => recordFirstTextDelta(this.table(), current, elapsedMs))
             },
@@ -3839,6 +3954,7 @@ export class FrenchReaderController extends TypertRemoteService {
       }
 
       const parsed = parseAnalysisReply(outcome.text, {
+        allowPartial: true,
         passageId: passage.id,
         anchorId: sentence.id,
         text: sentence.text,
@@ -3881,11 +3997,17 @@ export class FrenchReaderController extends TypertRemoteService {
         // Cancellation and commit have one linearization point. Until this line,
         // the explicit cancel endpoint may revoke the operation. Once the durable
         // write starts, it returns `too-late` instead of promising rollback.
+        if (this.latestSentenceAttempts.get(attemptKey) !== attempt) return { stored: false as const, superseded: true as const }
         active.phase = 'committing'
-        return putSentenceAnalysis(this.table(), parsed.analysis, sentence.text)
+        return putSentenceAnalysis(this.table(), { ...parsed.analysis,
+          cacheIdentity: JSON.stringify([input.backend, input.model, input.reasoningEffort ?? null, fingerprint]),
+        }, sentence.text)
       })
       if ('cancelled' in stored && stored.cancelled === true) {
         return { ok: false, reason: 'cancelled', failure: outcome.failure }
+      }
+      if ('superseded' in stored && stored.superseded === true) {
+        return { ok: false, reason: 'operation-superseded', failure: '已有较新的解析请求，旧结果未写入。' }
       }
       if ('revised' in stored && stored.revised === true) {
         return {
@@ -3932,6 +4054,8 @@ export class FrenchReaderController extends TypertRemoteService {
         modelCallMs: outcome?.modelCallMs,
         firstTextDeltaMs: outcome?.firstTextDeltaMs,
         partialText: outcome?.text ?? receivedText,
+        effectiveMaxTokens: outcome?.effectiveMaxTokens,
+        effectiveReasoningEffort: outcome?.effectiveReasoningEffort,
       }))
     } catch {
       // A failure to write the record never invalidates the call's own result.
@@ -5074,6 +5198,7 @@ function toSummary(record: StoredPassage): PassageSummary {
     title: record.title,
     excerpt: record.sourceText.replace(/\s+/gu, ' ').slice(0, 180),
     characterCount: [...record.sourceText].length,
+    paragraphCount: segmentSource(record.sourceText).length,
     sourceRevision: record.sourceRevision,
     createdAt: record.createdAt,
     updatedAt: record.updatedAt,

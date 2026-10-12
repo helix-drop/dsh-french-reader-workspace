@@ -273,7 +273,7 @@ test('the entry field grid renders what the Host has, and says what it has not',
 test('reading shows the syntax legend with an analysis; other detail branches retain it', () => {
   // Empty reading states have no syntax colors to explain. Keep the legend beside
   // an available analysis without spending reading space before generation.
-  assert.match(source, /function detailReading\(\) \{\n\s*return h\('div', null, sentenceAnalysis\?\.kind === 'found' \? syntaxLegend\(\) : null, detailReadingBody\(\)\)/u)
+  assert.match(source, /h\('h2', \{ className: 'detailTitle' \}, t\('analysisTitle'\)\),\n\s*syntaxLegend\(\)/u)
   const content = source.slice(source.indexOf('function detailContent()'), source.indexOf('function detailReading()'))
   assert.match(content, /return h\('div', null, syntaxLegend\(\), discussionNode\(node\)\)/u, 'the discussion branch')
   assert.match(content, /syntaxLegend\(\),\n\s*h\('div', \{ className: 'sectionLabel' \}/u, 'the knowledge branch')
@@ -328,6 +328,8 @@ test('archiving a passage is reachable, and takes the revision the reader saw', 
 test('the reader keeps clear of the desktop window chrome, and only there', () => {
   // The decision is a runtime one, so it cannot be a plain literal in the markup.
   assert.match(source, /function insideDesktopWindow\(\)/u)
+  assert.match(source, /globalThis\.__FCR_DEBUG_DESKTOP__ === true/u,
+    'the browser debug entry rehearses the inset only when it sets this flag')
   assert.match(source, /agent\.includes\('Electron'\)/u, 'the Desktop shell identifies itself')
   assert.match(source, /process\?\.versions\?\.electron/u, 'and the process versions are the belt to that braces')
   assert.match(source, /'data-chrome': insideDesktopWindow\(\) \? 'desktop' : 'web'/u,
@@ -335,10 +337,12 @@ test('the reader keeps clear of the desktop window chrome, and only there', () =
   // The rule is scoped to that state, and it comes out of the layout rather than
   // adding a second scrollbar: `.fr-root` is border-box, so 30px of padding is 30px
   // less workspace, not 30px more page.
-  assert.match(source, /\.fr-root\[data-chrome='desktop'\]\{box-sizing:border-box;padding-top:30px\}/u)
-  // One CSS rule is keyed on that state, and the two panel roots declare it.
-  assert.equal((source.match(/\.fr-root\[data-chrome='desktop'\]/gu) ?? []).length, 1,
-    'exactly one rule keys on the desktop state')
+  assert.match(source, /\.fr-root\[data-chrome='desktop'\]\{box-sizing:border-box;padding-top:52px\}/u)
+  assert.match(source, /\.fr-root\[data-chrome='desktop'\] \.compactTop\{padding-left:84px\}/u,
+    'the lights also cover the left of the first row, so the bar itself steps aside')
+  // The top inset and the left inset are the two rules keyed on that state.
+  assert.equal((source.match(/\.fr-root\[data-chrome='desktop'\]/gu) ?? []).length, 2,
+    'the desktop inset is the top band plus the left of the bar')
   assert.equal((source.match(/'data-chrome': insideDesktopWindow\(\)/gu) ?? []).length, 2,
     'both panel roots declare which window they are in')
 })

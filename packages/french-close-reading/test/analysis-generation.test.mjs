@@ -52,7 +52,7 @@ function stubBackend(reply, { finish = 'stop', failure = null, available = true 
     available: () => (available ? { available: true } : { available: false, reason: 'stub-unavailable' }),
     listModels: async () => [{ id: 'stub-model', name: 'Stub', reasoningEfforts: [], contextWindow: null }],
     generate: async (target, request) => {
-      calls.push({ target, prompt: request.prompt, system: request.system })
+      calls.push({ target, prompt: request.prompt, system: request.system, maxTokens: request.maxTokens })
       return {
         text: reply, resolvedModel: target.model,
         usage: { inputTokens: 1, outputTokens: 1 }, finish, failure,
@@ -95,6 +95,7 @@ test('a validated reply is stored, and the coverage it produces is reported', as
   assert.deepEqual(stored.errors, [])
   assert.equal(stored.analysis.translation, '我们必须耕种我们的园地。')
   assert.equal(stored.analysis.morphology[0].lemma, 'falloir')
+  assert.equal(stored.analysis.constituents[0].gloss, '', 'an older reply with no gloss still stores')
 })
 
 test('the prompt states the JSON contract and carries the sentence and its paragraph', async () => {
@@ -108,8 +109,13 @@ test('the prompt states the JSON contract and carries the sentence and its parag
   const prompt = backend.calls[0].prompt
   assert.match(prompt, /只输出一个 JSON 对象/u)
   assert.match(prompt, /"constituents"/u, 'the contract names the fields')
-  assert.match(prompt, /每一段含词的文字都必须被某个成分覆盖/u, 'the coverage rule is stated, not implied')
-  assert.match(prompt, /syntax 的只写句法事实/u, 'the certainty rule is stated too')
+  assert.match(prompt, /内部范围可以嵌套在阅读片段中/u, 'the coverage rule is stated, not implied')
+  assert.match(prompt, /每个成分的 gloss 只写一两句/u, 'the reading is a short gloss, not a syntax essay')
+  assert.match(prompt, /role 只写功能名/u, 'the role stays a function name')
+  assert.match(prompt, /不要逐词机械切分/u, 'constituents stay clause-sized')
+  assert.match(prompt, /morphology 留空数组/u, 'per-word morphology is not requested')
+  assert.match(prompt, /explanations 不是主体/u, 'idiom and rhetoric stay an aside')
+  assert.doesNotMatch(prompt, /syntax 的只写句法事实/u)
   assert.match(prompt, /所有讲解与结构标签必须使用简体中文/u, 'the output language rule is explicit')
   assert.match(prompt, new RegExp(escapeRegExp(SENTENCE), 'u'), 'the sentence is quoted')
   assert.match(prompt, /【当前段落(?: · p1)?】/u)
@@ -231,14 +237,16 @@ test('the analysis system prompt asks for JSON only and never for the discussion
     reasoningEffort: null, operationId: uuid(),
   }, signal())
 
+  assert.equal(backend.calls[0].maxTokens, 131072, 'formal sentence entrypoint requests the evaluated output allowance')
   const system = backend.calls[0].system
   assert.equal(typeof system, 'string', 'the model call carries a system instruction')
   assert.match(system, /只输出一个 JSON 对象/u, 'system and prompt state the same output protocol')
   assert.doesNotMatch(system, /<<<GRAMMAR/u, 'no grammar-extraction block is requested here')
   assert.doesNotMatch(system, /机器可读块：/u, 'the discussion extraction instruction stays out')
+  assert.match(system, /另列主语、变位动词、宾语等准确范围/u, 'the system prompt keeps the same grain')
 })
 
-test('a reply that fails the gate is refused with its errors and stored nowhere', async () => {
+test('partial constituent coverage is saved with a hint', async () => {
   // The object is dropped, so a word-bearing gap remains: the gate must refuse.
   const broken = JSON.stringify({
     translation: '我们必须耕种我们的园地。',
@@ -257,12 +265,11 @@ test('a reply that fails the gate is refused with its errors and stored nowhere'
     passageId: ids.passage, anchorId: 'p1.s1', backend: 'stub', model: 'stub-model',
     reasoningEffort: null, operationId: uuid(),
   }, signal())
-  assert.equal(result.ok, false)
-  assert.equal(result.reason, 'analysis-rejected')
-  assert.match(result.failure, /未被分析的原文片段/u, 'the gate names the text it refused')
+  assert.equal(result.ok, true)
 
   const stored = controller.readSentenceAnalysis(ids.passage, 'p1.s1', signal())
-  assert.equal(stored.found, false, 'an unusable analysis never reaches the screen')
+  assert.equal(stored.found, true)
+  assert.ok(stored.hints.some((hint) => hint.includes('未被分析的原文片段')))
   assert.deepEqual(controller.readAnalysisCoverage(ids.passage, signal()).covered, [])
 })
 
@@ -300,22 +307,15 @@ test('an unknown explanation kind degrades to unverified, never to a fact', () =
   assert.equal(parsed.analysis.explanations[0].kind, 'unverified')
 })
 
-test('explanations and structural labels are gated to Chinese, while French source forms remain allowed', () => {
+test('prose language does not block otherwise valid source analysis', () => {
   const reply = JSON.parse(goodReply())
   reply.explanations[0].text = 'The subject is a dummy pronoun.'
-  const refused = parseAnalysisReply(JSON.stringify(reply), {
+  reply.constituents[0].gloss = 'The dummy subject.'
+  const parsed = parseAnalysisReply(JSON.stringify(reply), {
     passageId: ids.passage, anchorId: 'p1.s1', text: SENTENCE,
     sourceRevision: 1, segmentationRevision: 1, backend: 'stub', model: 'm',
   })
-  assert.equal(refused.ok, false)
-  assert.match(refused.detail, /必须使用简体中文说明/u)
-
-  reply.explanations[0].text = '“Il” 是无人称结构中的形式主语。'
-  const accepted = parseAnalysisReply(JSON.stringify(reply), {
-    passageId: ids.passage, anchorId: 'p1.s1', text: SENTENCE,
-    sourceRevision: 1, segmentationRevision: 1, backend: 'stub', model: 'm',
-  })
-  assert.equal(accepted.ok, true, accepted.ok ? '' : accepted.detail)
+  assert.equal(parsed.ok, true)
 })
 
 test('a clause parent index that names nothing is refused, never silently detached', () => {
@@ -346,7 +346,7 @@ test('a constituent clause index that names nothing is refused too', () => {
   assert.equal(parsed.reason, 'analysis-invalid')
 })
 
-test('a non-integer or negative offset is refused rather than repaired', () => {
+test('incorrect offsets are recomputed from a unique source quotation', () => {
   // The contract says character offsets; flooring 2.7 into 2 would validate a
   // range the model never stated.
   for (const broken of [{ start: 2.7 }, { start: -1 }, { end: '5' }]) {
@@ -356,9 +356,9 @@ test('a non-integer or negative offset is refused rather than repaired', () => {
       passageId: ids.passage, anchorId: 'p1.s1', text: SENTENCE,
       sourceRevision: 1, segmentationRevision: 1, backend: 'stub', model: 'm',
     })
-    assert.equal(parsed.ok, false, `offset ${JSON.stringify(broken)} is not repaired into a legal value`)
-    assert.equal(parsed.reason, 'analysis-invalid')
-    assert.match(parsed.detail, /字符下标/u)
+    assert.equal(parsed.ok, true)
+    const item = parsed.analysis.constituents[1]
+    assert.equal(SENTENCE.slice(item.start, item.end), item.text)
   }
 })
 
@@ -740,7 +740,7 @@ test('a paragraph run asks only for what is missing, and says what it spent', as
   assert.match(again.note, /没有缺解析/u)
 })
 
-test('a paragraph run names the sentence it could not store, and keeps the rest', async () => {
+test('a paragraph run saves unresolved results without counting them as complete', async () => {
   const twoSentences = 'Il faut cultiver notre jardin. Le nôtre, dit-il.'
   // The reply's ranges fit the first sentence only, so the second is refused by
   // the gate's coverage check.
@@ -767,12 +767,15 @@ test('a paragraph run names the sentence it could not store, and keeps the rest'
   }, signal())
   assert.equal(run.ok, true)
   assert.equal(run.asked, 2)
-  assert.equal(run.stored, 1, 'the sentence the reply fits is stored')
-  assert.equal(run.failed.length, 1)
-  assert.equal(run.failed[0].anchorId, 'p1.s2', 'the failing sentence is named')
-  assert.equal(run.failed[0].reason, 'analysis-rejected')
+  assert.equal(run.stored, 2, 'valid translation survives unresolved source spans')
+  assert.equal(run.failed.length, 0)
   assert.equal(run.covered, 1)
-  assert.equal(run.missing, 1)
+  assert.equal(run.failedCount, 1, 'partial analysis is not counted as complete')
+  assert.equal(run.missing, 0)
+  const partial = opened.controller.readSentenceAnalysis(ids.passage, 'p1.s2', signal())
+  assert.equal(partial.analysis.reception.state, 'partial')
+  assert.equal(partial.analysis.constituents.length, 0)
+  assert.ok(partial.hints.some(hint => hint.startsWith('部分解析')))
 })
 
 test('a paragraph run stops on a busy backend and counts only attempted sentences', async () => {
@@ -827,4 +830,79 @@ test('a paragraph id that is not a paragraph says so', async () => {
   assert.equal(wrong.ok, false)
   assert.equal(wrong.reason, 'anchor-not-a-paragraph')
   assert.equal(backend.calls.length, 0)
+})
+
+test('cache identity reaches the Remote view and survives reopening storage', async () => {
+  const backend = stubBackend(goodReply())
+  const { controller, backing } = await withPassage(backend)
+  const request = { passageId: ids.passage, anchorId: 'p1.s1', backend: 'stub', model: 'stub-model', reasoningEffort: null, operationId: uuid() }
+  assert.equal((await controller.analyseSentence(request, signal())).ok, true)
+  const preview = await controller.previewAnalysisContextRemote({ passageId: ids.passage, anchorId: 'p1.s1' }, signal())
+  const expected = JSON.stringify(['stub', 'stub-model', null, preview.fingerprint])
+  assert.equal(controller.readSentenceAnalysisRemote({ passageId: request.passageId, anchorId: request.anchorId }, signal()).analysis.cacheIdentity, expected)
+  const reopened = await openController(backing, FRENCH_READER_DOMAIN, { backends: [backend] })
+  assert.equal(reopened.controller.readSentenceAnalysisRemote({ passageId: request.passageId, anchorId: request.anchorId }, signal()).analysis.cacheIdentity, expected)
+  await reopened.domain.close()
+})
+
+test('an older concurrent attempt cannot replace the newer sentence analysis', async () => {
+  const pending = []
+  const backend = stubBackend(goodReply())
+  backend.generate = async () => new Promise((resolve) => pending.push(resolve))
+  const { controller } = await withPassage(backend)
+  const request = { passageId: ids.passage, anchorId: 'p1.s1', backend: 'stub', model: 'stub-model', reasoningEffort: null }
+  const old = controller.analyseSentence({ ...request, operationId: uuid() }, signal())
+  while (pending.length < 1) await new Promise((resolve) => setImmediate(resolve))
+  const recent = controller.analyseSentence({ ...request, operationId: uuid() }, signal())
+  while (pending.length < 2) await new Promise((resolve) => setImmediate(resolve))
+  pending[1]({ text: goodReply({ translation: '新结果。' }), finish: 'stop', resolvedModel: 'stub-model' })
+  assert.equal((await recent).ok, true)
+  pending[0]({ text: goodReply({ translation: '旧结果。' }), finish: 'stop', resolvedModel: 'stub-model' })
+  assert.equal((await old).ok, false)
+  assert.equal(controller.readSentenceAnalysisRemote({ passageId: request.passageId, anchorId: request.anchorId }, signal()).analysis.translation, '新结果。')
+})
+
+test('source quotations recover overflowing offsets, typography and retain exact source text', () => {
+ const text = "Ce matin, Léa est allée à la bibliothèque pour rendre un livre."
+ for (const quote of ['Léa est allée à la bibliothèque', 'Léa est allée  à la bibliothèque']) {
+  const parsed = parseAnalysisReply(JSON.stringify({translation:'今天早上，蕾娅去了图书馆还书。', clauses:[{text:quote,start:9,end:71}], constituents:[]}), {
+   passageId:ids.passage,anchorId:'p1.s1',text,sourceRevision:1,segmentationRevision:1,backend:'stub',model:'m',
+  })
+  assert.equal(parsed.ok,true)
+  assert.equal(parsed.analysis.clauses[0].text,'Léa est allée à la bibliothèque')
+  assert.equal(text.slice(parsed.analysis.clauses[0].start,parsed.analysis.clauses[0].end),parsed.analysis.clauses[0].text)
+ }
+})
+test('unlocatable or ambiguous quotations cannot become accepted source ranges', () => {
+ for (const [text,quote] of [['Il lit. Il lit.','Il lit'],['Il lit.','Elle écrit.']]) {
+  const parsed=parseAnalysisReply(JSON.stringify({translation:'他阅读。',clauses:[{text:quote,start:100,end:200}]}),{
+   passageId:ids.passage,anchorId:'p1.s1',text,sourceRevision:1,segmentationRevision:1,backend:'stub',model:'m',
+  })
+  assert.equal(parsed.ok,false)
+  assert.match(parsed.detail,/无法唯一定位/u)
+ }
+ const parsed=parseAnalysisReply(JSON.stringify({translation:'他阅读。',clauses:[{text:'Il lit',start:100,end:200}]}),{
+  passageId:ids.passage,anchorId:'p1.s1',text:'Il lit. Il lit.',sourceRevision:1,segmentationRevision:1,backend:'stub',model:'m',
+ })
+ assert.equal(parsed.ok,false)
+})
+
+test('a readable translation can be kept when optional structural detail is absent', () => {
+ const parsed=parseAnalysisReply(JSON.stringify({translation:'我们必须耕种我们的园地。'}),{
+  passageId:ids.passage,anchorId:'p1.s1',text:SENTENCE,sourceRevision:1,segmentationRevision:1,backend:'stub',model:'m',
+ })
+ assert.equal(parsed.ok,true)
+ assert.deepEqual(parsed.analysis.clauses,[])
+})
+
+test('typography correction escapes punctuation and counts UTF-16 offsets against the original', () => {
+ const text="🙂 Léa dit (encore) : l’amie arrive."
+ for(const quote of ['(encore)',"l'amie arrive."]) {
+  const parsed=parseAnalysisReply(JSON.stringify({translation:'蕾娅又说：朋友来了。',clauses:[{text:quote,start:1,end:100}]}),{
+   passageId:ids.passage,anchorId:'p1.s1',text,sourceRevision:1,segmentationRevision:1,backend:'stub',model:'m',
+  })
+  assert.equal(parsed.ok,true)
+  const span=parsed.analysis.clauses[0]
+  assert.equal(text.slice(span.start,span.end),quote.replace("'",'’'))
+ }
 })

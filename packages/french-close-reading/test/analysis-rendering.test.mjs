@@ -172,8 +172,7 @@ test('overlapping and out-of-range spans never drop or duplicate text', () => {
   assert.equal(pieces.map((piece) => piece.text).join(''), SENTENCE)
   // The outer span wins the overlap, and the out-of-range one is ignored rather
   // than rendered past the end.
-  assert.equal(pieces.length, 1)
-  assert.equal(pieces[0].role, '整句')
+  assert.deepEqual(plain(pieces.map(piece=>piece.role)), ['整句','谓语','整句'])
 })
 
 test('an inner constituent nested inside an outer one is still drawn', () => {
@@ -183,8 +182,8 @@ test('an inner constituent nested inside an outer one is still drawn', () => {
   ]
   const pieces = renderConstituents(SENTENCE, constituents)
   assert.equal(pieces.map((piece) => piece.text).join(''), SENTENCE)
-  assert.deepEqual(plain(pieces.map((piece) => piece.role)), ['状语', null])
-  assert.equal(pieces[0].text, SENTENCE.slice(0, 16), 'the outer span covers the inner one')
+  assert.deepEqual(plain(pieces.map((piece) => piece.role)), ['状语', '不定式', null])
+  assert.equal(pieces[1].text, SENTENCE.slice(8, 16), 'the nested span retains its function')
 })
 
 test('a span with a fractional or missing range is ignored, not guessed', () => {
@@ -200,9 +199,11 @@ test('a span with a fractional or missing range is ignored, not guessed', () => 
 test('a clause whose parent is absent still renders at the top level', () => {
   // The row builder is exercised through the source, because it is a render-time
   // helper: a lost parent must not make a clause disappear.
-  const builder = source.slice(source.indexOf('function clauseRows'), source.indexOf('function discussionSection'))
-  assert.match(builder, /if \(!seen\.has\(clause\.id\)\) rows\.push\(\{ clause, depth: 0 \}\)/u,
-    'an orphan clause is rendered, never dropped')
+  const builder = source.slice(source.indexOf('function backboneStructure'), source.indexOf('function markdownInline'))
+  const build = vm.runInNewContext(`${builder}\nbackboneStructure`)
+  const tree = build({text: 'Je lis.', clauses: [{id: 'orphan', role: '主句', start: 0, end: 7, parentId: 'missing'}]})
+  assert.equal(tree.length, 1, 'an orphan clause is rendered, never dropped')
+  assert.equal(tree[0].text, 'Je lis.')
 })
 
 test('ordered lists keep their source numbering across blank-line breaks (F06)', () => {
@@ -303,4 +304,18 @@ test('an announced-but-empty section still renders its slot and the conjugation 
   assert.ok(seen.text.includes('未记录'),
     'an empty announced section says it is not recorded instead of vanishing')
   assert.ok(seams.includes('§4'), 'extraForSection was offered to §4')
+})
+
+test('nested spans preserve punctuation, accented letters and emoji exactly', () => {
+ const text='🙂 Léa est allée.'
+ const pieces=renderConstituents(text,[{role:'主句',start:0,end:text.length},{role:'主语',start:3,end:6},{role:'变位动词',start:7,end:16}])
+ assert.equal(pieces.map(piece=>piece.text).join(''),text)
+ assert.deepEqual(plain(pieces.filter(piece=>['主语','变位动词'].includes(piece.role)).map(piece=>piece.text)),['Léa','est allée'])
+})
+
+
+test('unclassified verb parts inherit their functional parent while adverbs retain their colour', () => {
+ const text="n'avait jamais lu"
+ const pieces=renderConstituents(text,[{role:'变位动词',start:0,end:17},{role:'助动词',start:0,end:7},{role:'状语',start:8,end:14},{role:'过去分词',start:15,end:17}])
+ assert.deepEqual(plain(pieces.map(({text,role})=>({text,role}))),[{text:"n'avait ",role:'变位动词'},{text:'jamais',role:'状语'},{text:' lu',role:'变位动词'}])
 })

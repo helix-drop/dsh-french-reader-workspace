@@ -178,6 +178,7 @@ function takeForSelection<T extends TakeShape>(
 export async function appendSentenceAudioTake(
   table: RecordTable,
   take: StoredSentenceAudioTake,
+  beforeCommit: () => void = () => {},
 ): Promise<AppendTakeOutcome<StoredSentenceAudioTake>> {
   const sourceKey = sentenceAudioSourceKey(take.source)
   const recordKey = await sentenceAudioRecordKey(sourceKey)
@@ -188,6 +189,7 @@ export async function appendSentenceAudioTake(
     : (existing?.takes ?? []).find((entry) => entry.takeId === take.takeId)
       ?? (existing?.takes ?? []).find((entry) => entry.requestId === take.requestId)
       ?? take
+  beforeCommit()
   await table.put(recordKey, {
     kind: 'sentenceAudioTake',
     recordVersion: 1,
@@ -264,6 +266,7 @@ export function newestSentenceAudioTake(
 export async function appendInflectionAudioTake(
   table: RecordTable,
   take: StoredInflectionAudioTake,
+  beforeCommit: () => void = () => {},
 ): Promise<AppendTakeOutcome<StoredInflectionAudioTake>> {
   const sourceKey = inflectionAudioSourceKey(take.source)
   const recordKey = await inflectionAudioRecordKey(sourceKey)
@@ -274,6 +277,7 @@ export async function appendInflectionAudioTake(
     : (existing?.takes ?? []).find((entry) => entry.takeId === take.takeId)
       ?? (existing?.takes ?? []).find((entry) => entry.requestId === take.requestId)
       ?? take
+  beforeCommit()
   await table.put(recordKey, {
     kind: 'inflectionAudioTake',
     recordVersion: 1,

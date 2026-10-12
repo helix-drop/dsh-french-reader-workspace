@@ -126,6 +126,8 @@ export async function finishGenerationJob(table, job, patch) {
         partialText: patch.partialText === undefined ? job.partialText : truncatePartial(patch.partialText),
         updatedAt: now,
         finishedAt: now,
+        ...(patch.effectiveMaxTokens === undefined ? {} : { effectiveMaxTokens: patch.effectiveMaxTokens }),
+        ...(patch.effectiveReasoningEffort === undefined ? {} : { effectiveReasoningEffort: patch.effectiveReasoningEffort }),
     };
     await writeGenerationJob(table, next);
     return next;

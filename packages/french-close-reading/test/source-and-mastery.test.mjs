@@ -97,7 +97,7 @@ test('the measured CNRTL page is recorded as a failed fetch, never as live data'
   // the important part is that it is never recorded as live data.
   assert.equal(value.fetch.entryFound, false, 'the headword is not on that page')
   assert.equal(value.verdict.outcome, 'not-found')
-  assert.match(value.verdict.claim, /回退/u)
+  assert.match(value.verdict.claim, /未取得可用资料/u)
 })
 
 test('a real body for the requested word is recorded as supporting only that field', async () => {

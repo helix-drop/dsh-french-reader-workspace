@@ -179,6 +179,8 @@ export async function finishGenerationJob(
     modelCallMs?: number | null
     firstTextDeltaMs?: number | null
     partialText?: string
+    effectiveMaxTokens?: number | null
+    effectiveReasoningEffort?: string | null
   },
 ): Promise<StoredGenerationJob> {
   const now = new Date().toISOString()
@@ -196,6 +198,8 @@ export async function finishGenerationJob(
     partialText: patch.partialText === undefined ? job.partialText : truncatePartial(patch.partialText),
     updatedAt: now,
     finishedAt: now,
+    ...(patch.effectiveMaxTokens === undefined ? {} : { effectiveMaxTokens: patch.effectiveMaxTokens }),
+    ...(patch.effectiveReasoningEffort === undefined ? {} : { effectiveReasoningEffort: patch.effectiveReasoningEffort }),
   }
   await writeGenerationJob(table, next)
   return next

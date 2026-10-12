@@ -12,6 +12,7 @@
  * - every part of the sentence is accounted for by some constituent, or the gap is
  *   named with its text;
  * - a single constituent spanning several clauses is a summary, not an analysis;
+ *   a constituent is a clause or a major phrase, not each word;
  * - a judgement is labelled as a syntactic fact, a contextual reading, a
  *   rhetorical interpretation, or something still to be verified — so "Foucault
  *   means this" is never displayed with the same certainty as "the subject is X".
@@ -60,6 +61,11 @@ export const ConstituentSchema = z.object({
   clauseId: z.string().uuid().nullable().default(null),
   /** The part of speech, when the analysis states one. Never a function. */
   partOfSpeech: z.string().max(60).nullable().default(null),
+  /**
+   * What this span means in the sentence, in one or two Chinese sentences.
+   * Empty on analyses written before the reading was kept on the constituent.
+   */
+  gloss: z.string().max(MAX_TRANSLATION_CHARACTERS).default(''),
 }).strict()
 
 export type StoredConstituent = z.infer<typeof ConstituentSchema>
@@ -124,6 +130,14 @@ export const SentenceAnalysisSchema = z.object({
   revision: z.number().int().min(1),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
+  /** Configuration and context of an AI result; older rows remain readable. */
+  cacheIdentity: z.string().max(1000).optional(),
+  reception: z.object({
+    protocolVersion: z.number().int().min(1), state: z.enum(['complete', 'partial']),
+    issues: z.array(z.object({ kind: z.enum(['clause', 'constituent', 'explanation']), index: z.number().int().min(0), role: z.string(), text: z.string(), reason: z.string() })),
+    recoveredRanges: z.number().int().min(0), tokenRanges: z.number().int().min(0),
+    receivedClauses: z.number().int().min(0), receivedConstituents: z.number().int().min(0),
+  }).optional(),
 }).strict()
 
 export type StoredSentenceAnalysis = z.infer<typeof SentenceAnalysisSchema>
@@ -184,8 +198,12 @@ export function validateSentenceAnalysis(
   const errors: string[] = []
   const hints: string[] = []
 
+  if (analysis.reception?.state === 'partial') {
+    hints.push('部分解析已保存，尚未完成；未确认的成分不参与原文高亮。')
+    for (const issue of analysis.reception.issues) hints.push(`${issue.role || issue.kind}：${issue.text}；${issue.reason}`)
+  }
   if (analysis.translation.trim() === '') errors.push('缺少译文：每句都必须有译文，空着不算完成')
-  if (analysis.clauses.length === 0) errors.push('没有从句结构：至少要有主句')
+  if (analysis.clauses.length === 0) hints.push('尚无句子结构，当前可阅读译文')
 
   // Every range must fit the sentence it claims to describe.
   const ranged = [
@@ -213,7 +231,7 @@ export function validateSentenceAnalysis(
     .filter((item) => item.end > item.start && item.end <= sentenceText.length)
     .sort((left, right) => left.start - right.start || left.end - right.end)
   if (constituents.length === 0) {
-    errors.push('没有任何成分分析：只给一句概括不算逐句解析')
+    hints.push('尚无成分划分，当前仅显示句子结构')
   } else {
     const whole = constituents.find((item) => item.start === 0 && item.end >= sentenceText.length)
     if (whole !== undefined && analysis.clauses.length > 1) {
@@ -230,7 +248,7 @@ export function validateSentenceAnalysis(
       const text = sentenceText.slice(gap.start, gap.end)
       // Whitespace and punctuation between constituents are not unanalysed words.
       if (/[\p{L}\p{N}]/u.test(text)) {
-        errors.push(`未被分析的原文片段「${text.slice(0, 40)}」（${String(gap.start)}–${String(gap.end)}）`)
+        hints.push(`未被分析的原文片段「${text.slice(0, 40)}」（${String(gap.start)}–${String(gap.end)}）`)
       }
     }
   }
@@ -258,9 +276,12 @@ export function validateSentenceAnalysis(
     }
   }
 
-  // Certainty must be visible: an interpretation is not a fact.
-  if (analysis.explanations.length === 0) {
-    hints.push('没有解释性内容：句法事实之外，语篇与表达层面的说明也应记录')
+  // The reading lives on each constituent. A separate explanation is only a short
+  // aside. An analysis that has neither is named; one that already has either
+  // — including an older essay-style note — is left alone.
+  const hasGloss = analysis.constituents.some((item) => (item.gloss ?? '').trim() !== '')
+  if (!hasGloss && analysis.explanations.length === 0) {
+    hints.push('没有成分句意：每个成分用一两句中文说明它在本句中的意思；俗语和修辞只需另起短注')
   }
   const unlabelled = analysis.explanations.filter((item) => item.kind === 'syntax' && /作者|福柯|意图|意味着/u.test(item.text))
   if (unlabelled.length > 0) {
@@ -299,7 +320,8 @@ export function analysisCoverage(
     }
     const report = validateSentenceAnalysis(analysis, anchor.text)
     perSentence.push({ anchorId: anchor.id, errors: report.errors, hints: report.hints })
-    if (report.errors.length === 0) covered.push(anchor.id)
+    if (report.errors.length === 0 && analysis.reception?.state !== 'partial') covered.push(anchor.id)
+    else if (report.errors.length === 0) perSentence[perSentence.length - 1]!.errors.push('部分解析尚未完成')
   }
   return { covered, missing, failed: perSentence.filter((item) => item.errors.length > 0).map((item) => item.anchorId), stale, perSentence }
 }
